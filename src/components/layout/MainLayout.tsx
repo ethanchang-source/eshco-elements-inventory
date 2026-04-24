@@ -33,14 +33,27 @@ export default function MainLayout({
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <Sidebar />
-      <div style={{ marginLeft: '240px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <Header />
-        <main style={{ marginTop: '64px', padding: '24px', flex: 1, background: '#f8fafc', minHeight: 'calc(100vh - 64px)' }}>
-          {children}
-        </main>
+    <>
+      <style>{`
+        @media (max-width: 768px) {
+          .main-content { margin-left: 0 !important; margin-top: 56px !important; }
+          .desktop-header { display: none !important; }
+        }
+        @media (min-width: 769px) {
+          .main-content { margin-left: 240px !important; margin-top: 64px !important; }
+        }
+      `}</style>
+      <div style={{ display: 'flex', minHeight: '100vh' }}>
+        <Sidebar />
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <div className="desktop-header">
+            <Header />
+          </div>
+          <main className="main-content" style={{ padding: '24px', flex: 1, background: '#f8fafc', minHeight: '100vh' }}>
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </>
   )
 }
