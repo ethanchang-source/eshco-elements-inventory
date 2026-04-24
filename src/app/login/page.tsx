@@ -1,7 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  'https://yjnwzxnsvnukchzhsfvl.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlqbnd6eG5zdm51a2NoemhzZnZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NzM3MzAsImV4cCI6MjA5MjU0OTczMH0.exsNZtx8UIn08_q-h9h5xHSJiuMmN1L04bZapbnvy2s'
+)
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -13,7 +18,12 @@ export default function Login() {
     setLoading(true)
     setError('')
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: password.trim() })
+      const { data, error } = await supabase.auth.signInWithPassword({ 
+        email: email.trim(), 
+        password: password.trim() 
+      })
+      console.log('data:', data)
+      console.log('error:', error)
       if (error) {
         setError(error.message)
         setLoading(false)
@@ -21,8 +31,8 @@ export default function Login() {
         window.location.href = '/dashboard'
       }
     } catch (err) {
-      console.error(err)
-      setError('Something went wrong. Please try again.')
+      console.error('catch error:', err)
+      setError('Something went wrong.')
       setLoading(false)
     }
   }
