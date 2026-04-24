@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { FileText, Plus, Search } from 'lucide-react'
+import { FileText, Plus, Search, Download } from 'lucide-react'
+import { generateInvoicePDF } from '@/lib/generateInvoicePDF'
 
 interface Customer {
   id: string
@@ -48,7 +49,13 @@ interface Invoice {
   total_cad: number
   currency: string
   notes: string
-  customers?: { company_name: string }
+  customers?: {
+    company_name: string
+    warehouse_address: string
+    city: string
+    province: string
+    postal_code: string
+  }
 }
 
 const COMPANY_INFO = {
@@ -83,7 +90,7 @@ export default function Invoices() {
 
   async function fetchAll() {
     const [inv, cust, prod] = await Promise.all([
-      supabase.from('invoices').select('*, customers(company_name)').order('created_at', { ascending: false }),
+      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code)').order('created_at', { ascending: false }),
       supabase.from('customers').select('*').order('company_name'),
       supabase.from('products').select('*').eq('is_active', true).order('sku'),
     ])
@@ -97,7 +104,6 @@ export default function Invoices() {
     const customer = customers.find(c => c.id === customerId) || null
     setSelectedCustomer(customer)
     setForm(prev => ({ ...prev, customer_id: customerId }))
-    // 모든 SKU를 미리 나열 (qty 0으로)
     setLineItems(products.map(p => ({
       product_id: p.id,
       sku: p.sku,
@@ -112,11 +118,7 @@ export default function Invoices() {
   function updateQty(index: number, qty: number) {
     setLineItems(prev => {
       const updated = [...prev]
-      updated[index] = {
-        ...updated[index],
-        qty,
-        total: updated[index].unit_price * qty,
-      }
+      updated[index] = { ...updated[index], qty, total: updated[index].unit_price * qty }
       return updated
     })
   }
@@ -124,11 +126,7 @@ export default function Invoices() {
   function updateUnitPrice(index: number, price: number) {
     setLineItems(prev => {
       const updated = [...prev]
-      updated[index] = {
-        ...updated[index],
-        unit_price: price,
-        total: price * updated[index].qty,
-      }
+      updated[index] = { ...updated[index], unit_price: price, total: price * updated[index].qty }
       return updated
     })
   }
@@ -180,6 +178,46 @@ export default function Invoices() {
     setSelectedCustomer(null)
     setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', box_count: '', shipping: '0', tax_rate: '13', notes: '' })
     fetchAll()
+  }
+
+  async function handleDownloadPDF(invoice: Invoice) {
+    const { data: items } = await supabase
+      .from('invoice_items')
+      .select('*, products(sku, name, size_oz)')
+      .eq('invoice_id', invoice.id)
+
+    if (!items || !invoice.customers) return
+
+    const notes = invoice.notes || ''
+    const poMatch = notes.match(/PO #: (.+)/)
+    const boxMatch = notes.match(/Total number of Boxes: (.+)/)
+
+    generateInvoicePDF({
+      invoice_no: invoice.invoice_no,
+      issued_at: invoice.issued_at,
+      customer: {
+        company_name: invoice.customers.company_name,
+        warehouse_address: invoice.customers.warehouse_address,
+        city: invoice.customers.city,
+        province: invoice.customers.province,
+        postal_code: invoice.customers.postal_code,
+      },
+      items: items.map(item => ({
+        sku: item.products?.sku || '',
+        name: item.products?.name || '',
+        size: `${item.products?.size_oz} FL. OZ.`,
+        unit_price: item.unit_price_cad,
+        qty: item.qty,
+        total: item.line_total_cad,
+      })),
+      subtotal: invoice.subtotal_cad,
+      shipping: 0,
+      tax_rate: invoice.tax_rate,
+      tax_amount: invoice.tax_amount_cad,
+      total: invoice.total_cad,
+      po_number: poMatch ? poMatch[1] : '',
+      box_count: boxMatch ? boxMatch[1] : '',
+    })
   }
 
   async function updateStatus(invoiceId: string, status: string) {
@@ -243,7 +281,9 @@ export default function Invoices() {
                   </select>
                 </td>
                 <td style={{ padding: '12px 16px' }}>
-                  <button style={{ background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', cursor: 'pointer', fontWeight: '500' }}>PDF</button>
+                  <button onClick={() => handleDownloadPDF(inv)} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer', fontWeight: '500' }}>
+                    <Download size={12} /> PDF
+                  </button>
                 </td>
               </tr>
             ))}
