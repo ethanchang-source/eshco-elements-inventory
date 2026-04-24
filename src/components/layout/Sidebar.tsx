@@ -15,7 +15,6 @@ import {
   BarChart3,
   ChevronRight,
   Menu,
-  X
 } from 'lucide-react'
 
 const menuItems = [
@@ -85,15 +84,12 @@ export default function Sidebar() {
         {sidebarContent}
       </aside>
 
-      {/* 모바일 상단 헤더 */}
+      {/* 모바일 상단 헤더 - 로고만 */}
       <div className="mobile-header" style={{ display: 'none', position: 'fixed', top: 0, left: 0, right: 0, height: '56px', background: '#1e293b', zIndex: 100, alignItems: 'center', justifyContent: 'center', padding: '0 16px' }}>
         <button onClick={() => setMobileOpen(true)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '4px', position: 'absolute', left: '16px' }}>
           <Menu size={24} />
         </button>
-        <div style={{ textAlign: 'center' }}>
-          <img src='/logo.png' alt='I AM PURE' style={{ height: '28px', objectFit: 'contain', filter: 'brightness(0) invert(1)', display: 'block', margin: '0 auto' }} />
-          <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>Inventory Management System</div>
-        </div>
+        <img src='/logo.png' alt='I AM PURE' style={{ height: '32px', objectFit: 'contain', filter: 'brightness(0) invert(1)', display: 'block', margin: '0 auto' }} />
       </div>
 
       {/* 모바일 오버레이 */}
