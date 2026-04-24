@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { BarChart3, TrendingUp, DollarSign, Package, ShoppingCart } from 'lucide-react'
@@ -19,7 +19,6 @@ interface TopProduct {
 }
 
 export default function Reports() {
-  const [period, setPeriod] = useState<'monthly' | 'quarterly' | 'yearly'>('monthly')
   const [year, setYear] = useState(new Date().getFullYear())
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState({
@@ -33,9 +32,7 @@ export default function Reports() {
   const [monthlySales, setMonthlySales] = useState<MonthlySales[]>([])
   const [topProducts, setTopProducts] = useState<TopProduct[]>([])
 
-  useEffect(() => { fetchReports() }, [year])
-
-  async function fetchReports() {
+  const fetchReports = useCallback(async () => {
     setLoading(true)
     const startDate = `${year}-01-01`
     const endDate = `${year}-12-31`
@@ -50,7 +47,7 @@ export default function Reports() {
       const totalRevenue = invoices.reduce((sum, inv) => sum + (inv.subtotal_cad || 0), 0)
       const paidRevenue = invoices.filter(inv => inv.status === 'paid').reduce((sum, inv) => sum + (inv.subtotal_cad || 0), 0)
       const unpaidRevenue = invoices.filter(inv => inv.status !== 'paid').reduce((sum, inv) => sum + (inv.subtotal_cad || 0), 0)
-      const totalUnits = invoices.flatMap(inv => inv.invoice_items || []).reduce((sum, item) => sum + (item.qty || 0), 0)
+      const totalUnits = invoices.flatMap(inv => inv.invoice_items || []).reduce((sum: number, item: {qty?: number}) => sum + (item.qty || 0), 0)
 
       setStats({
         total_revenue: totalRevenue,
@@ -61,7 +58,6 @@ export default function Reports() {
         unpaid_revenue: unpaidRevenue,
       })
 
-      // Monthly breakdown
       const monthlyMap: { [key: string]: MonthlySales } = {}
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
       monthNames.forEach((m, i) => {
@@ -76,18 +72,12 @@ export default function Reports() {
       })
       setMonthlySales(Object.values(monthlyMap))
 
-      // Top products
       const productMap: { [key: string]: TopProduct } = {}
-      invoices.flatMap(inv => inv.invoice_items || []).forEach((item: any) => {
+      invoices.flatMap(inv => inv.invoice_items || []).forEach((item: {product_id?: string, qty?: number, line_total_cad?: number, products?: {sku?: string, name?: string}}) => {
         if (!item.product_id) return
         const key = item.product_id
         if (!productMap[key]) {
-          productMap[key] = {
-            sku: item.products?.sku || '',
-            name: item.products?.name || '',
-            total_qty: 0,
-            total_revenue: 0,
-          }
+          productMap[key] = { sku: item.products?.sku || '', name: item.products?.name || '', total_qty: 0, total_revenue: 0 }
         }
         productMap[key].total_qty += item.qty || 0
         productMap[key].total_revenue += item.line_total_cad || 0
@@ -95,7 +85,9 @@ export default function Reports() {
       setTopProducts(Object.values(productMap).sort((a, b) => b.total_revenue - a.total_revenue).slice(0, 10))
     }
     setLoading(false)
-  }
+  }, [year])
+
+  useEffect(() => { fetchReports() }, [fetchReports])
 
   const maxRevenue = Math.max(...monthlySales.map(m => m.revenue), 1)
 
@@ -111,7 +103,6 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* Stat Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
         {[
           { label: 'Total Revenue', value: `$${stats.total_revenue.toFixed(2)}`, sub: 'CAD (excl. tax)', icon: DollarSign, color: '#2563eb', bg: '#eff6ff' },
@@ -137,7 +128,6 @@ export default function Reports() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
-        {/* Monthly Revenue Chart */}
         <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0' }}>
           <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Monthly Revenue {year}</h3>
           {loading ? (
@@ -149,13 +139,7 @@ export default function Reports() {
                   <div style={{ fontSize: '9px', color: '#64748b', fontWeight: '500' }}>
                     {m.revenue > 0 ? `$${(m.revenue / 1000).toFixed(1)}k` : ''}
                   </div>
-                  <div style={{
-                    width: '100%',
-                    height: `${Math.max((m.revenue / maxRevenue) * 120, m.revenue > 0 ? 4 : 0)}px`,
-                    background: m.revenue > 0 ? '#2563eb' : '#e2e8f0',
-                    borderRadius: '4px 4px 0 0',
-                    minHeight: '2px',
-                  }} />
+                  <div style={{ width: '100%', height: `${Math.max((m.revenue / maxRevenue) * 120, m.revenue > 0 ? 4 : 0)}px`, background: m.revenue > 0 ? '#2563eb' : '#e2e8f0', borderRadius: '4px 4px 0 0', minHeight: '2px' }} />
                   <div style={{ fontSize: '9px', color: '#94a3b8' }}>{m.month}</div>
                 </div>
               ))}
@@ -163,7 +147,6 @@ export default function Reports() {
           )}
         </div>
 
-        {/* Top Products */}
         <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0' }}>
           <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Top Products by Revenue</h3>
           {loading ? (
@@ -189,7 +172,6 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* Monthly Detail Table */}
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
           <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b' }}>Monthly Breakdown {year}</h3>
