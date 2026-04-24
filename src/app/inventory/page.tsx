@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { FlaskConical, Plus, Search, Package } from 'lucide-react'
+import { FlaskConical, Plus, Search, Package, Upload, Download } from 'lucide-react'
+import { parseCSV, downloadCSVTemplate } from '@/lib/csvImport'
 
 interface RawMaterial {
   id: string
@@ -45,6 +46,8 @@ export default function Inventory() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState('')
   const [rawForm, setRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '' })
   const [packForm, setPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '' })
 
@@ -64,9 +67,7 @@ export default function Inventory() {
 
   async function handleRawSubmit() {
     await supabase.from('raw_materials').insert([{
-      item_no: rawForm.item_no,
-      name: rawForm.name,
-      unit: rawForm.unit,
+      item_no: rawForm.item_no, name: rawForm.name, unit: rawForm.unit,
       cost_per_unit_cad: parseFloat(rawForm.cost_per_unit_cad),
       current_stock: parseFloat(rawForm.current_stock),
       reorder_threshold: parseFloat(rawForm.reorder_threshold),
@@ -78,17 +79,61 @@ export default function Inventory() {
 
   async function handlePackSubmit() {
     await supabase.from('packaging').insert([{
-      item_no: packForm.item_no,
-      name: packForm.name,
-      type: packForm.type,
-      size_oz: parseFloat(packForm.size_oz),
-      cost_cad: parseFloat(packForm.cost_cad),
+      item_no: packForm.item_no, name: packForm.name, type: packForm.type,
+      size_oz: parseFloat(packForm.size_oz), cost_cad: parseFloat(packForm.cost_cad),
       current_stock: parseInt(packForm.current_stock),
       reorder_threshold: parseInt(packForm.reorder_threshold),
     }])
     setShowModal(false)
     setPackForm({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '' })
     fetchAll()
+  }
+
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true)
+    setImportResult('')
+    try {
+      const text = await file.text()
+      const rows = parseCSV(text)
+      let success = 0, failed = 0
+      for (const row of rows) {
+        if (!row.item_no || !row.name) { failed++; continue }
+        if (tab === 'raw') {
+          const { error } = await supabase.from('raw_materials').upsert([{
+            item_no: row.item_no, name: row.name, unit: row.unit || 'ml',
+            cost_per_unit_cad: parseFloat(row.cost_per_unit_cad) || 0,
+            current_stock: parseFloat(row.current_stock) || 0,
+            reorder_threshold: parseFloat(row.reorder_threshold) || 0,
+          }], { onConflict: 'item_no' })
+          if (error) failed++; else success++
+        } else if (tab === 'packaging') {
+          const { error } = await supabase.from('packaging').upsert([{
+            item_no: row.item_no, name: row.name, type: row.type || 'bottle',
+            size_oz: parseFloat(row.size_oz) || 0,
+            cost_cad: parseFloat(row.cost_cad) || 0,
+            current_stock: parseInt(row.current_stock) || 0,
+            reorder_threshold: parseInt(row.reorder_threshold) || 0,
+          }], { onConflict: 'item_no' })
+          if (error) failed++; else success++
+        }
+      }
+      setImportResult(`✅ ${success} items imported. ${failed > 0 ? `❌ ${failed} failed.` : ''}`)
+      fetchAll()
+    } catch {
+      setImportResult('❌ Error reading file.')
+    }
+    setImporting(false)
+    e.target.value = ''
+  }
+
+  function handleDownloadTemplate() {
+    if (tab === 'raw') {
+      downloadCSVTemplate(['item_no', 'name', 'unit', 'cost_per_unit_cad', 'current_stock', 'reorder_threshold'], 'raw_materials_template.csv')
+    } else if (tab === 'packaging') {
+      downloadCSVTemplate(['item_no', 'name', 'type', 'size_oz', 'cost_cad', 'current_stock', 'reorder_threshold'], 'packaging_template.csv')
+    }
   }
 
   const filteredRaw = rawMaterials.filter(r => r.name?.toLowerCase().includes(search.toLowerCase()) || r.item_no?.toLowerCase().includes(search.toLowerCase()))
@@ -103,26 +148,41 @@ export default function Inventory() {
 
   return (
     <MainLayout>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ display: 'flex', gap: '0' }}>
           {tabs.map((t, i) => (
-            <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', background: tab === t.key ? '#2563eb' : '#fff', color: tab === t.key ? '#fff' : '#64748b', cursor: 'pointer', fontSize: '14px', fontWeight: '500', borderRadius: i === 0 ? '8px 0 0 8px' : i === tabs.length - 1 ? '0 8px 8px 0' : '0', borderLeft: i > 0 ? 'none' : '1px solid #e2e8f0' }}>
+            <button key={t.key} onClick={() => { setTab(t.key); setImportResult('') }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', background: tab === t.key ? '#2563eb' : '#fff', color: tab === t.key ? '#fff' : '#64748b', cursor: 'pointer', fontSize: '14px', fontWeight: '500', borderRadius: i === 0 ? '8px 0 0 8px' : i === tabs.length - 1 ? '0 8px 8px 0' : '0', borderLeft: i > 0 ? 'none' : '1px solid #e2e8f0' }}>
               {t.label}
             </button>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px' }}>
             <Search size={16} color='#94a3b8' />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '200px' }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '160px' }} />
           </div>
           {tab !== 'finished' && (
-            <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
-              <Plus size={16} /> Add Item
-            </button>
+            <>
+              <button onClick={handleDownloadTemplate} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer' }}>
+                <Download size={14} /> Template
+              </button>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}>
+                <Upload size={14} /> {importing ? 'Importing...' : 'Import CSV'}
+                <input type='file' accept='.csv' onChange={handleImport} style={{ display: 'none' }} />
+              </label>
+              <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
+                <Plus size={14} /> Add
+              </button>
+            </>
           )}
         </div>
       </div>
+
+      {importResult && (
+        <div style={{ background: importResult.includes('✅') ? '#f0fdf4' : '#fef2f2', border: `1px solid ${importResult.includes('✅') ? '#bbf7d0' : '#fecaca'}`, borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: importResult.includes('✅') ? '#16a34a' : '#dc2626' }}>
+          {importResult}
+        </div>
+      )}
 
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -220,9 +280,9 @@ export default function Inventory() {
                 {[
                   { label: 'Item #', key: 'item_no', placeholder: 'EE-R001' },
                   { label: 'Name', key: 'name', placeholder: 'Black Castor Oil - Organic' },
-                  { label: 'Cost per ml (CAD)', key: 'cost_per_unit_cad', placeholder: '0.0140' },
-                  { label: 'Current Stock (ml)', key: 'current_stock', placeholder: '200000' },
-                  { label: 'Reorder Threshold (ml)', key: 'reorder_threshold', placeholder: '10000' },
+                  { label: 'Cost per unit (CAD)', key: 'cost_per_unit_cad', placeholder: '0.0140' },
+                  { label: 'Current Stock', key: 'current_stock', placeholder: '200000' },
+                  { label: 'Reorder Threshold', key: 'reorder_threshold', placeholder: '10000' },
                 ].map(field => (
                   <div key={field.key} style={{ marginBottom: '16px' }}>
                     <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>{field.label}</label>

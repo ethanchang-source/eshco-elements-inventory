@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { Users, Plus, Search, MapPin, Phone, Mail } from 'lucide-react'
+import { Users, Plus, Search, MapPin, Phone, Mail, Upload, Download } from 'lucide-react'
+import { parseCSV, downloadCSVTemplate } from '@/lib/csvImport'
 
 interface Customer {
   id: string
@@ -25,6 +26,8 @@ export default function Customers() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState('')
   const [form, setForm] = useState({
     company_name: '', warehouse_address: '', city: '', province: '',
     postal_code: '', contact_name: '', contact_email: '', contact_phone: '',
@@ -46,6 +49,48 @@ export default function Customers() {
     fetchCustomers()
   }
 
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true)
+    setImportResult('')
+    try {
+      const text = await file.text()
+      const rows = parseCSV(text)
+      let success = 0, failed = 0
+      for (const row of rows) {
+        if (!row.company_name) { failed++; continue }
+        const { error } = await supabase.from('customers').insert([{
+          company_name: row.company_name,
+          warehouse_address: row.warehouse_address || '',
+          city: row.city || '',
+          province: row.province || '',
+          postal_code: row.postal_code || '',
+          contact_name: row.contact_name || '',
+          contact_email: row.contact_email || '',
+          contact_phone: row.contact_phone || '',
+          payment_terms: row.payment_terms || 'Net30',
+          currency: row.currency || 'CAD',
+          notes: row.notes || '',
+        }])
+        if (error) failed++; else success++
+      }
+      setImportResult(`✅ ${success} customers imported. ${failed > 0 ? `❌ ${failed} failed.` : ''}`)
+      fetchCustomers()
+    } catch {
+      setImportResult('❌ Error reading file.')
+    }
+    setImporting(false)
+    e.target.value = ''
+  }
+
+  function handleDownloadTemplate() {
+    downloadCSVTemplate(
+      ['company_name', 'warehouse_address', 'city', 'province', 'postal_code', 'contact_name', 'contact_email', 'contact_phone', 'payment_terms', 'currency', 'notes'],
+      'customers_template.csv'
+    )
+  }
+
   const filtered = customers.filter(c =>
     c.company_name?.toLowerCase().includes(search.toLowerCase()) ||
     c.city?.toLowerCase().includes(search.toLowerCase())
@@ -53,15 +98,30 @@ export default function Customers() {
 
   return (
     <MainLayout>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', width: '300px' }}>
           <Search size={16} color='#94a3b8' />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search customers...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
         </div>
-        <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
-          <Plus size={16} /> Add Customer
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={handleDownloadTemplate} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
+            <Download size={14} /> Template
+          </button>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}>
+            <Upload size={14} /> {importing ? 'Importing...' : 'Import CSV'}
+            <input type='file' accept='.csv' onChange={handleImport} style={{ display: 'none' }} />
+          </label>
+          <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
+            <Plus size={14} /> Add Customer
+          </button>
+        </div>
       </div>
+
+      {importResult && (
+        <div style={{ background: importResult.includes('✅') ? '#f0fdf4' : '#fef2f2', border: `1px solid ${importResult.includes('✅') ? '#bbf7d0' : '#fecaca'}`, borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: importResult.includes('✅') ? '#16a34a' : '#dc2626' }}>
+          {importResult}
+        </div>
+      )}
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: '48px', color: '#94a3b8' }}>Loading...</div>
@@ -90,24 +150,18 @@ export default function Customers() {
                     <span>{[c.warehouse_address, c.city, c.province, c.postal_code].filter(Boolean).join(', ')}</span>
                   </div>
                 )}
-                {c.contact_name && (
-                  <div style={{ fontSize: '13px', color: '#64748b' }}>👤 {c.contact_name}</div>
-                )}
+                {c.contact_name && <div style={{ fontSize: '13px', color: '#64748b' }}>👤 {c.contact_name}</div>}
                 {c.contact_email && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#64748b' }}>
-                    <Mail size={14} />
-                    <span>{c.contact_email}</span>
+                    <Mail size={14} /><span>{c.contact_email}</span>
                   </div>
                 )}
                 {c.contact_phone && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#64748b' }}>
-                    <Phone size={14} />
-                    <span>{c.contact_phone}</span>
+                    <Phone size={14} /><span>{c.contact_phone}</span>
                   </div>
                 )}
-                {c.notes && (
-                  <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px', fontStyle: 'italic' }}>{c.notes}</div>
-                )}
+                {c.notes && <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px', fontStyle: 'italic' }}>{c.notes}</div>}
               </div>
             </div>
           ))}

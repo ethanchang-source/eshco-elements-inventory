@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { Package, Plus, Search } from 'lucide-react'
+import { Package, Plus, Search, Upload, Download } from 'lucide-react'
+import { parseCSV, downloadCSVTemplate } from '@/lib/csvImport'
 
 interface Product {
   id: string
@@ -24,11 +25,11 @@ export default function Products() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState('')
   const [form, setForm] = useState({ sku: '', name: '', size_oz: '', barcode_upc: '', unit_cost_cad: '', msrp_cad: '', price_whs_cad: '', reorder_threshold: '' })
 
-  useEffect(() => {
-    fetchProducts()
-  }, [])
+  useEffect(() => { fetchProducts() }, [])
 
   async function fetchProducts() {
     const { data } = await supabase.from('products').select('*').order('sku')
@@ -52,6 +53,50 @@ export default function Products() {
     fetchProducts()
   }
 
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true)
+    setImportResult('')
+    try {
+      const text = await file.text()
+      const rows = parseCSV(text)
+      let success = 0
+      let failed = 0
+      for (const row of rows) {
+        if (!row.sku || !row.name) { failed++; continue }
+        const { error } = await supabase.from('products').upsert([{
+          sku: row.sku,
+          name: row.name,
+          size_oz: parseFloat(row.size_oz) || 0,
+          barcode_upc: row.barcode_upc || '',
+          barcode_itf14: row.barcode_itf14 || '',
+          unit_cost_cad: parseFloat(row.unit_cost_cad) || 0,
+          msrp_cad: parseFloat(row.msrp_cad) || 0,
+          price_whs_cad: parseFloat(row.price_whs_cad) || 0,
+          price_dist_cad: parseFloat(row.price_dist_cad) || 0,
+          current_stock: parseInt(row.current_stock) || 0,
+          reorder_threshold: parseInt(row.reorder_threshold) || 0,
+          is_active: row.is_active !== 'false',
+        }], { onConflict: 'sku' })
+        if (error) failed++; else success++
+      }
+      setImportResult(`✅ ${success} products imported successfully. ${failed > 0 ? `❌ ${failed} failed.` : ''}`)
+      fetchProducts()
+    } catch {
+      setImportResult('❌ Error reading file. Please check the format.')
+    }
+    setImporting(false)
+    e.target.value = ''
+  }
+
+  function handleDownloadTemplate() {
+    downloadCSVTemplate(
+      ['sku', 'name', 'size_oz', 'barcode_upc', 'barcode_itf14', 'unit_cost_cad', 'msrp_cad', 'price_whs_cad', 'price_dist_cad', 'current_stock', 'reorder_threshold', 'is_active'],
+      'products_template.csv'
+    )
+  }
+
   const filtered = products.filter(p =>
     p.name?.toLowerCase().includes(search.toLowerCase()) ||
     p.sku?.toLowerCase().includes(search.toLowerCase())
@@ -59,15 +104,30 @@ export default function Products() {
 
   return (
     <MainLayout>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', width: '300px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', width: '300px' }}>
           <Search size={16} color='#94a3b8' />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search products...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
         </div>
-        <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
-          <Plus size={16} /> Add Product
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={handleDownloadTemplate} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
+            <Download size={14} /> CSV Template
+          </button>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}>
+            <Upload size={14} /> {importing ? 'Importing...' : 'Import CSV'}
+            <input type='file' accept='.csv' onChange={handleImport} style={{ display: 'none' }} />
+          </label>
+          <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
+            <Plus size={14} /> Add Product
+          </button>
+        </div>
       </div>
+
+      {importResult && (
+        <div style={{ background: importResult.includes('✅') ? '#f0fdf4' : '#fef2f2', border: `1px solid ${importResult.includes('✅') ? '#bbf7d0' : '#fecaca'}`, borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: importResult.includes('✅') ? '#16a34a' : '#dc2626' }}>
+          {importResult}
+        </div>
+      )}
 
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -85,7 +145,7 @@ export default function Products() {
               <tr>
                 <td colSpan={9} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
                   <Package size={32} color='#e2e8f0' style={{ display: 'block', margin: '0 auto 8px' }} />
-                  No products yet
+                  No products yet. Add one or import CSV.
                 </td>
               </tr>
             ) : filtered.map(p => (
@@ -127,12 +187,7 @@ export default function Products() {
             ].map(field => (
               <div key={field.key} style={{ marginBottom: '16px' }}>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>{field.label}</label>
-                <input
-                  value={form[field.key as keyof typeof form]}
-                  onChange={e => setForm({ ...form, [field.key]: e.target.value })}
-                  placeholder={field.placeholder}
-                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}
-                />
+                <input value={form[field.key as keyof typeof form]} onChange={e => setForm({ ...form, [field.key]: e.target.value })} placeholder={field.placeholder} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
               </div>
             ))}
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '8px' }}>
