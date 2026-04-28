@@ -55,16 +55,8 @@ interface Invoice {
     city: string
     province: string
     postal_code: string
+    payment_terms: string
   }
-}
-
-const COMPANY_INFO = {
-  name: 'ESHC Inc.',
-  address: '328 North Rivermede Road, Unit 9',
-  city: 'Concord, ON L4K 3N5',
-  phone: '(647) 400-7180',
-  email: 'sales@iampurebeauty.com',
-  hst: '752458133RT0001',
 }
 
 export default function Invoices() {
@@ -80,7 +72,6 @@ export default function Invoices() {
     customer_id: '',
     issued_at: new Date().toISOString().split('T')[0],
     po_number: '',
-    box_count: '',
     shipping: '0',
     tax_rate: '13',
     notes: '',
@@ -90,7 +81,7 @@ export default function Invoices() {
 
   async function fetchAll() {
     const [inv, cust, prod] = await Promise.all([
-      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code)').order('created_at', { ascending: false }),
+      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').order('created_at', { ascending: false }),
       supabase.from('customers').select('*').order('company_name'),
       supabase.from('products').select('*').eq('is_active', true).order('sku'),
     ])
@@ -137,6 +128,7 @@ export default function Invoices() {
   const taxBase = subtotal + shipping
   const taxAmount = taxBase * (parseFloat(form.tax_rate) / 100)
   const total = taxBase + taxAmount
+  const totalBoxes = Math.ceil(activeItems.reduce((sum, item) => sum + item.qty, 0) / 36)
 
   async function handleSubmit() {
     if (!form.customer_id || activeItems.length === 0) {
@@ -144,8 +136,8 @@ export default function Invoices() {
       return
     }
     const notes = [
-      form.box_count ? `Total number of Boxes: ${form.box_count}` : '',
       form.po_number ? `PO #: ${form.po_number}` : '',
+      form.notes ? form.notes : '',
     ].filter(Boolean).join('\n')
 
     const { data: invoice } = await supabase.from('invoices').insert([{
@@ -176,7 +168,7 @@ export default function Invoices() {
     setShowModal(false)
     setLineItems([])
     setSelectedCustomer(null)
-    setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', box_count: '', shipping: '0', tax_rate: '13', notes: '' })
+    setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '13', notes: '' })
     fetchAll()
   }
 
@@ -190,11 +182,12 @@ export default function Invoices() {
 
     const notes = invoice.notes || ''
     const poMatch = notes.match(/PO #: (.+)/)
-    const boxMatch = notes.match(/Total number of Boxes: (.+)/)
 
     generateInvoicePDF({
       invoice_no: invoice.invoice_no,
       issued_at: invoice.issued_at,
+      po_number: poMatch ? poMatch[1] : '',
+      payment_terms: invoice.customers.payment_terms || '',
       customer: {
         company_name: invoice.customers.company_name,
         warehouse_address: invoice.customers.warehouse_address,
@@ -215,8 +208,6 @@ export default function Invoices() {
       tax_rate: invoice.tax_rate,
       tax_amount: invoice.tax_amount_cad,
       total: invoice.total_cad,
-      po_number: poMatch ? poMatch[1] : '',
-      box_count: boxMatch ? boxMatch[1] : '',
     })
   }
 
@@ -296,7 +287,7 @@ export default function Invoices() {
           <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '780px', maxHeight: '92vh', overflowY: 'auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>New Invoice</h2>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Bill To / Ship To *</label>
                 <select value={form.customer_id} onChange={e => handleCustomerChange(e.target.value)} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}>
@@ -314,11 +305,14 @@ export default function Invoices() {
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>PO #</label>
                 <input value={form.po_number} onChange={e => setForm({ ...form, po_number: e.target.value })} placeholder='PUR0000004461' style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
               </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Total Boxes</label>
-                <input value={form.box_count} onChange={e => setForm({ ...form, box_count: e.target.value })} placeholder='13' style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
-              </div>
             </div>
+
+            {selectedCustomer && (
+              <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '13px', color: '#64748b' }}>
+                Terms: <strong style={{ color: '#1e293b' }}>{selectedCustomer.payment_terms}</strong>
+                {activeItems.length > 0 && <span style={{ marginLeft: '16px' }}>Total Boxes: <strong style={{ color: '#1e293b' }}>{totalBoxes}</strong> (÷36)</span>}
+              </div>
+            )}
 
             {selectedCustomer && lineItems.length > 0 && (
               <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', marginBottom: '16px' }}>
