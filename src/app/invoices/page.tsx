@@ -64,6 +64,8 @@ export default function Invoices() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [paymentInfo, setPaymentInfo] = useState({ invoiceId: '', date: new Date().toISOString().split('T')[0] })
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [editInvoice, setEditInvoice] = useState<Invoice | null>(null)
