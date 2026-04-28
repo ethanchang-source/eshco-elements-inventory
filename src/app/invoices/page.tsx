@@ -334,7 +334,7 @@ export default function Invoices() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {['Invoice #', 'Customer', 'Date', 'Delivery Date', 'Payment Date', 'Subtotal', 'HST', 'Total', 'Status', ''].map(h => (
+              {['Invoice #', 'Customer', 'Date', 'Subtotal', 'HST', 'Total', 'Status', 'Delivery Date', 'Payment Date', ''].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
@@ -358,8 +358,6 @@ export default function Invoices() {
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{inv.customers?.company_name}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{new Date(inv.issued_at).toLocaleDateString('en-CA')}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#2563eb' }}>{inv.delivery_date ? new Date(inv.delivery_date).toLocaleDateString('en-CA') : <button onClick={() => { setDeliveryInfo({ invoiceId: inv.id, date: new Date().toISOString().split('T')[0] }); setShowDeliveryModal(true) }} style={{ background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer' }}>+ Add</button>}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#16a34a' }}>{inv.payment_date ? new Date(inv.payment_date).toLocaleDateString('en-CA') : '-'}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${inv.subtotal_cad?.toFixed(2)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>${inv.tax_amount_cad?.toFixed(2)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${inv.total_cad?.toFixed(2)} CAD</td>
@@ -370,6 +368,8 @@ export default function Invoices() {
                     <option value='paid'>Paid</option>
                   </select>
                 </td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#2563eb' }}>{inv.delivery_date ? new Date(inv.delivery_date).toLocaleDateString('en-CA') : <button onClick={() => { setDeliveryInfo({ invoiceId: inv.id, date: new Date().toISOString().split('T')[0] }); setShowDeliveryModal(true) }} style={{ background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer' }}>+ Add</button>}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#16a34a' }}>{inv.payment_date ? new Date(inv.payment_date).toLocaleDateString('en-CA') : '-'}</td>
                 <td style={{ padding: '12px 16px' }}>
                   <div style={{ display: 'flex', gap: '6px' }}>
                     <button onClick={() => handleDownloadPDF(inv)} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer', fontWeight: '500' }}>
