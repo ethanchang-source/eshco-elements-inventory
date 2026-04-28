@@ -274,6 +274,7 @@ export default function Invoices() {
       tax_rate: invoice.tax_rate,
       tax_amount: invoice.tax_amount_cad,
       total: invoice.total_cad,
+      notes: invoice.notes || '',
     })
   }
 

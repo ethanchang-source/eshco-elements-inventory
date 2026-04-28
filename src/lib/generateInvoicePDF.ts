@@ -5,6 +5,8 @@ import { logoBase64 } from './logoBase64'
 interface InvoiceData {
   invoice_no: string
   issued_at: string
+  po_number?: string
+  payment_terms?: string
   customer: {
     company_name: string
     warehouse_address: string
@@ -25,8 +27,6 @@ interface InvoiceData {
   tax_rate: number
   tax_amount: number
   total: number
-  po_number?: string
-  box_count?: string
   notes?: string
 }
 
@@ -54,7 +54,7 @@ export function generateInvoicePDF(data: InvoiceData) {
   doc.text(`Phone: ${COMPANY.phone}`, 14, 32)
   doc.text(`Email: ${COMPANY.email}`, 14, 37)
 
-  // 로고 (가운데) - 실제 비율 2186:1460 적용
+  // 로고 (가운데)
   try {
     const logoHeight = 15
     const logoWidth = logoHeight * (2186 / 1460)
@@ -67,18 +67,24 @@ export function generateInvoicePDF(data: InvoiceData) {
   doc.text('INVOICE', pageWidth - 14, 16, { align: 'right' })
   doc.setFontSize(8.5)
   doc.setFont('helvetica', 'normal')
-  doc.text(`DATE: ${new Date(data.issued_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase()}`, pageWidth - 14, 26, { align: 'right' })
-  doc.text(`INVOICE #: ${data.invoice_no}`, pageWidth - 14, 32, { align: 'right' })
+  doc.text(`DATE: ${new Date(data.issued_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase()}`, pageWidth - 14, 24, { align: 'right' })
+  if (data.po_number) {
+    doc.text(`PO #: ${data.po_number}`, pageWidth - 14, 30, { align: 'right' })
+  }
+  doc.text(`INVOICE #: ${data.invoice_no}`, pageWidth - 14, 36, { align: 'right' })
+  if (data.payment_terms) {
+    doc.text(`TERMS: ${data.payment_terms}`, pageWidth - 14, 42, { align: 'right' })
+  }
 
   // 구분선
   doc.setDrawColor(200, 200, 200)
-  doc.line(14, 44, pageWidth - 14, 44)
+  doc.line(14, 48, pageWidth - 14, 48)
 
   // BILL TO / SHIP TO
   doc.setFontSize(8.5)
   doc.setFont('helvetica', 'bold')
-  doc.text('BILL TO:', 14, 52)
-  doc.text('SHIP TO:', pageWidth / 2, 52)
+  doc.text('BILL TO:', 14, 56)
+  doc.text('SHIP TO:', pageWidth / 2, 56)
   doc.setFont('helvetica', 'normal')
   const addr = [
     data.customer.company_name,
@@ -86,25 +92,36 @@ export function generateInvoicePDF(data: InvoiceData) {
     `${data.customer.city}, ${data.customer.province} ${data.customer.postal_code}`,
   ].filter(Boolean)
   addr.forEach((line, i) => {
-    doc.text(line, 14, 58 + i * 5)
-    doc.text(line, pageWidth / 2, 58 + i * 5)
+    doc.text(line, 14, 62 + i * 5)
+    doc.text(line, pageWidth / 2, 62 + i * 5)
   })
 
   // 구분선
-  doc.line(14, 76, pageWidth - 14, 76)
+  doc.line(14, 80, pageWidth - 14, 80)
+
+  // 총 박스 수 자동 계산
+  const totalQty = data.items.reduce((sum, item) => sum + item.qty, 0)
+  const totalBoxes = Math.ceil(totalQty / 36)
 
   // 아이템 테이블
   autoTable(doc, {
-    startY: 80,
+    startY: 84,
     head: [['ITEM #', 'ITEM DESCRIPTION', 'SIZE', 'UNIT COST', 'ORDER QTY', 'TOTAL AMOUNT']],
-    body: data.items.map(item => [
-      item.sku,
-      item.name,
-      item.size,
-      `$${item.unit_price.toFixed(2)}`,
-      item.qty.toString(),
-      `$${item.total.toFixed(2)}`,
-    ]),
+    body: [
+      ...data.items.map(item => [
+        item.sku,
+        item.name,
+        item.size,
+        `$${item.unit_price.toFixed(2)}`,
+        item.qty.toString(),
+        `$${item.total.toFixed(2)}`,
+      ]),
+      [{
+        content: `Total number of Boxes: ${totalBoxes}`,
+        colSpan: 6,
+        styles: { fontStyle: 'italic' as const, textColor: [80, 80, 80] as [number, number, number], fillColor: [245, 247, 250] as [number, number, number] }
+      }]
+    ],
     styles: { fontSize: 8, cellPadding: 3 },
     headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold', fontSize: 8 },
     columnStyles: {
@@ -120,20 +137,11 @@ export function generateInvoicePDF(data: InvoiceData) {
 
   const finalY = (doc as any).lastAutoTable.finalY + 8
 
-  // Notes (좌측)
-  if (data.po_number || data.box_count) {
+  // Notes (좌측 하단)
+  if (data.notes) {
     doc.setFontSize(8)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Notes', 14, finalY)
-    doc.setFont('helvetica', 'normal')
-    let noteY = finalY + 5
-    if (data.box_count) {
-      doc.text(` - Total number of Boxes: ${data.box_count}`, 14, noteY)
-      noteY += 5
-    }
-    if (data.po_number) {
-      doc.text(` - PO #: ${data.po_number}`, 14, noteY)
-    }
+    doc.setFont('helvetica', 'italic')
+    doc.text(`Notes: ${data.notes}`, 14, finalY + 6)
   }
 
   // 합계 (우측)
