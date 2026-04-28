@@ -118,7 +118,7 @@ export default function Invoices() {
       po_number: invoice.po_number || '',
       shipping: '0',
       tax_rate: String(Math.round(invoice.tax_rate * 100)),
-      notes: '',
+      notes: invoice.notes || '',
     })
     const { data: items } = await supabase
       .from('invoice_items')
@@ -175,7 +175,6 @@ export default function Invoices() {
       return
     }
     const notes = form.notes || ''
-    const po_for_save = form.po_number || ''
 
     if (editInvoice) {
       // 수정 모드
