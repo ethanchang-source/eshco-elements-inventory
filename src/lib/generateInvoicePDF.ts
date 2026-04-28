@@ -43,40 +43,42 @@ export function generateInvoicePDF(data: InvoiceData) {
   const doc = new jsPDF()
   const pageWidth = doc.internal.pageSize.getWidth()
 
-  // 로고 (가운데 상단)
-  try {
-    doc.addImage(logoBase64, 'PNG', pageWidth / 2 - 25, 8, 50, 18)
-  } catch {}
-
   // 회사 정보 (좌측)
   doc.setFontSize(11)
   doc.setFont('helvetica', 'bold')
-  doc.text(COMPANY.name, 14, 32)
+  doc.text(COMPANY.name, 14, 16)
   doc.setFontSize(8.5)
   doc.setFont('helvetica', 'normal')
-  doc.text(COMPANY.address, 14, 37)
-  doc.text(COMPANY.city, 14, 42)
-  doc.text(`Phone: ${COMPANY.phone}`, 14, 47)
-  doc.text(`Email: ${COMPANY.email}`, 14, 52)
+  doc.text(COMPANY.address, 14, 22)
+  doc.text(COMPANY.city, 14, 27)
+  doc.text(`Phone: ${COMPANY.phone}`, 14, 32)
+  doc.text(`Email: ${COMPANY.email}`, 14, 37)
+
+  // 로고 (가운데) - 원본 비율 유지, 높이 20mm 기준
+  try {
+    const logoHeight = 20
+    const logoWidth = logoHeight * 3 // 비율에 따라 조정
+    doc.addImage(logoBase64, 'PNG', pageWidth / 2 - logoWidth / 2, 8, logoWidth, logoHeight)
+  } catch {}
 
   // INVOICE 제목 (우측)
   doc.setFontSize(20)
   doc.setFont('helvetica', 'bold')
-  doc.text('INVOICE', pageWidth - 14, 32, { align: 'right' })
+  doc.text('INVOICE', pageWidth - 14, 16, { align: 'right' })
   doc.setFontSize(8.5)
   doc.setFont('helvetica', 'normal')
-  doc.text(`DATE: ${new Date(data.issued_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase()}`, pageWidth - 14, 42, { align: 'right' })
-  doc.text(`INVOICE #: ${data.invoice_no}`, pageWidth - 14, 48, { align: 'right' })
+  doc.text(`DATE: ${new Date(data.issued_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase()}`, pageWidth - 14, 26, { align: 'right' })
+  doc.text(`INVOICE #: ${data.invoice_no}`, pageWidth - 14, 32, { align: 'right' })
 
   // 구분선
   doc.setDrawColor(200, 200, 200)
-  doc.line(14, 58, pageWidth - 14, 58)
+  doc.line(14, 44, pageWidth - 14, 44)
 
   // BILL TO / SHIP TO
   doc.setFontSize(8.5)
   doc.setFont('helvetica', 'bold')
-  doc.text('BILL TO:', 14, 66)
-  doc.text('SHIP TO:', pageWidth / 2, 66)
+  doc.text('BILL TO:', 14, 52)
+  doc.text('SHIP TO:', pageWidth / 2, 52)
   doc.setFont('helvetica', 'normal')
   const addr = [
     data.customer.company_name,
@@ -84,16 +86,16 @@ export function generateInvoicePDF(data: InvoiceData) {
     `${data.customer.city}, ${data.customer.province} ${data.customer.postal_code}`,
   ].filter(Boolean)
   addr.forEach((line, i) => {
-    doc.text(line, 14, 72 + i * 5)
-    doc.text(line, pageWidth / 2, 72 + i * 5)
+    doc.text(line, 14, 58 + i * 5)
+    doc.text(line, pageWidth / 2, 58 + i * 5)
   })
 
   // 구분선
-  doc.line(14, 90, pageWidth - 14, 90)
+  doc.line(14, 76, pageWidth - 14, 76)
 
   // 아이템 테이블
   autoTable(doc, {
-    startY: 94,
+    startY: 80,
     head: [['ITEM #', 'ITEM DESCRIPTION', 'SIZE', 'UNIT COST', 'ORDER QTY', 'TOTAL AMOUNT']],
     body: data.items.map(item => [
       item.sku,
