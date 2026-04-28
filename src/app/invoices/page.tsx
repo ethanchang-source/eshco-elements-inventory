@@ -364,6 +364,23 @@ export default function Invoices() {
         </table>
       </div>
 
+      {showPaymentModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '360px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Payment Received</h2>
+            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Select the date payment was received</p>
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Payment Date</label>
+              <input type='date' value={paymentInfo.date} onChange={e => setPaymentInfo({ ...paymentInfo, date: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+            </div>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowPaymentModal(false)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={confirmPayment} style={{ padding: '8px 20px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Confirm Payment</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
           <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '780px', maxHeight: '92vh', overflowY: 'auto' }}>
