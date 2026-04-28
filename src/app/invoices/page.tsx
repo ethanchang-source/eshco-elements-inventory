@@ -175,10 +175,7 @@ export default function Invoices() {
       alert('Please select a customer and add at least one item with quantity.')
       return
     }
-    const notes = [
-      form.po_number ? `PO #: ${form.po_number}` : '',
-      form.notes ? form.notes : '',
-    ].filter(Boolean).join('\n')
+    const notes = form.notes || ''
 
     if (editInvoice) {
       // 수정 모드
@@ -443,7 +440,7 @@ export default function Invoices() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Notes</label>
-                <input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder='Additional notes...' style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+                <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder='Additional notes...' rows={3} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} />
               </div>
               <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
