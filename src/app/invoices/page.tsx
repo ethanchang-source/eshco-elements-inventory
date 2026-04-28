@@ -112,12 +112,10 @@ export default function Invoices() {
     setEditInvoice(invoice)
     const customer = customers.find(c => c.id === invoice.customer_id) || null
     setSelectedCustomer(customer)
-    const notes = invoice.notes || ''
-    const poMatch = notes.match(/PO #: (.+)/)
     setForm({
       customer_id: invoice.customer_id,
       issued_at: invoice.issued_at,
-      po_number: poMatch ? poMatch[1].trim() : '',
+      po_number: invoice.po_number || '',
       shipping: '0',
       tax_rate: String(Math.round(invoice.tax_rate * 100)),
       notes: '',
