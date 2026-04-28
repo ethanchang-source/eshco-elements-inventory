@@ -140,8 +140,11 @@ export function generateInvoicePDF(data: InvoiceData) {
   // Notes (좌측 하단)
   if (data.notes) {
     doc.setFontSize(8)
-    doc.setFont('helvetica', 'italic')
-    doc.text(`Notes: ${data.notes}`, 14, finalY + 6)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Notes:', 14, finalY + 6)
+    doc.setFont('helvetica', 'normal')
+    const noteLines = doc.splitTextToSize(data.notes, 100)
+    doc.text(noteLines, 14, finalY + 12)
   }
 
   // 합계 (우측)

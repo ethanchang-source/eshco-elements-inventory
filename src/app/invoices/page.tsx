@@ -48,6 +48,7 @@ interface Invoice {
   total_cad: number
   currency: string
   notes: string
+  po_number: string
   customers?: {
     company_name: string
     warehouse_address: string
@@ -176,6 +177,7 @@ export default function Invoices() {
       return
     }
     const notes = form.notes || ''
+    const po_for_save = form.po_number || ''
 
     if (editInvoice) {
       // 수정 모드
@@ -187,6 +189,7 @@ export default function Invoices() {
         tax_amount_cad: taxAmount,
         total_cad: total,
         notes,
+        po_number: form.po_number || '',
       }).eq('id', editInvoice.id)
 
       await supabase.from('invoice_items').delete().eq('invoice_id', editInvoice.id)
@@ -243,13 +246,10 @@ export default function Invoices() {
 
     if (!items || !invoice.customers) return
 
-    const notes = invoice.notes || ''
-    const poMatch = notes.match(/PO #: (.+)/)
-
     generateInvoicePDF({
       invoice_no: invoice.invoice_no,
       issued_at: invoice.issued_at,
-      po_number: poMatch ? poMatch[1] : '',
+      po_number: invoice.po_number || '',
       payment_terms: invoice.customers.payment_terms || '',
       customer: {
         company_name: invoice.customers.company_name,
