@@ -41,7 +41,6 @@ interface Invoice {
   invoice_no: string
   customer_id: string
   issued_at: string
-  due_date: string
   status: string
   subtotal_cad: number
   tax_rate: number
@@ -66,6 +65,7 @@ export default function Invoices() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
+  const [editInvoice, setEditInvoice] = useState<Invoice | null>(null)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([])
   const [form, setForm] = useState({
@@ -106,6 +106,46 @@ export default function Invoices() {
     })))
   }
 
+  async function openEditModal(invoice: Invoice) {
+    if (invoice.status !== 'draft') return
+    setEditInvoice(invoice)
+    const customer = customers.find(c => c.id === invoice.customer_id) || null
+    setSelectedCustomer(customer)
+    const notes = invoice.notes || ''
+    const poMatch = notes.match(/PO #: (.+)/)
+    setForm({
+      customer_id: invoice.customer_id,
+      issued_at: invoice.issued_at,
+      po_number: poMatch ? poMatch[1].trim() : '',
+      shipping: '0',
+      tax_rate: String(Math.round(invoice.tax_rate * 100)),
+      notes: '',
+    })
+    const { data: items } = await supabase
+      .from('invoice_items')
+      .select('*, products(id, sku, name, size_oz, price_whs_cad)')
+      .eq('invoice_id', invoice.id)
+
+    const existingMap: { [key: string]: { qty: number; unit_price: number } } = {}
+    if (items) {
+      items.forEach(item => {
+        if (item.products?.id) {
+          existingMap[item.products.id] = { qty: item.qty, unit_price: item.unit_price_cad }
+        }
+      })
+    }
+    setLineItems(products.map(p => ({
+      product_id: p.id,
+      sku: p.sku,
+      name: p.name,
+      size: `${p.size_oz} FL. OZ.`,
+      unit_price: existingMap[p.id]?.unit_price ?? p.price_whs_cad ?? 0,
+      qty: existingMap[p.id]?.qty ?? 0,
+      total: (existingMap[p.id]?.unit_price ?? p.price_whs_cad ?? 0) * (existingMap[p.id]?.qty ?? 0),
+    })))
+    setShowModal(true)
+  }
+
   function updateQty(index: number, qty: number) {
     setLineItems(prev => {
       const updated = [...prev]
@@ -140,32 +180,58 @@ export default function Invoices() {
       form.notes ? form.notes : '',
     ].filter(Boolean).join('\n')
 
-    const { data: invoice } = await supabase.from('invoices').insert([{
-      customer_id: form.customer_id,
-      issued_at: form.issued_at,
-      status: 'draft',
-      subtotal_cad: subtotal,
-      tax_rate: parseFloat(form.tax_rate) / 100,
-      tax_amount_cad: taxAmount,
-      total_cad: total,
-      currency: 'CAD',
-      notes,
-      invoice_no: '',
-    }]).select().single()
+    if (editInvoice) {
+      // 수정 모드
+      await supabase.from('invoices').update({
+        customer_id: form.customer_id,
+        issued_at: form.issued_at,
+        subtotal_cad: subtotal,
+        tax_rate: parseFloat(form.tax_rate) / 100,
+        tax_amount_cad: taxAmount,
+        total_cad: total,
+        notes,
+      }).eq('id', editInvoice.id)
 
-    if (invoice) {
+      await supabase.from('invoice_items').delete().eq('invoice_id', editInvoice.id)
       await supabase.from('invoice_items').insert(
         activeItems.map(item => ({
-          invoice_id: invoice.id,
+          invoice_id: editInvoice.id,
           product_id: item.product_id,
           qty: item.qty,
           unit_price_cad: item.unit_price,
           line_total_cad: item.total,
         }))
       )
+    } else {
+      // 신규 생성
+      const { data: invoice } = await supabase.from('invoices').insert([{
+        customer_id: form.customer_id,
+        issued_at: form.issued_at,
+        status: 'draft',
+        subtotal_cad: subtotal,
+        tax_rate: parseFloat(form.tax_rate) / 100,
+        tax_amount_cad: taxAmount,
+        total_cad: total,
+        currency: 'CAD',
+        notes,
+        invoice_no: '',
+      }]).select().single()
+
+      if (invoice) {
+        await supabase.from('invoice_items').insert(
+          activeItems.map(item => ({
+            invoice_id: invoice.id,
+            product_id: item.product_id,
+            qty: item.qty,
+            unit_price_cad: item.unit_price,
+            line_total_cad: item.total,
+          }))
+        )
+      }
     }
 
     setShowModal(false)
+    setEditInvoice(null)
     setLineItems([])
     setSelectedCustomer(null)
     setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '13', notes: '' })
@@ -241,7 +307,7 @@ export default function Invoices() {
           <Search size={16} color='#94a3b8' />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search invoices...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
         </div>
-        <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+        <button onClick={() => { setEditInvoice(null); setLineItems([]); setSelectedCustomer(null); setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '13', notes: '' }); setShowModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
           <Plus size={16} /> New Invoice
         </button>
       </div>
@@ -265,7 +331,13 @@ export default function Invoices() {
               </td></tr>
             ) : filtered.map(inv => (
               <tr key={inv.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{inv.invoice_no}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600' }}>
+                  {inv.status === 'draft' ? (
+                    <span onClick={() => openEditModal(inv)} style={{ color: '#2563eb', cursor: 'pointer', textDecoration: 'underline' }}>{inv.invoice_no}</span>
+                  ) : (
+                    <span style={{ color: '#64748b' }}>{inv.invoice_no}</span>
+                  )}
+                </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{inv.customers?.company_name}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{new Date(inv.issued_at).toLocaleDateString('en-CA')}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${inv.subtotal_cad?.toFixed(2)}</td>
@@ -297,7 +369,9 @@ export default function Invoices() {
       {showModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
           <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '780px', maxHeight: '92vh', overflowY: 'auto' }}>
-            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>New Invoice</h2>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>
+              {editInvoice ? `Edit Invoice ${editInvoice.invoice_no}` : 'New Invoice'}
+            </h2>
 
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
               <div>
@@ -391,8 +465,10 @@ export default function Invoices() {
             </div>
 
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button onClick={() => { setShowModal(false); setLineItems([]); setSelectedCustomer(null) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-              <button onClick={handleSubmit} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Create Invoice</button>
+              <button onClick={() => { setShowModal(false); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={handleSubmit} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>
+                {editInvoice ? 'Update Invoice' : 'Create Invoice'}
+              </button>
             </div>
           </div>
         </div>
