@@ -275,6 +275,7 @@ export default function Invoices() {
       tax_amount: invoice.tax_amount_cad,
       total: invoice.total_cad,
       notes: invoice.notes || '',
+      po_number: poMatch ? poMatch[1].trim() : '',
     })
   }
 
