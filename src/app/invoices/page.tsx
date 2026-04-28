@@ -66,6 +66,8 @@ export default function Invoices() {
   const [loading, setLoading] = useState(true)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [paymentInfo, setPaymentInfo] = useState({ invoiceId: '', date: new Date().toISOString().split('T')[0] })
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false)
+  const [deliveryInfo, setDeliveryInfo] = useState({ invoiceId: '', date: new Date().toISOString().split('T')[0] })
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [editInvoice, setEditInvoice] = useState<Invoice | null>(null)
@@ -299,6 +301,12 @@ export default function Invoices() {
     fetchAll()
   }
 
+  async function confirmDelivery() {
+    await supabase.from('invoices').update({ delivery_date: deliveryInfo.date }).eq('id', deliveryInfo.invoiceId)
+    setShowDeliveryModal(false)
+    fetchAll()
+  }
+
   const filtered = invoices.filter(inv =>
     inv.invoice_no?.toLowerCase().includes(search.toLowerCase()) ||
     inv.customers?.company_name?.toLowerCase().includes(search.toLowerCase())
@@ -326,7 +334,7 @@ export default function Invoices() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {['Invoice #', 'Customer', 'Date', 'Subtotal', 'HST', 'Total', 'Status', 'Payment Date', ''].map(h => (
+              {['Invoice #', 'Customer', 'Date', 'Delivery Date', 'Payment Date', 'Subtotal', 'HST', 'Total', 'Status', ''].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
@@ -360,6 +368,7 @@ export default function Invoices() {
                     <option value='paid'>Paid</option>
                   </select>
                 </td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#2563eb' }}>{inv.delivery_date ? new Date(inv.delivery_date).toLocaleDateString('en-CA') : <button onClick={() => { setDeliveryInfo({ invoiceId: inv.id, date: new Date().toISOString().split('T')[0] }); setShowDeliveryModal(true) }} style={{ background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer' }}>+ Add</button>}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#16a34a' }}>{inv.payment_date ? new Date(inv.payment_date).toLocaleDateString('en-CA') : '-'}</td>
                 <td style={{ padding: '12px 16px' }}>
                   <div style={{ display: 'flex', gap: '6px' }}>
@@ -376,6 +385,23 @@ export default function Invoices() {
           </tbody>
         </table>
       </div>
+
+      {showDeliveryModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '360px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Delivery Date</h2>
+            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Select the date this order was delivered</p>
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Delivery Date</label>
+              <input type='date' value={deliveryInfo.date} onChange={e => setDeliveryInfo({ ...deliveryInfo, date: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+            </div>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowDeliveryModal(false)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={confirmDelivery} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Confirm Delivery</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showPaymentModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
