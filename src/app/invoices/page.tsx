@@ -313,7 +313,7 @@ export default function Invoices() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {['Invoice #', 'Customer', 'Date', 'Subtotal', 'HST', 'Total', 'Status', ''].map(h => (
+              {['Invoice #', 'Customer', 'Date', 'Subtotal', 'HST', 'Total', 'Status', 'Payment Date', ''].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
@@ -347,6 +347,7 @@ export default function Invoices() {
                     <option value='paid'>Paid</option>
                   </select>
                 </td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#16a34a' }}>{inv.payment_date ? new Date(inv.payment_date).toLocaleDateString('en-CA') : '-'}</td>
                 <td style={{ padding: '12px 16px' }}>
                   <div style={{ display: 'flex', gap: '6px' }}>
                     <button onClick={() => handleDownloadPDF(inv)} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer', fontWeight: '500' }}>
