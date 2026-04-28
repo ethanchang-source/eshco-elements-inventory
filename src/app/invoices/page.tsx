@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { FileText, Plus, Search, Download } from 'lucide-react'
+import { FileText, Plus, Search, Download, Trash2 } from 'lucide-react'
 import { generateInvoicePDF } from '@/lib/generateInvoicePDF'
 
 interface Customer {
@@ -211,6 +211,13 @@ export default function Invoices() {
     })
   }
 
+  async function handleDelete(invoiceId: string) {
+    if (!confirm('Are you sure you want to delete this invoice? This cannot be undone.')) return
+    await supabase.from('invoice_items').delete().eq('invoice_id', invoiceId)
+    await supabase.from('invoices').delete().eq('id', invoiceId)
+    fetchAll()
+  }
+
   async function updateStatus(invoiceId: string, status: string) {
     await supabase.from('invoices').update({ status }).eq('id', invoiceId)
     fetchAll()
@@ -272,9 +279,14 @@ export default function Invoices() {
                   </select>
                 </td>
                 <td style={{ padding: '12px 16px' }}>
-                  <button onClick={() => handleDownloadPDF(inv)} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer', fontWeight: '500' }}>
-                    <Download size={12} /> PDF
-                  </button>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button onClick={() => handleDownloadPDF(inv)} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer', fontWeight: '500' }}>
+                      <Download size={12} /> PDF
+                    </button>
+                    <button onClick={() => handleDelete(inv.id)} style={{ display: 'flex', alignItems: 'center', background: '#fef2f2', color: '#dc2626', border: 'none', borderRadius: '6px', padding: '6px 8px', fontSize: '12px', cursor: 'pointer' }}>
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
