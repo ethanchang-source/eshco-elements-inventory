@@ -54,11 +54,11 @@ export function generateInvoicePDF(data: InvoiceData) {
   doc.text(`Phone: ${COMPANY.phone}`, 14, 32)
   doc.text(`Email: ${COMPANY.email}`, 14, 37)
 
-  // 로고 (가운데) - 원본 비율 유지, 높이 20mm 기준
+  // 로고 (가운데) - 실제 비율 2186:1460 적용
   try {
-    const logoHeight = 20
-    const logoWidth = logoHeight * 3 // 비율에 따라 조정
-    doc.addImage(logoBase64, 'PNG', pageWidth / 2 - logoWidth / 2, 8, logoWidth, logoHeight)
+    const logoHeight = 15
+    const logoWidth = logoHeight * (2186 / 1460)
+    doc.addImage(logoBase64, 'PNG', pageWidth / 2 - logoWidth / 2, 10, logoWidth, logoHeight)
   } catch {}
 
   // INVOICE 제목 (우측)
