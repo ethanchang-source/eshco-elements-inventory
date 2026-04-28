@@ -284,7 +284,18 @@ export default function Invoices() {
   }
 
   async function updateStatus(invoiceId: string, status: string) {
-    await supabase.from('invoices').update({ status }).eq('id', invoiceId)
+    if (status === 'paid') {
+      setPaymentInfo({ invoiceId, date: new Date().toISOString().split('T')[0] })
+      setShowPaymentModal(true)
+    } else {
+      await supabase.from('invoices').update({ status, payment_date: null }).eq('id', invoiceId)
+      fetchAll()
+    }
+  }
+
+  async function confirmPayment() {
+    await supabase.from('invoices').update({ status: 'paid', payment_date: paymentInfo.date }).eq('id', paymentInfo.invoiceId)
+    setShowPaymentModal(false)
     fetchAll()
   }
 
