@@ -211,6 +211,7 @@ export default function Invoices() {
         total_cad: total,
         currency: 'CAD',
         notes,
+        po_number: form.po_number || '',
         invoice_no: '',
       }]).select().single()
 
