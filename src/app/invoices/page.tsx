@@ -5,6 +5,7 @@ import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { FileText, Plus, Search, Download, Trash2, Upload, TableIcon } from 'lucide-react'
 import { generateInvoicePDF } from '@/lib/generateInvoicePDF'
+import { generateCreditMemoPDF } from '@/lib/generateCreditMemoPDF'
 import * as XLSX from 'xlsx'
 
 interface Customer {
@@ -60,6 +61,28 @@ interface Invoice {
   }
 }
 
+interface CreditMemo {
+  id: string
+  memo_no: string
+  customer_id: string
+  issued_at: string
+  status: string
+  subtotal_cad: number
+  tax_rate: number
+  tax_amount_cad: number
+  total_cad: number
+  notes: string
+  po_number: string
+  customers?: {
+    company_name: string
+    warehouse_address: string
+    city: string
+    province: string
+    postal_code: string
+    payment_terms: string
+  }
+}
+
 export default function Invoices() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -71,6 +94,17 @@ export default function Invoices() {
   const [deliveryInfo, setDeliveryInfo] = useState({ invoiceId: '', date: new Date().toISOString().split('T')[0] })
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
+  const [activeTab, setActiveTab] = useState<'invoices' | 'credit_memos'>('invoices')
+
+  // ── Credit Memo state ──
+  const [creditMemos, setCreditMemos] = useState<CreditMemo[]>([])
+  const [cmSearch, setCmSearch] = useState('')
+  const [showCmModal, setShowCmModal] = useState(false)
+  const [editCm, setEditCm] = useState<CreditMemo | null>(null)
+  const [cmSelectedCustomer, setCmSelectedCustomer] = useState<Customer | null>(null)
+  const [cmLineItems, setCmLineItems] = useState<InvoiceLineItem[]>([])
+  const [cmForm, setCmForm] = useState({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '' })
+
   const [showImportModal, setShowImportModal] = useState(false)
   const [importRows, setImportRows] = useState<any[]>([])
   const [importStatus, setImportStatus] = useState<string>('')
@@ -91,14 +125,16 @@ export default function Invoices() {
   useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
-    const [inv, cust, prod] = await Promise.all([
+    const [inv, cust, prod, cm] = await Promise.all([
       supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').order('created_at', { ascending: false }),
       supabase.from('customers').select('*').order('company_name'),
       supabase.from('products').select('*').eq('is_active', true).order('sku'),
+      supabase.from('credit_memos').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').order('created_at', { ascending: false }),
     ])
     setInvoices(inv.data || [])
     setCustomers(cust.data || [])
     setProducts(prod.data || [])
+    setCreditMemos(cm.data || [])
     setLoading(false)
   }
 
@@ -486,6 +522,117 @@ export default function Invoices() {
     if (imported > 0) fetchAll()
   }
 
+  // ── Credit Memo helpers ──
+
+  function cmHandleCustomerChange(customerId: string) {
+    const customer = customers.find(c => c.id === customerId) || null
+    setCmSelectedCustomer(customer)
+    setCmForm(prev => ({ ...prev, customer_id: customerId }))
+    setCmLineItems(products.map(p => ({
+      product_id: p.id, sku: p.sku, name: p.name,
+      size: `${p.size_oz} FL. OZ.`, unit_price: p.price_whs_cad || 0, qty: 0, total: 0,
+    })))
+  }
+
+  async function openEditCm(cm: CreditMemo) {
+    if (cm.status !== 'draft') return
+    setEditCm(cm)
+    setCmSelectedCustomer(customers.find(c => c.id === cm.customer_id) || null)
+    setCmForm({ customer_id: cm.customer_id, issued_at: cm.issued_at, po_number: cm.po_number || '', tax_rate: String(Math.round(cm.tax_rate * 100)), notes: cm.notes || '' })
+    const { data: items } = await supabase.from('credit_memo_items').select('*, products(id, sku, name, size_oz, price_whs_cad)').eq('memo_id', cm.id)
+    const existingMap: { [key: string]: { qty: number; unit_price: number } } = {}
+    if (items) items.forEach(item => { if (item.products?.id) existingMap[item.products.id] = { qty: item.qty, unit_price: item.unit_price_cad } })
+    setCmLineItems(products.map(p => ({
+      product_id: p.id, sku: p.sku, name: p.name, size: `${p.size_oz} FL. OZ.`,
+      unit_price: existingMap[p.id]?.unit_price ?? p.price_whs_cad ?? 0,
+      qty: existingMap[p.id]?.qty ?? 0,
+      total: (existingMap[p.id]?.unit_price ?? p.price_whs_cad ?? 0) * (existingMap[p.id]?.qty ?? 0),
+    })))
+    setShowCmModal(true)
+  }
+
+  function cmUpdateQty(index: number, qty: number) {
+    setCmLineItems(prev => { const u = [...prev]; u[index] = { ...u[index], qty, total: u[index].unit_price * qty }; return u })
+  }
+  function cmUpdateUnitPrice(index: number, price: number) {
+    setCmLineItems(prev => { const u = [...prev]; u[index] = { ...u[index], unit_price: price, total: price * u[index].qty }; return u })
+  }
+
+  const cmActiveItems = cmLineItems.filter(i => i.qty > 0)
+  const cmSubtotal = cmActiveItems.reduce((s, i) => s + i.total, 0)
+  const cmTaxAmount = cmSubtotal * (parseFloat(cmForm.tax_rate) / 100)
+  const cmTotal = cmSubtotal + cmTaxAmount
+
+  async function generateMemoNo(): Promise<string> {
+    const yr = new Date().getFullYear().toString().slice(2)
+    const { count } = await supabase.from('credit_memos').select('*', { count: 'exact', head: true }).like('memo_no', `C${yr}-%`)
+    return `C${yr}-${String((count || 0) + 1).padStart(5, '0')}`
+  }
+
+  async function handleCmSubmit() {
+    if (!cmForm.customer_id || cmActiveItems.length === 0) {
+      alert('Please select a customer and add at least one item.')
+      return
+    }
+    if (editCm) {
+      await supabase.from('credit_memos').update({
+        customer_id: cmForm.customer_id, issued_at: cmForm.issued_at,
+        subtotal_cad: cmSubtotal, tax_rate: parseFloat(cmForm.tax_rate) / 100,
+        tax_amount_cad: cmTaxAmount, total_cad: cmTotal,
+        notes: cmForm.notes, po_number: cmForm.po_number || '',
+      }).eq('id', editCm.id)
+      await supabase.from('credit_memo_items').delete().eq('memo_id', editCm.id)
+      await supabase.from('credit_memo_items').insert(cmActiveItems.map(i => ({ memo_id: editCm.id, product_id: i.product_id, qty: i.qty, unit_price_cad: i.unit_price, line_total_cad: i.total })))
+    } else {
+      const memo_no = await generateMemoNo()
+      const { data: cm } = await supabase.from('credit_memos').insert([{
+        memo_no, customer_id: cmForm.customer_id, issued_at: cmForm.issued_at, status: 'draft',
+        subtotal_cad: cmSubtotal, tax_rate: parseFloat(cmForm.tax_rate) / 100,
+        tax_amount_cad: cmTaxAmount, total_cad: cmTotal, currency: 'CAD',
+        notes: cmForm.notes, po_number: cmForm.po_number || '',
+      }]).select().single()
+      if (cm) await supabase.from('credit_memo_items').insert(cmActiveItems.map(i => ({ memo_id: cm.id, product_id: i.product_id, qty: i.qty, unit_price_cad: i.unit_price, line_total_cad: i.total })))
+    }
+    setShowCmModal(false); setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null)
+    setCmForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '' })
+    fetchAll()
+  }
+
+  async function handleCmDownloadPDF(cm: CreditMemo) {
+    const { data: items } = await supabase.from('credit_memo_items').select('*, products(sku, name, size_oz)').eq('memo_id', cm.id)
+    if (!items || !cm.customers) return
+    generateCreditMemoPDF({
+      memo_no: cm.memo_no, issued_at: cm.issued_at, po_number: cm.po_number || '',
+      payment_terms: cm.customers.payment_terms || '',
+      customer: { company_name: cm.customers.company_name, warehouse_address: cm.customers.warehouse_address, city: cm.customers.city, province: cm.customers.province, postal_code: cm.customers.postal_code },
+      items: items.map(i => ({ sku: i.products?.sku || '', name: i.products?.name || '', size: `${i.products?.size_oz} FL. OZ.`, unit_price: i.unit_price_cad, qty: i.qty, total: i.line_total_cad })),
+      subtotal: cm.subtotal_cad, tax_rate: cm.tax_rate, tax_amount: cm.tax_amount_cad, total: cm.total_cad, notes: cm.notes || '',
+    })
+  }
+
+  async function handleCmDelete(id: string) {
+    if (!confirm('Delete this credit memo? This cannot be undone.')) return
+    await supabase.from('credit_memo_items').delete().eq('memo_id', id)
+    await supabase.from('credit_memos').delete().eq('id', id)
+    fetchAll()
+  }
+
+  async function updateCmStatus(id: string, status: string) {
+    await supabase.from('credit_memos').update({ status }).eq('id', id)
+    fetchAll()
+  }
+
+  const filteredCm = creditMemos.filter(cm =>
+    cm.memo_no?.toLowerCase().includes(cmSearch.toLowerCase()) ||
+    cm.customers?.company_name?.toLowerCase().includes(cmSearch.toLowerCase())
+  )
+
+  const cmStatusColor: { [key: string]: { bg: string; color: string } } = {
+    draft:   { bg: '#f8fafc', color: '#64748b' },
+    sent:    { bg: '#eff6ff', color: '#2563eb' },
+    applied: { bg: '#f5f3ff', color: '#7c3aed' },
+  }
+
   async function updateStatus(invoiceId: string, status: string) {
     if (status === 'paid') {
       setPaymentInfo({ invoiceId, date: new Date().toISOString().split('T')[0] })
@@ -521,6 +668,17 @@ export default function Invoices() {
 
   return (
     <MainLayout>
+      {/* 탭 */}
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', background: '#f1f5f9', borderRadius: '10px', padding: '4px', width: 'fit-content' }}>
+        {(['invoices', 'credit_memos'] as const).map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '8px 20px', borderRadius: '7px', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: '500', background: activeTab === tab ? '#fff' : 'transparent', color: activeTab === tab ? '#1e293b' : '#64748b', boxShadow: activeTab === tab ? '0 1px 4px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s' }}>
+            {tab === 'invoices' ? 'Invoices' : 'Credit Memos'}
+          </button>
+        ))}
+      </div>
+
+      {/* ── INVOICES TAB ── */}
+      {activeTab === 'invoices' && <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', width: '300px' }}>
           <Search size={16} color='#94a3b8' />
@@ -594,6 +752,72 @@ export default function Invoices() {
           </tbody>
         </table>
       </div>
+      </> /* end invoices tab */}
+
+      {/* ── CREDIT MEMOS TAB ── */}
+      {activeTab === 'credit_memos' && <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', width: '300px' }}>
+          <Search size={16} color='#94a3b8' />
+          <input value={cmSearch} onChange={e => setCmSearch(e.target.value)} placeholder='Search credit memos...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
+        </div>
+        <button onClick={() => { setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null); setCmForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '' }); setShowCmModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+          <Plus size={16} /> New Credit Memo
+        </button>
+      </div>
+
+      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+              {['Memo #', 'Customer', 'Date', 'Subtotal', 'HST', 'Total', 'Status', ''].map(h => (
+                <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={8} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>Loading...</td></tr>
+            ) : filteredCm.length === 0 ? (
+              <tr><td colSpan={8} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
+                <FileText size={32} color='#e2e8f0' style={{ display: 'block', margin: '0 auto 8px' }} />
+                No credit memos yet
+              </td></tr>
+            ) : filteredCm.map(cm => (
+              <tr key={cm.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600' }}>
+                  {cm.status === 'draft'
+                    ? <span onClick={() => openEditCm(cm)} style={{ color: '#7c3aed', cursor: 'pointer', textDecoration: 'underline' }}>{cm.memo_no}</span>
+                    : <span style={{ color: '#64748b' }}>{cm.memo_no}</span>}
+                </td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{cm.customers?.company_name}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{new Date(cm.issued_at).toLocaleDateString('en-CA')}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${cm.subtotal_cad?.toFixed(2)}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>${cm.tax_amount_cad?.toFixed(2)}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${cm.total_cad?.toFixed(2)} CAD</td>
+                <td style={{ padding: '12px 16px' }}>
+                  <select value={cm.status} onChange={e => updateCmStatus(cm.id, e.target.value)} style={{ background: cmStatusColor[cm.status]?.bg, color: cmStatusColor[cm.status]?.color, border: 'none', borderRadius: '20px', padding: '2px 10px', fontSize: '12px', fontWeight: '500', cursor: 'pointer', outline: 'none' }}>
+                    <option value='draft'>Draft</option>
+                    <option value='sent'>Sent</option>
+                    <option value='applied'>Applied</option>
+                  </select>
+                </td>
+                <td style={{ padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button onClick={() => handleCmDownloadPDF(cm)} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#f5f3ff', color: '#7c3aed', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer', fontWeight: '500' }}>
+                      <Download size={12} /> PDF
+                    </button>
+                    <button onClick={() => handleCmDelete(cm.id)} style={{ display: 'flex', alignItems: 'center', background: '#fef2f2', color: '#dc2626', border: 'none', borderRadius: '6px', padding: '6px 8px', fontSize: '12px', cursor: 'pointer' }}>
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      </> /* end credit memos tab */}
 
       {showImportModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
@@ -683,6 +907,101 @@ export default function Invoices() {
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
               <button onClick={() => setShowPaymentModal(false)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
               <button onClick={confirmPayment} style={{ padding: '8px 20px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Confirm Payment</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Credit Memo 생성/수정 모달 */}
+      {showCmModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '780px', maxHeight: '92vh', overflowY: 'auto' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>
+              {editCm ? `Edit Credit Memo ${editCm.memo_no}` : 'New Credit Memo'}
+            </h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Bill To / Ship To *</label>
+                <select value={cmForm.customer_id} onChange={e => cmHandleCustomerChange(e.target.value)} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}>
+                  <option value=''>Select customer...</option>
+                  {customers.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Date</label>
+                <input type='date' value={cmForm.issued_at} onChange={e => setCmForm({ ...cmForm, issued_at: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>PO #</label>
+                <input value={cmForm.po_number} onChange={e => setCmForm({ ...cmForm, po_number: e.target.value })} placeholder='PO#' style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+              </div>
+            </div>
+
+            {cmSelectedCustomer && cmLineItems.length > 0 && (
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', marginBottom: '16px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                      {['Item #', 'Description', 'Size', 'Unit Cost', 'Qty', 'Total'].map(h => (
+                        <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cmLineItems.map((item, index) => (
+                      <tr key={item.product_id} style={{ borderBottom: '1px solid #f1f5f9', background: item.qty > 0 ? '#faf5ff' : '#fff' }}>
+                        <td style={{ padding: '8px 12px', fontSize: '12px', fontWeight: '600', color: '#7c3aed' }}>{item.sku}</td>
+                        <td style={{ padding: '8px 12px', fontSize: '12px', color: '#1e293b' }}>{item.name}</td>
+                        <td style={{ padding: '8px 12px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{item.size}</td>
+                        <td style={{ padding: '8px 12px' }}>
+                          <input type='number' value={item.unit_price} onChange={e => cmUpdateUnitPrice(index, parseFloat(e.target.value) || 0)} style={{ width: '70px', padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '12px', outline: 'none' }} />
+                        </td>
+                        <td style={{ padding: '8px 12px' }}>
+                          <input type='number' value={item.qty || ''} onChange={e => cmUpdateQty(index, parseInt(e.target.value) || 0)} placeholder='0' style={{ width: '60px', padding: '4px 8px', border: item.qty > 0 ? '1px solid #7c3aed' : '1px solid #e2e8f0', borderRadius: '4px', fontSize: '12px', outline: 'none', background: item.qty > 0 ? '#faf5ff' : '#fff' }} />
+                        </td>
+                        <td style={{ padding: '8px 12px', fontSize: '12px', fontWeight: '600', color: item.qty > 0 ? '#7c3aed' : '#94a3b8' }}>
+                          {item.qty > 0 ? `$${item.total.toFixed(2)}` : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {!cmSelectedCustomer && (
+              <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '13px', marginBottom: '16px', border: '1px dashed #e2e8f0' }}>
+                Select a customer to load all products
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Notes</label>
+                <textarea value={cmForm.notes} onChange={e => setCmForm({ ...cmForm, notes: e.target.value })} placeholder='Additional notes...' rows={3} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} />
+              </div>
+              <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
+                  <span>Subtotal</span><span>${cmSubtotal.toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
+                  <span>HST</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <input value={cmForm.tax_rate} onChange={e => setCmForm({ ...cmForm, tax_rate: e.target.value })} style={{ width: '40px', padding: '2px 6px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '13px', outline: 'none', textAlign: 'right' }} />
+                    <span>% = ${cmTaxAmount.toFixed(2)}</span>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '700', color: '#1e293b', borderTop: '1px solid #e2e8f0', paddingTop: '8px' }}>
+                  <span>TOTAL CREDIT</span><span>${cmTotal.toFixed(2)} CAD</span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button onClick={() => { setShowCmModal(false); setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={handleCmSubmit} style={{ padding: '8px 20px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>
+                {editCm ? 'Update Credit Memo' : 'Create Credit Memo'}
+              </button>
             </div>
           </div>
         </div>
