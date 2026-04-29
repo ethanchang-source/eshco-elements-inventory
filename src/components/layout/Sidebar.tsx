@@ -15,6 +15,7 @@ import {
   BarChart3,
   ChevronRight,
   Menu,
+  ScanLine,
 } from 'lucide-react'
 
 const menuItems = [
@@ -27,6 +28,7 @@ const menuItems = [
   { href: '/customers', icon: Users, label: 'Customers' },
   { href: '/suppliers', icon: Truck, label: 'Suppliers' },
   { href: '/reports', icon: BarChart3, label: 'Reports' },
+  { href: '/scan', icon: ScanLine, label: 'Scan Stock' },
 ]
 
 export default function Sidebar() {
