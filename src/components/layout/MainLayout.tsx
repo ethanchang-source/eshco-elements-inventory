@@ -10,7 +10,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const router = useRouter()
   const [checking, setChecking] = useState(true)
   const [pullY, setPullY] = useState(0)
-  const [refreshing, setRefreshing] = useState(false)
+  const [ptrState, setPtrState] = useState<'idle' | 'pulling' | 'ready' | 'refreshing' | 'done'>('idle')
   const THRESHOLD = 65
 
   useEffect(() => {
@@ -39,10 +39,12 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       if (diff > 0 && window.scrollY === 0) {
         currentY = Math.min(diff * 0.5, THRESHOLD + 20)
         setPullY(currentY)
+        setPtrState(currentY >= THRESHOLD ? 'ready' : 'pulling')
       } else {
         isPulling = false
         currentY = 0
         setPullY(0)
+        setPtrState('idle')
       }
     }
 
@@ -51,17 +53,21 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       isPulling = false
       if (currentY >= THRESHOLD && !isRefreshing) {
         isRefreshing = true
-        setRefreshing(true)
+        setPtrState('refreshing')
         router.refresh()
         setTimeout(() => {
-          isRefreshing = false
-          setRefreshing(false)
-          currentY = 0
-          setPullY(0)
+          setPtrState('done')
+          setTimeout(() => {
+            isRefreshing = false
+            setPtrState('idle')
+            currentY = 0
+            setPullY(0)
+          }, 700)
         }, 1000)
       } else {
         currentY = 0
         setPullY(0)
+        setPtrState('idle')
       }
     }
 
@@ -83,8 +89,14 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     )
   }
 
-  const indicatorSize = Math.min(pullY / THRESHOLD, 1)
-  const showIndicator = pullY > 8 || refreshing
+  const ptrConfig = {
+    idle:       { bg: 'transparent', text: '', show: false },
+    pulling:    { bg: '#1e293b',     text: '↓  당기면 새로고침',  show: true },
+    ready:      { bg: '#2563eb',     text: '↑  놓으면 새로고침',  show: true },
+    refreshing: { bg: '#2563eb',     text: '새로고침 중...',       show: true },
+    done:       { bg: '#16a34a',     text: '✓  완료',             show: true },
+  }
+  const cfg = ptrConfig[ptrState]
 
   return (
     <>
@@ -92,52 +104,67 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         @media (max-width: 768px) {
           .main-content { margin-left: 0 !important; margin-top: 56px !important; }
           .desktop-header { display: none !important; }
-          .ptr-indicator { display: flex !important; }
+          .ptr-banner { display: flex !important; }
         }
         @media (min-width: 769px) {
           .main-content { margin-left: 240px !important; margin-top: 64px !important; }
-          .ptr-indicator { display: none !important; }
+          .ptr-banner { display: none !important; }
         }
         @keyframes ptr-spin { to { transform: rotate(360deg) } }
+        @keyframes ptr-slide-in { from { opacity: 0; transform: translateY(-8px) } to { opacity: 1; transform: translateY(0) } }
+        @keyframes ptr-bar { 0% { left: -40% } 100% { left: 110% } }
       `}</style>
 
-      {/* pull-to-refresh 인디케이터 (모바일 전용, fixed) */}
-      {showIndicator && (
-        <div
-          className='ptr-indicator'
-          style={{
-            display: 'none',
-            position: 'fixed',
-            top: `${56 + Math.min(pullY, THRESHOLD) * 0.5}px`,
-            left: 0, right: 0,
-            justifyContent: 'center',
-            zIndex: 500,
-            pointerEvents: 'none',
-            transition: refreshing ? 'none' : 'top 0.05s',
-          }}
-        >
+      {/* pull-to-refresh 배너 (모바일 전용) */}
+      <div
+        className='ptr-banner'
+        style={{
+          display: 'none',
+          position: 'fixed',
+          top: '56px',
+          left: 0, right: 0,
+          justifyContent: 'center',
+          zIndex: 500,
+          pointerEvents: 'none',
+          padding: '6px 16px',
+          transition: 'opacity 0.2s',
+          opacity: cfg.show ? 1 : 0,
+        }}
+      >
+        {cfg.show && (
           <div style={{
-            width: '38px', height: '38px', borderRadius: '50%',
-            background: '#fff', boxShadow: '0 2px 10px rgba(0,0,0,0.18)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            opacity: refreshing ? 1 : indicatorSize,
-            transform: refreshing ? 'scale(1)' : `scale(${0.4 + indicatorSize * 0.6})`,
-            transition: refreshing ? 'none' : 'transform 0.05s, opacity 0.05s',
+            background: cfg.bg,
+            color: '#fff',
+            borderRadius: '20px',
+            padding: '8px 20px',
+            fontSize: '13px',
+            fontWeight: '600',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+            animation: 'ptr-slide-in 0.15s ease',
+            overflow: 'hidden',
+            position: 'relative',
+            minWidth: '160px',
+            justifyContent: 'center',
           }}>
-            <svg
-              width='18' height='18' viewBox='0 0 24 24' fill='none'
-              stroke='#2563eb' strokeWidth='2.5' strokeLinecap='round' strokeLinejoin='round'
-              style={{
-                transform: refreshing ? 'none' : `rotate(${indicatorSize * 280}deg)`,
-                animation: refreshing ? 'ptr-spin 0.7s linear infinite' : 'none',
-              }}
-            >
-              <polyline points='23 4 23 10 17 10' />
-              <path d='M20.49 15a9 9 0 1 1-2.12-9.36L23 10' />
-            </svg>
+            {ptrState === 'refreshing' && (
+              <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='#fff' strokeWidth='2.5' strokeLinecap='round' strokeLinejoin='round' style={{ animation: 'ptr-spin 0.7s linear infinite', flexShrink: 0 }}>
+                <polyline points='23 4 23 10 17 10' />
+                <path d='M20.49 15a9 9 0 1 1-2.12-9.36L23 10' />
+              </svg>
+            )}
+            {cfg.text}
+            {/* 진행 바 (새로고침 중) */}
+            {ptrState === 'refreshing' && (
+              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '3px', background: 'rgba(255,255,255,0.3)', overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', top: 0, width: '40%', height: '100%', background: 'rgba(255,255,255,0.8)', borderRadius: '2px', animation: 'ptr-bar 1s ease-in-out infinite' }} />
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
       <div style={{ display: 'flex', minHeight: '100vh' }}>
         <Sidebar />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
