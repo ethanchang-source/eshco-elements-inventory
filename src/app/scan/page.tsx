@@ -71,7 +71,7 @@ export default function ScanPage() {
       )
     } catch {
       setScanState('error')
-      setErrorMsg('카메라 접근 권한이 필요합니다. 브라우저 설정에서 허용해 주세요.')
+      setErrorMsg('Camera access is required. Please allow camera permission in your browser settings.')
     }
   }, [stopScanner])
 
@@ -87,7 +87,7 @@ export default function ScanPage() {
       <div style={{ maxWidth: '480px', margin: '0 auto' }}>
         <div style={{ marginBottom: '20px' }}>
           <h1 style={{ fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>Barcode Scanner</h1>
-          <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>제품 바코드를 카메라에 비춰주세요</p>
+          <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>Point your camera at a product barcode</p>
         </div>
 
         {/* 카메라 뷰파인더 */}
@@ -126,9 +126,9 @@ export default function ScanPage() {
               }
               <div>
                 <div style={{ fontSize: '13px', fontWeight: '600', color: isLowStock ? '#dc2626' : '#16a34a' }}>
-                  {isLowStock ? '재고 부족' : '재고 정상'}
+                  {isLowStock ? 'Low Stock' : 'In Stock'}
                 </div>
-                <div style={{ fontSize: '12px', color: '#64748b' }}>바코드: {scannedCode}</div>
+                <div style={{ fontSize: '12px', color: '#64748b' }}>Barcode: {scannedCode}</div>
               </div>
             </div>
 
@@ -145,14 +145,14 @@ export default function ScanPage() {
 
               {/* 재고 현황 - 크게 표시 */}
               <div style={{ background: isLowStock ? '#fef2f2' : '#f0fdf4', borderRadius: '12px', padding: '20px', textAlign: 'center', marginBottom: '16px' }}>
-                <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>현재 재고</div>
+                <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>Current Stock</div>
                 <div style={{ fontSize: '48px', fontWeight: '800', color: isLowStock ? '#dc2626' : '#16a34a', lineHeight: 1 }}>
                   {product.current_stock}
                 </div>
                 <div style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>units</div>
                 {isLowStock && (
                   <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '8px', fontWeight: '500' }}>
-                    재주문 기준: {product.reorder_threshold}개 이하
+                    Reorder point: {product.reorder_threshold} units
                   </div>
                 )}
               </div>
@@ -160,7 +160,7 @@ export default function ScanPage() {
               {/* 가격 정보 */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
                 {[
-                  { label: '원가', value: `$${product.unit_cost_cad?.toFixed(2)}` },
+                  { label: 'Cost', value: `$${product.unit_cost_cad?.toFixed(2)}` },
                   { label: 'WHS', value: `$${product.price_whs_cad?.toFixed(2)}` },
                   { label: 'MSRP', value: `$${product.msrp_cad?.toFixed(2)}` },
                 ].map(item => (
@@ -178,9 +178,9 @@ export default function ScanPage() {
         {scanState === 'not_found' && (
           <div style={{ background: '#fff', borderRadius: '16px', border: '1px solid #fecaca', padding: '32px 20px', textAlign: 'center', marginBottom: '16px' }}>
             <Package size={36} color='#fca5a5' style={{ display: 'block', margin: '0 auto 12px' }} />
-            <div style={{ fontSize: '16px', fontWeight: '600', color: '#dc2626', marginBottom: '6px' }}>제품을 찾을 수 없습니다</div>
+            <div style={{ fontSize: '16px', fontWeight: '600', color: '#dc2626', marginBottom: '6px' }}>Product not found</div>
             <div style={{ fontSize: '13px', color: '#64748b', fontFamily: 'monospace' }}>{scannedCode}</div>
-            <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '8px' }}>Products 페이지에서 해당 바코드를 등록해 주세요</div>
+            <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '8px' }}>Add this barcode to a product in the Products page</div>
           </div>
         )}
 
@@ -188,7 +188,7 @@ export default function ScanPage() {
         {scanState === 'error' && (
           <div style={{ background: '#fef2f2', borderRadius: '16px', border: '1px solid #fecaca', padding: '32px 20px', textAlign: 'center', marginBottom: '16px' }}>
             <AlertTriangle size={36} color='#f87171' style={{ display: 'block', margin: '0 auto 12px' }} />
-            <div style={{ fontSize: '15px', fontWeight: '600', color: '#dc2626', marginBottom: '8px' }}>카메라 오류</div>
+            <div style={{ fontSize: '15px', fontWeight: '600', color: '#dc2626', marginBottom: '8px' }}>Camera Error</div>
             <div style={{ fontSize: '13px', color: '#64748b' }}>{errorMsg}</div>
           </div>
         )}
@@ -199,14 +199,14 @@ export default function ScanPage() {
             onClick={startScanner}
             style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '12px', padding: '14px', fontSize: '15px', fontWeight: '600', cursor: 'pointer' }}
           >
-            <RotateCcw size={18} /> 다시 스캔
+            <RotateCcw size={18} /> Scan Again
           </button>
         )}
 
         {scanState === 'scanning' && (
           <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
             <ScanLine size={16} />
-            UPC / EAN / ITF-14 바코드 지원
+            Supports UPC / EAN / ITF-14 barcodes
           </div>
         )}
       </div>

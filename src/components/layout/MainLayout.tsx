@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import Sidebar from './Sidebar'
@@ -11,7 +11,20 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [checking, setChecking] = useState(true)
   const [pullY, setPullY] = useState(0)
   const [ptrState, setPtrState] = useState<'idle' | 'pulling' | 'ready' | 'refreshing' | 'done'>('idle')
+  // displayState lags behind ptrState so the banner doesn't vanish instantly
+  const [displayState, setDisplayState] = useState<typeof ptrState>('idle')
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const THRESHOLD = 65
+
+  const updatePtrState = useCallback((s: typeof ptrState) => {
+    if (hideTimer.current) clearTimeout(hideTimer.current)
+    setPtrState(s)
+    if (s === 'idle') {
+      hideTimer.current = setTimeout(() => setDisplayState('idle'), 500)
+    } else {
+      setDisplayState(s)
+    }
+  }, [])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -39,12 +52,12 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       if (diff > 0 && window.scrollY === 0) {
         currentY = Math.min(diff * 0.5, THRESHOLD + 20)
         setPullY(currentY)
-        setPtrState(currentY >= THRESHOLD ? 'ready' : 'pulling')
+        updatePtrState(currentY >= THRESHOLD ? 'ready' : 'pulling')
       } else {
         isPulling = false
         currentY = 0
         setPullY(0)
-        setPtrState('idle')
+        updatePtrState('idle')
       }
     }
 
@@ -53,21 +66,21 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       isPulling = false
       if (currentY >= THRESHOLD && !isRefreshing) {
         isRefreshing = true
-        setPtrState('refreshing')
+        updatePtrState('refreshing')
         router.refresh()
         setTimeout(() => {
-          setPtrState('done')
+          updatePtrState('done')
           setTimeout(() => {
             isRefreshing = false
-            setPtrState('idle')
+            updatePtrState('idle')
             currentY = 0
             setPullY(0)
-          }, 700)
+          }, 800)
         }, 1000)
       } else {
         currentY = 0
         setPullY(0)
-        setPtrState('idle')
+        updatePtrState('idle')
       }
     }
 
@@ -79,7 +92,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       document.removeEventListener('touchmove', onTouchMove)
       document.removeEventListener('touchend', onTouchEnd)
     }
-  }, [router])
+  }, [router, updatePtrState])
 
   if (checking) {
     return (
@@ -90,13 +103,13 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   }
 
   const ptrConfig = {
-    idle:       { bg: 'transparent', text: '', show: false },
-    pulling:    { bg: '#1e293b',     text: '↓  당기면 새로고침',  show: true },
-    ready:      { bg: '#2563eb',     text: '↑  놓으면 새로고침',  show: true },
-    refreshing: { bg: '#2563eb',     text: '새로고침 중...',       show: true },
-    done:       { bg: '#16a34a',     text: '✓  완료',             show: true },
+    idle:       { bg: '#1e293b', text: '↓  Pull to refresh',   show: false },
+    pulling:    { bg: '#1e293b', text: '↓  Pull to refresh',   show: true  },
+    ready:      { bg: '#2563eb', text: '↑  Release to refresh', show: true  },
+    refreshing: { bg: '#2563eb', text: 'Refreshing...',         show: true  },
+    done:       { bg: '#16a34a', text: '✓  Done',               show: true  },
   }
-  const cfg = ptrConfig[ptrState]
+  const cfg = ptrConfig[displayState]
 
   return (
     <>
@@ -129,9 +142,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           padding: '6px 16px',
           transition: 'opacity 0.2s',
           opacity: cfg.show ? 1 : 0,
+          transition: 'opacity 0.3s',
         }}
       >
-        {cfg.show && (
+        {(
           <div style={{
             background: cfg.bg,
             color: '#fff',
@@ -149,15 +163,14 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             minWidth: '160px',
             justifyContent: 'center',
           }}>
-            {ptrState === 'refreshing' && (
+            {displayState === 'refreshing' && (
               <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='#fff' strokeWidth='2.5' strokeLinecap='round' strokeLinejoin='round' style={{ animation: 'ptr-spin 0.7s linear infinite', flexShrink: 0 }}>
                 <polyline points='23 4 23 10 17 10' />
                 <path d='M20.49 15a9 9 0 1 1-2.12-9.36L23 10' />
               </svg>
             )}
             {cfg.text}
-            {/* 진행 바 (새로고침 중) */}
-            {ptrState === 'refreshing' && (
+            {displayState === 'refreshing' && (
               <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '3px', background: 'rgba(255,255,255,0.3)', overflow: 'hidden' }}>
                 <div style={{ position: 'absolute', top: 0, width: '40%', height: '100%', background: 'rgba(255,255,255,0.8)', borderRadius: '2px', animation: 'ptr-bar 1s ease-in-out infinite' }} />
               </div>
@@ -165,6 +178,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           </div>
         )}
       </div>
+
       <div style={{ display: 'flex', minHeight: '100vh' }}>
         <Sidebar />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
