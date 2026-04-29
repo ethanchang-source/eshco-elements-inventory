@@ -1,6 +1,6 @@
 'use client'
 
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useState } from 'react'
 import {
@@ -16,7 +16,9 @@ import {
   ChevronRight,
   Menu,
   ScanLine,
+  LogOut,
 } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 
 const menuItems = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -33,7 +35,13 @@ const menuItems = [
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const router = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  async function handleSignOut() {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
 
   const sidebarContent = (
     <>
@@ -59,8 +67,16 @@ export default function Sidebar() {
           )
         })}
       </nav>
-      <div style={{ padding: '16px 20px', borderTop: '1px solid #334155', fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
-        &copy; 2026 I AM PURE
+      <div style={{ padding: '12px 16px', borderTop: '1px solid #334155' }}>
+        <button
+          onClick={handleSignOut}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: 'transparent', border: '1px solid #334155', borderRadius: '8px', color: '#94a3b8', fontSize: '14px', cursor: 'pointer', transition: 'all 0.15s' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#dc2626'; (e.currentTarget as HTMLButtonElement).style.color = '#fff'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#dc2626' }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = '#94a3b8'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#334155' }}
+        >
+          <LogOut size={16} /> Sign Out
+        </button>
+        <div style={{ fontSize: '11px', color: '#475569', textAlign: 'center', marginTop: '10px' }}>&copy; 2026 I AM PURE</div>
       </div>
     </>
   )
