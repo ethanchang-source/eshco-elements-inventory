@@ -647,8 +647,14 @@ export default function Invoices() {
     }
   }
 
+  const [appliedError, setAppliedError] = useState('')
+
   async function confirmApplied() {
-    await supabase.from('credit_memos').update({ status: 'applied', applied_date: appliedInfo.date }).eq('id', appliedInfo.memoId)
+    setAppliedError('')
+    const { error: e1 } = await supabase.from('credit_memos').update({ status: 'applied' }).eq('id', appliedInfo.memoId)
+    if (e1) { setAppliedError(e1.message); return }
+    const { error: e2 } = await supabase.from('credit_memos').update({ applied_date: appliedInfo.date }).eq('id', appliedInfo.memoId)
+    if (e2) { setAppliedError('applied_date column missing — run: ALTER TABLE credit_memos ADD COLUMN applied_date date;'); return }
     setShowAppliedModal(false)
     fetchAll()
   }
@@ -940,8 +946,13 @@ export default function Invoices() {
               <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Applied Date</label>
               <input type='date' value={appliedInfo.date} onChange={e => setAppliedInfo({ ...appliedInfo, date: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
             </div>
+            {appliedError && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 14px', marginBottom: '14px', fontSize: '12px', color: '#dc2626', fontFamily: 'monospace' }}>
+                {appliedError}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowAppliedModal(false)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={() => { setShowAppliedModal(false); setAppliedError('') }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
               <button onClick={confirmApplied} style={{ padding: '8px 20px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Confirm</button>
             </div>
           </div>
