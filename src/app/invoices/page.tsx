@@ -787,7 +787,7 @@ export default function Invoices() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {['Memo #', 'Customer', 'Date', 'Subtotal', 'HST', 'Total', 'Status', ''].map(h => (
+              {['CM #', 'Customer', 'Date', 'Subtotal', 'HST', 'Total', 'Status', ''].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
@@ -949,8 +949,8 @@ export default function Invoices() {
                 <input type='date' value={cmForm.issued_at} onChange={e => setCmForm({ ...cmForm, issued_at: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>PO #</label>
-                <input value={cmForm.po_number} onChange={e => setCmForm({ ...cmForm, po_number: e.target.value })} placeholder='PO#' style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>REF #</label>
+                <input value={cmForm.po_number} onChange={e => setCmForm({ ...cmForm, po_number: e.target.value })} placeholder='REF#' style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
               </div>
             </div>
 

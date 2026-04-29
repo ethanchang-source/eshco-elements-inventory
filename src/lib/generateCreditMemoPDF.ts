@@ -65,12 +65,9 @@ export function generateCreditMemoPDF(data: CreditMemoData) {
   doc.setFont('helvetica', 'normal')
   doc.text(`DATE: ${new Date(data.issued_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase()}`, pageWidth - 14, 24, { align: 'right' })
   if (data.po_number) {
-    doc.text(`PO #: ${data.po_number}`, pageWidth - 14, 30, { align: 'right' })
+    doc.text(`REF #: ${data.po_number}`, pageWidth - 14, 30, { align: 'right' })
   }
-  doc.text(`MEMO #: ${data.memo_no}`, pageWidth - 14, 36, { align: 'right' })
-  if (data.payment_terms) {
-    doc.text(`TERMS: ${data.payment_terms}`, pageWidth - 14, 42, { align: 'right' })
-  }
+  doc.text(`CM #: ${data.memo_no}`, pageWidth - 14, 36, { align: 'right' })
 
   doc.setDrawColor(200, 200, 200)
   doc.line(14, 48, pageWidth - 14, 48)
