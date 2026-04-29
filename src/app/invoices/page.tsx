@@ -642,7 +642,7 @@ export default function Invoices() {
       setAppliedInfo({ memoId: id, date: new Date().toISOString().split('T')[0] })
       setShowAppliedModal(true)
     } else {
-      await supabase.from('credit_memos').update({ status, applied_date: null }).eq('id', id)
+      await supabase.from('credit_memos').update({ status }).eq('id', id)
       fetchAll()
     }
   }
@@ -835,7 +835,7 @@ export default function Invoices() {
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#7c3aed' }}>
                   <span onClick={() => { setAppliedInfo({ memoId: cm.id, date: cm.applied_date || new Date().toISOString().split('T')[0] }); setShowAppliedModal(true) }} style={{ cursor: 'pointer', textDecoration: cm.applied_date ? 'underline' : 'none' }}>
-                    {cm.applied_date ? cm.applied_date : <button style={{ background: '#f5f3ff', color: '#7c3aed', border: 'none', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer' }}>+ Add</button>}
+                    {cm.applied_date || '-'}
                   </span>
                 </td>
                 <td style={{ padding: '12px 16px' }}>
