@@ -569,33 +569,50 @@ export default function Invoices() {
     return `C${yr}-${String((count || 0) + 1).padStart(5, '0')}`
   }
 
+  const [cmSubmitting, setCmSubmitting] = useState(false)
+  const [cmError, setCmError] = useState('')
+
   async function handleCmSubmit() {
     if (!cmForm.customer_id || cmActiveItems.length === 0) {
       alert('Please select a customer and add at least one item.')
       return
     }
-    if (editCm) {
-      await supabase.from('credit_memos').update({
-        customer_id: cmForm.customer_id, issued_at: cmForm.issued_at,
-        subtotal_cad: cmSubtotal, tax_rate: parseFloat(cmForm.tax_rate) / 100,
-        tax_amount_cad: cmTaxAmount, total_cad: cmTotal,
-        notes: cmForm.notes, po_number: cmForm.po_number || '',
-      }).eq('id', editCm.id)
-      await supabase.from('credit_memo_items').delete().eq('memo_id', editCm.id)
-      await supabase.from('credit_memo_items').insert(cmActiveItems.map(i => ({ memo_id: editCm.id, product_id: i.product_id, qty: i.qty, unit_price_cad: i.unit_price, line_total_cad: i.total })))
-    } else {
-      const memo_no = await generateMemoNo()
-      const { data: cm } = await supabase.from('credit_memos').insert([{
-        memo_no, customer_id: cmForm.customer_id, issued_at: cmForm.issued_at, status: 'draft',
-        subtotal_cad: cmSubtotal, tax_rate: parseFloat(cmForm.tax_rate) / 100,
-        tax_amount_cad: cmTaxAmount, total_cad: cmTotal, currency: 'CAD',
-        notes: cmForm.notes, po_number: cmForm.po_number || '',
-      }]).select().single()
-      if (cm) await supabase.from('credit_memo_items').insert(cmActiveItems.map(i => ({ memo_id: cm.id, product_id: i.product_id, qty: i.qty, unit_price_cad: i.unit_price, line_total_cad: i.total })))
+    setCmSubmitting(true)
+    setCmError('')
+    try {
+      if (editCm) {
+        const { error: updErr } = await supabase.from('credit_memos').update({
+          customer_id: cmForm.customer_id, issued_at: cmForm.issued_at,
+          subtotal_cad: cmSubtotal, tax_rate: parseFloat(cmForm.tax_rate) / 100,
+          tax_amount_cad: cmTaxAmount, total_cad: cmTotal,
+          notes: cmForm.notes, po_number: cmForm.po_number || '',
+        }).eq('id', editCm.id)
+        if (updErr) throw updErr
+        await supabase.from('credit_memo_items').delete().eq('memo_id', editCm.id)
+        const { error: itemErr } = await supabase.from('credit_memo_items').insert(cmActiveItems.map(i => ({ memo_id: editCm.id, product_id: i.product_id, qty: i.qty, unit_price_cad: i.unit_price, line_total_cad: i.total })))
+        if (itemErr) throw itemErr
+      } else {
+        const memo_no = await generateMemoNo()
+        const { data: cm, error: insErr } = await supabase.from('credit_memos').insert([{
+          memo_no, customer_id: cmForm.customer_id, issued_at: cmForm.issued_at, status: 'draft',
+          subtotal_cad: cmSubtotal, tax_rate: parseFloat(cmForm.tax_rate) / 100,
+          tax_amount_cad: cmTaxAmount, total_cad: cmTotal, currency: 'CAD',
+          notes: cmForm.notes, po_number: cmForm.po_number || '',
+        }]).select().single()
+        if (insErr) throw insErr
+        if (cm) {
+          const { error: itemErr } = await supabase.from('credit_memo_items').insert(cmActiveItems.map(i => ({ memo_id: cm.id, product_id: i.product_id, qty: i.qty, unit_price_cad: i.unit_price, line_total_cad: i.total })))
+          if (itemErr) throw itemErr
+        }
+      }
+      setShowCmModal(false); setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null)
+      setCmForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '' })
+      fetchAll()
+    } catch (err: any) {
+      setCmError(err?.message || 'An error occurred. Please try again.')
+    } finally {
+      setCmSubmitting(false)
     }
-    setShowCmModal(false); setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null)
-    setCmForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '' })
-    fetchAll()
   }
 
   async function handleCmDownloadPDF(cm: CreditMemo) {
@@ -997,10 +1014,15 @@ export default function Invoices() {
               </div>
             </div>
 
+            {cmError && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 14px', marginBottom: '14px', fontSize: '13px', color: '#dc2626' }}>
+                {cmError}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button onClick={() => { setShowCmModal(false); setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-              <button onClick={handleCmSubmit} style={{ padding: '8px 20px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>
-                {editCm ? 'Update Credit Memo' : 'Create Credit Memo'}
+              <button onClick={() => { setShowCmModal(false); setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null); setCmError('') }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={handleCmSubmit} disabled={cmSubmitting} style={{ padding: '8px 20px', background: cmSubmitting ? '#a78bfa' : '#7c3aed', color: '#fff', border: 'none', borderRadius: '6px', cursor: cmSubmitting ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
+                {cmSubmitting ? 'Saving...' : editCm ? 'Update Credit Memo' : 'Create Credit Memo'}
               </button>
             </div>
           </div>
