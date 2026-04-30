@@ -13,9 +13,11 @@ interface Product {
   name: string
   size_oz: number
   barcode_upc: string
+  barcode_itf14?: string
   unit_cost_cad: number
   msrp_cad: number
   price_whs_cad: number
+  price_dist_cad?: number
   current_stock: number
   reorder_threshold: number
   is_active: boolean
@@ -62,10 +64,10 @@ export default function Products() {
     try {
       const text = await file.text()
       const rows = parseCSV(text)
-      let success = 0, failed = 0
+      let success = 0, failed = 0, skipped = 0
       for (const row of rows) {
         const sku = String(row.sku || '').trim()
-        if (!sku) { failed++; continue }
+        if (!sku) { skipped++; continue }
 
         // Only include columns that have actual values — don't overwrite blanks
         const update: Record<string, any> = { sku }
@@ -85,7 +87,10 @@ export default function Products() {
         const { error } = await supabase.from('products').upsert([update], { onConflict: 'sku' })
         if (error) failed++; else success++
       }
-      setImportResult(`✅ ${success} products updated. ${failed > 0 ? `❌ ${failed} failed.` : ''}`)
+      const parts = [`✅ ${success} products updated.`]
+      if (skipped > 0) parts.push(`⚠️ ${skipped} rows skipped (no SKU).`)
+      if (failed > 0) parts.push(`❌ ${failed} failed (Supabase error).`)
+      setImportResult(parts.join(' '))
       fetchProducts()
     } catch {
       setImportResult('❌ Error reading file. Please check the format.')
@@ -103,16 +108,18 @@ export default function Products() {
 
   function handleExport() {
     const rows = products.map(p => ({
-      'SKU': p.sku,
-      'Name': p.name,
-      'Size (oz)': p.size_oz,
-      'Barcode UPC': p.barcode_upc || '',
-      'Unit Cost (CAD)': p.unit_cost_cad,
-      'MSRP (CAD)': p.msrp_cad,
-      'WHS Price (CAD)': p.price_whs_cad,
-      'Current Stock': p.current_stock,
-      'Reorder Threshold': p.reorder_threshold,
-      'Status': p.is_active ? 'Active' : 'Inactive',
+      sku: p.sku,
+      name: p.name,
+      size_oz: p.size_oz,
+      barcode_upc: p.barcode_upc || '',
+      barcode_itf14: p.barcode_itf14 || '',
+      unit_cost: p.unit_cost_cad,
+      price_msrp: p.msrp_cad,
+      price_warehouse: p.price_whs_cad,
+      price_dist_cad: p.price_dist_cad ?? '',
+      stock_quantity: p.current_stock,
+      reorder_threshold: p.reorder_threshold,
+      active: p.is_active,
     }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Products')
