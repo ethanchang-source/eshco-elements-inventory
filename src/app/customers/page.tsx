@@ -24,7 +24,7 @@ interface Customer {
 const emptyForm = {
   company_name: '', warehouse_address: '', city: '', province: '',
   postal_code: '', contact_name: '', contact_email: '', contact_phone: '',
-  payment_terms: 'Net30', currency: 'CAD', notes: '',
+  payment_terms: 'Net 30', currency: 'CAD', notes: '',
 }
 
 export default function Customers() {
@@ -292,10 +292,10 @@ export default function Customers() {
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Payment Terms</label>
                 <select value={form.payment_terms} onChange={e => setForm({ ...form, payment_terms: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}>
-                  <option value='Net15'>Net 15</option>
-                  <option value='Net30'>Net 30</option>
-                  <option value='Net45'>Net 45</option>
-                  <option value='Net60'>Net 60</option>
+                  <option value='Net 15'>Net 15</option>
+                  <option value='Net 30'>Net 30</option>
+                  <option value='Net 45'>Net 45</option>
+                  <option value='Net 60'>Net 60</option>
                   <option value='COD'>COD</option>
                   <option value='Prepaid'>Prepaid</option>
                 </select>
