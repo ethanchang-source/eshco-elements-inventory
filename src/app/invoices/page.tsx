@@ -106,7 +106,7 @@ export default function Invoices() {
   const [editCm, setEditCm] = useState<CreditMemo | null>(null)
   const [cmSelectedCustomer, setCmSelectedCustomer] = useState<Customer | null>(null)
   const [cmLineItems, setCmLineItems] = useState<InvoiceLineItem[]>([])
-  const [cmForm, setCmForm] = useState({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '' })
+  const [cmForm, setCmForm] = useState({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '', applied_date: '' })
 
   const [showImportModal, setShowImportModal] = useState(false)
   const [importRows, setImportRows] = useState<any[]>([])
@@ -541,7 +541,7 @@ export default function Invoices() {
     if (cm.status !== 'draft') return
     setEditCm(cm)
     setCmSelectedCustomer(customers.find(c => c.id === cm.customer_id) || null)
-    setCmForm({ customer_id: cm.customer_id, issued_at: cm.issued_at, po_number: cm.po_number || '', tax_rate: String(Math.round(cm.tax_rate * 100)), notes: cm.notes || '' })
+    setCmForm({ customer_id: cm.customer_id, issued_at: cm.issued_at, po_number: cm.po_number || '', tax_rate: String(Math.round(cm.tax_rate * 100)), notes: cm.notes || '', applied_date: cm.applied_date || '' })
     const { data: items } = await supabase.from('credit_memo_items').select('*, products(id, sku, name, size_oz, price_whs_cad)').eq('memo_id', cm.id)
     const existingMap: { [key: string]: { qty: number; unit_price: number } } = {}
     if (items) items.forEach(item => { if (item.products?.id) existingMap[item.products.id] = { qty: item.qty, unit_price: item.unit_price_cad } })
@@ -589,6 +589,7 @@ export default function Invoices() {
           subtotal_cad: cmSubtotal, tax_rate: parseFloat(cmForm.tax_rate) / 100,
           tax_amount_cad: cmTaxAmount, total_cad: cmTotal,
           notes: cmForm.notes, po_number: cmForm.po_number || '',
+          applied_date: cmForm.applied_date || null,
         }).eq('id', editCm.id)
         if (updErr) throw updErr
         await supabase.from('credit_memo_items').delete().eq('memo_id', editCm.id)
@@ -601,6 +602,7 @@ export default function Invoices() {
           subtotal_cad: cmSubtotal, tax_rate: parseFloat(cmForm.tax_rate) / 100,
           tax_amount_cad: cmTaxAmount, total_cad: cmTotal, currency: 'CAD',
           notes: cmForm.notes, po_number: cmForm.po_number || '',
+          applied_date: cmForm.applied_date || null,
         }]).select().single()
         if (insErr) throw insErr
         if (cm) {
@@ -609,7 +611,7 @@ export default function Invoices() {
         }
       }
       setShowCmModal(false); setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null)
-      setCmForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '' })
+      setCmForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '', applied_date: '' })
       fetchAll()
     } catch (err: any) {
       setCmError(err?.message || 'An error occurred. Please try again.')
@@ -622,12 +624,47 @@ export default function Invoices() {
     const { data: items } = await supabase.from('credit_memo_items').select('*, products(sku, name, size_oz)').eq('memo_id', cm.id)
     if (!items || !cm.customers) return
     generateCreditMemoPDF({
-      memo_no: cm.memo_no, issued_at: cm.issued_at, po_number: cm.po_number || '',
+      memo_no: cm.memo_no, issued_at: cm.issued_at, applied_date: cm.applied_date || undefined, po_number: cm.po_number || '',
       payment_terms: cm.customers.payment_terms || '',
       customer: { company_name: cm.customers.company_name, warehouse_address: cm.customers.warehouse_address, city: cm.customers.city, province: cm.customers.province, postal_code: cm.customers.postal_code },
       items: items.map(i => ({ sku: i.products?.sku || '', name: i.products?.name || '', size: `${i.products?.size_oz} FL. OZ.`, unit_price: i.unit_price_cad, qty: i.qty, total: i.line_total_cad })),
       subtotal: cm.subtotal_cad, tax_rate: cm.tax_rate, tax_amount: cm.tax_amount_cad, total: cm.total_cad, notes: cm.notes || '',
     })
+  }
+
+  async function handleCmExport() {
+    const { data: items } = await supabase
+      .from('credit_memo_items')
+      .select('*, credit_memos(memo_no), products(sku, name, size_oz)')
+      .order('created_at')
+
+    const summaryRows = creditMemos.map(cm => ({
+      'Credit Memo #': cm.memo_no,
+      'Customer': cm.customers?.company_name || '',
+      'Date': cm.issued_at,
+      'Reference #': cm.po_number || '',
+      'Status': cm.status,
+      'Applied Date': cm.applied_date || '',
+      'Subtotal (CAD)': cm.subtotal_cad,
+      'HST (CAD)': cm.tax_amount_cad,
+      'Total (CAD)': cm.total_cad,
+      'Notes': cm.notes || '',
+    }))
+
+    const itemRows = (items || []).map((item: any) => ({
+      'Credit Memo #': item.credit_memos?.memo_no || '',
+      'SKU': item.products?.sku || '',
+      'Product Name': item.products?.name || '',
+      'Size': `${item.products?.size_oz} FL. OZ.`,
+      'Qty': item.qty,
+      'Unit Price (CAD)': item.unit_price_cad,
+      'Line Total (CAD)': item.line_total_cad,
+    }))
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Credit Memos')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(itemRows), 'Line Items')
+    XLSX.writeFile(wb, `credit_memos_export_${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
   async function handleCmDelete(id: string) {
@@ -983,7 +1020,7 @@ export default function Invoices() {
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>
               {editCm ? `Edit Credit Memo ${editCm.memo_no}` : 'New Credit Memo'}
             </h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Bill To / Ship To *</label>
                 <select value={cmForm.customer_id} onChange={e => cmHandleCustomerChange(e.target.value)} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}>
@@ -994,6 +1031,10 @@ export default function Invoices() {
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Date</label>
                 <input type='date' value={cmForm.issued_at} onChange={e => setCmForm({ ...cmForm, issued_at: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Applied Date</label>
+                <input type='date' value={cmForm.applied_date} onChange={e => setCmForm({ ...cmForm, applied_date: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>REFERENCE #</label>

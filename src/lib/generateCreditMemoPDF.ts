@@ -5,6 +5,7 @@ import { logoBase64 } from './logoBase64'
 interface CreditMemoData {
   memo_no: string
   issued_at: string
+  applied_date?: string
   po_number?: string
   payment_terms?: string
   customer: {
@@ -64,10 +65,16 @@ export function generateCreditMemoPDF(data: CreditMemoData) {
   doc.setFontSize(8.5)
   doc.setFont('helvetica', 'normal')
   doc.text(`DATE: ${new Date(data.issued_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase()}`, pageWidth - 14, 24, { align: 'right' })
-  if (data.po_number) {
-    doc.text(`REFERENCE #: ${data.po_number}`, pageWidth - 14, 30, { align: 'right' })
+  let headerY = 30
+  if (data.applied_date) {
+    doc.text(`APPLIED DATE: ${new Date(data.applied_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase()}`, pageWidth - 14, headerY, { align: 'right' })
+    headerY += 6
   }
-  doc.text(`CREDIT MEMO #: ${data.memo_no}`, pageWidth - 14, 36, { align: 'right' })
+  if (data.po_number) {
+    doc.text(`REFERENCE #: ${data.po_number}`, pageWidth - 14, headerY, { align: 'right' })
+    headerY += 6
+  }
+  doc.text(`CREDIT MEMO #: ${data.memo_no}`, pageWidth - 14, headerY, { align: 'right' })
 
   doc.setDrawColor(200, 200, 200)
   doc.line(14, 48, pageWidth - 14, 48)
