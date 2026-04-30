@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { Package, Plus, Search, Upload, Download } from 'lucide-react'
+import { Package, Plus, Search, Upload, Download, TableIcon } from 'lucide-react'
 import { parseCSV, downloadCSVTemplate } from '@/lib/csvImport'
+import * as XLSX from 'xlsx'
 
 interface Product {
   id: string
@@ -61,27 +62,30 @@ export default function Products() {
     try {
       const text = await file.text()
       const rows = parseCSV(text)
-      let success = 0
-      let failed = 0
+      let success = 0, failed = 0
       for (const row of rows) {
-        if (!row.sku || !row.name) { failed++; continue }
-        const { error } = await supabase.from('products').upsert([{
-          sku: row.sku,
-          name: row.name,
-          size_oz: parseFloat(row.size_oz) || 0,
-          barcode_upc: row.barcode_upc || '',
-          barcode_itf14: row.barcode_itf14 || '',
-          unit_cost_cad: parseFloat(row.unit_cost_cad) || 0,
-          msrp_cad: parseFloat(row.msrp_cad) || 0,
-          price_whs_cad: parseFloat(row.price_whs_cad) || 0,
-          price_dist_cad: parseFloat(row.price_dist_cad) || 0,
-          current_stock: parseInt(row.current_stock) || 0,
-          reorder_threshold: parseInt(row.reorder_threshold) || 0,
-          is_active: row.is_active !== 'false',
-        }], { onConflict: 'sku' })
+        const sku = String(row.sku || '').trim()
+        if (!sku) { failed++; continue }
+
+        // Only include columns that have actual values — don't overwrite blanks
+        const update: Record<string, any> = { sku }
+        const str = (v: any) => { const s = String(v ?? '').trim(); return s }
+        if (str(row.name)) update.name = str(row.name)
+        if (str(row.size_oz)) update.size_oz = parseFloat(str(row.size_oz))
+        if (str(row.barcode_upc)) update.barcode_upc = str(row.barcode_upc)
+        if (str(row.barcode_itf14)) update.barcode_itf14 = str(row.barcode_itf14)
+        if (str(row.unit_cost_cad)) update.unit_cost_cad = parseFloat(str(row.unit_cost_cad))
+        if (str(row.msrp_cad)) update.msrp_cad = parseFloat(str(row.msrp_cad))
+        if (str(row.price_whs_cad)) update.price_whs_cad = parseFloat(str(row.price_whs_cad))
+        if (str(row.price_dist_cad)) update.price_dist_cad = parseFloat(str(row.price_dist_cad))
+        if (str(row.current_stock)) update.current_stock = parseInt(str(row.current_stock))
+        if (str(row.reorder_threshold)) update.reorder_threshold = parseInt(str(row.reorder_threshold))
+        if (str(row.is_active)) update.is_active = str(row.is_active) !== 'false'
+
+        const { error } = await supabase.from('products').upsert([update], { onConflict: 'sku' })
         if (error) failed++; else success++
       }
-      setImportResult(`✅ ${success} products imported successfully. ${failed > 0 ? `❌ ${failed} failed.` : ''}`)
+      setImportResult(`✅ ${success} products updated. ${failed > 0 ? `❌ ${failed} failed.` : ''}`)
       fetchProducts()
     } catch {
       setImportResult('❌ Error reading file. Please check the format.')
@@ -97,6 +101,24 @@ export default function Products() {
     )
   }
 
+  function handleExport() {
+    const rows = products.map(p => ({
+      'SKU': p.sku,
+      'Name': p.name,
+      'Size (oz)': p.size_oz,
+      'Barcode UPC': p.barcode_upc || '',
+      'Unit Cost (CAD)': p.unit_cost_cad,
+      'MSRP (CAD)': p.msrp_cad,
+      'WHS Price (CAD)': p.price_whs_cad,
+      'Current Stock': p.current_stock,
+      'Reorder Threshold': p.reorder_threshold,
+      'Status': p.is_active ? 'Active' : 'Inactive',
+    }))
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Products')
+    XLSX.writeFile(wb, `products_export_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
   const filtered = products.filter(p =>
     p.name?.toLowerCase().includes(search.toLowerCase()) ||
     p.sku?.toLowerCase().includes(search.toLowerCase())
@@ -109,7 +131,7 @@ export default function Products() {
           <Search size={16} color='#94a3b8' />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search products...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button onClick={handleDownloadTemplate} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
             <Download size={14} /> CSV Template
           </button>
@@ -117,6 +139,9 @@ export default function Products() {
             <Upload size={14} /> {importing ? 'Importing...' : 'Import CSV'}
             <input type='file' accept='.csv' onChange={handleImport} style={{ display: 'none' }} />
           </label>
+          <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
+            <TableIcon size={14} /> Export Excel
+          </button>
           <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={14} /> Add Product
           </button>

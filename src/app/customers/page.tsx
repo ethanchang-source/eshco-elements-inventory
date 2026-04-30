@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { Users, Plus, Search, MapPin, Phone, Mail, Upload, Download } from 'lucide-react'
-import { parseCSV, downloadCSVTemplate } from '@/lib/csvImport'
+import { Users, Plus, Search, MapPin, Phone, Mail, Upload, Download, TableIcon } from 'lucide-react'
+import * as XLSX from 'xlsx'
 
 interface Customer {
   id: string
@@ -21,18 +21,22 @@ interface Customer {
   notes: string
 }
 
+const emptyForm = {
+  company_name: '', warehouse_address: '', city: '', province: '',
+  postal_code: '', contact_name: '', contact_email: '', contact_phone: '',
+  payment_terms: 'Net30', currency: 'CAD', notes: '',
+}
+
 export default function Customers() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
+  const [editCustomer, setEditCustomer] = useState<Customer | null>(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState('')
-  const [form, setForm] = useState({
-    company_name: '', warehouse_address: '', city: '', province: '',
-    postal_code: '', contact_name: '', contact_email: '', contact_phone: '',
-    payment_terms: 'Net30', currency: 'CAD', notes: ''
-  })
+  const importFileRef = useRef<HTMLInputElement>(null)
+  const [form, setForm] = useState({ ...emptyForm })
 
   useEffect(() => { fetchCustomers() }, [])
 
@@ -42,10 +46,40 @@ export default function Customers() {
     setLoading(false)
   }
 
+  function openAddModal() {
+    setEditCustomer(null)
+    setForm({ ...emptyForm })
+    setShowModal(true)
+  }
+
+  function openEditModal(c: Customer) {
+    setEditCustomer(c)
+    setForm({
+      company_name: c.company_name || '',
+      warehouse_address: c.warehouse_address || '',
+      city: c.city || '',
+      province: c.province || '',
+      postal_code: c.postal_code || '',
+      contact_name: c.contact_name || '',
+      contact_email: c.contact_email || '',
+      contact_phone: c.contact_phone || '',
+      payment_terms: c.payment_terms || 'Net30',
+      currency: c.currency || 'CAD',
+      notes: c.notes || '',
+    })
+    setShowModal(true)
+  }
+
   async function handleSubmit() {
-    await supabase.from('customers').insert([form])
+    if (!form.company_name.trim()) return
+    if (editCustomer) {
+      await supabase.from('customers').update(form).eq('id', editCustomer.id)
+    } else {
+      await supabase.from('customers').insert([form])
+    }
     setShowModal(false)
-    setForm({ company_name: '', warehouse_address: '', city: '', province: '', postal_code: '', contact_name: '', contact_email: '', contact_phone: '', payment_terms: 'Net30', currency: 'CAD', notes: '' })
+    setEditCustomer(null)
+    setForm({ ...emptyForm })
     fetchCustomers()
   }
 
@@ -55,40 +89,74 @@ export default function Customers() {
     setImporting(true)
     setImportResult('')
     try {
-      const text = await file.text()
-      const rows = parseCSV(text)
+      const buffer = await file.arrayBuffer()
+      const wb = XLSX.read(buffer, { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json<any>(ws, { defval: '' })
       let success = 0, failed = 0
       for (const row of rows) {
-        if (!row.company_name) { failed++; continue }
+        const name = String(row['Company Name'] || row['company_name'] || '').trim()
+        if (!name) { failed++; continue }
         const { error } = await supabase.from('customers').insert([{
-          company_name: row.company_name,
-          warehouse_address: row.warehouse_address || '',
-          city: row.city || '',
-          province: row.province || '',
-          postal_code: row.postal_code || '',
-          contact_name: row.contact_name || '',
-          contact_email: row.contact_email || '',
-          contact_phone: row.contact_phone || '',
-          payment_terms: row.payment_terms || 'Net30',
-          currency: row.currency || 'CAD',
-          notes: row.notes || '',
+          company_name: name,
+          warehouse_address: String(row['Warehouse Address'] || row['warehouse_address'] || ''),
+          city: String(row['City'] || row['city'] || ''),
+          province: String(row['Province'] || row['province'] || ''),
+          postal_code: String(row['Postal Code'] || row['postal_code'] || ''),
+          contact_name: String(row['Contact Name'] || row['contact_name'] || ''),
+          contact_email: String(row['Contact Email'] || row['contact_email'] || ''),
+          contact_phone: String(row['Contact Phone'] || row['contact_phone'] || ''),
+          payment_terms: String(row['Payment Terms'] || row['payment_terms'] || 'Net30'),
+          currency: String(row['Currency'] || row['currency'] || 'CAD'),
+          notes: String(row['Notes'] || row['notes'] || ''),
         }])
         if (error) failed++; else success++
       }
-      setImportResult(`✅ ${success} customers imported. ${failed > 0 ? `❌ ${failed} failed.` : ''}`)
+      setImportResult(`✅ ${success} customers imported.${failed > 0 ? ` ❌ ${failed} failed.` : ''}`)
       fetchCustomers()
     } catch {
-      setImportResult('❌ Error reading file.')
+      setImportResult('❌ Error reading file. Please check the format.')
     }
     setImporting(false)
     e.target.value = ''
   }
 
-  function handleDownloadTemplate() {
-    downloadCSVTemplate(
-      ['company_name', 'warehouse_address', 'city', 'province', 'postal_code', 'contact_name', 'contact_email', 'contact_phone', 'payment_terms', 'currency', 'notes'],
-      'customers_template.csv'
-    )
+  function handleExport() {
+    const rows = customers.map(c => ({
+      'Company Name': c.company_name,
+      'Warehouse Address': c.warehouse_address || '',
+      'City': c.city || '',
+      'Province': c.province || '',
+      'Postal Code': c.postal_code || '',
+      'Contact Name': c.contact_name || '',
+      'Contact Email': c.contact_email || '',
+      'Contact Phone': c.contact_phone || '',
+      'Payment Terms': c.payment_terms || '',
+      'Currency': c.currency || '',
+      'Notes': c.notes || '',
+    }))
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Customers')
+    XLSX.writeFile(wb, `customers_export_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
+  function downloadTemplate() {
+    const rows = [{
+      'Company Name': 'Example Retailer Inc.',
+      'Warehouse Address': '123 Warehouse St',
+      'City': 'Toronto',
+      'Province': 'ON',
+      'Postal Code': 'M1M 1M1',
+      'Contact Name': 'John Smith',
+      'Contact Email': 'john@company.com',
+      'Contact Phone': '416-555-0000',
+      'Payment Terms': 'Net30',
+      'Currency': 'CAD',
+      'Notes': '',
+    }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Template')
+    XLSX.writeFile(wb, 'customers_template.xlsx')
   }
 
   const filtered = customers.filter(c =>
@@ -103,15 +171,18 @@ export default function Customers() {
           <Search size={16} color='#94a3b8' />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search customers...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={handleDownloadTemplate} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button onClick={downloadTemplate} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
             <Download size={14} /> Template
           </button>
           <label style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}>
-            <Upload size={14} /> {importing ? 'Importing...' : 'Import CSV'}
-            <input type='file' accept='.csv' onChange={handleImport} style={{ display: 'none' }} />
+            <Upload size={14} /> {importing ? 'Importing...' : 'Import Excel'}
+            <input ref={importFileRef} type='file' accept='.xlsx,.xls' onChange={handleImport} style={{ display: 'none' }} />
           </label>
-          <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
+          <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
+            <TableIcon size={14} /> Export Excel
+          </button>
+          <button onClick={openAddModal} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={14} /> Add Customer
           </button>
         </div>
@@ -133,7 +204,13 @@ export default function Customers() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
           {filtered.map(c => (
-            <div key={c.id} style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+            <div
+              key={c.id}
+              onClick={() => openEditModal(c)}
+              style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', cursor: 'pointer', transition: 'box-shadow 0.15s, border-color 0.15s' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 12px rgba(37,99,235,0.1)'; (e.currentTarget as HTMLDivElement).style.borderColor = '#93c5fd' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = 'none'; (e.currentTarget as HTMLDivElement).style.borderColor = '#e2e8f0' }}
+            >
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '12px' }}>
                 <div>
                   <div style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b' }}>{c.company_name}</div>
@@ -171,7 +248,9 @@ export default function Customers() {
       {showModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
           <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '520px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Add New Customer</h2>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>
+              {editCustomer ? 'Edit Customer' : 'Add New Customer'}
+            </h2>
             {[
               { label: 'Company Name *', key: 'company_name', placeholder: 'ABC Beauty Inc.' },
               { label: 'Warehouse Address', key: 'warehouse_address', placeholder: '123 Warehouse St' },
@@ -185,7 +264,12 @@ export default function Customers() {
             ].map(field => (
               <div key={field.key} style={{ marginBottom: '14px' }}>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>{field.label}</label>
-                <input value={form[field.key as keyof typeof form]} onChange={e => setForm({ ...form, [field.key]: e.target.value })} placeholder={field.placeholder} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+                <input
+                  value={form[field.key as keyof typeof form]}
+                  onChange={e => setForm({ ...form, [field.key]: e.target.value })}
+                  placeholder={field.placeholder}
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}
+                />
               </div>
             ))}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
@@ -209,8 +293,10 @@ export default function Customers() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '8px' }}>
-              <button onClick={() => setShowModal(false)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-              <button onClick={handleSubmit} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Save Customer</button>
+              <button onClick={() => { setShowModal(false); setEditCustomer(null) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={handleSubmit} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>
+                {editCustomer ? 'Save Changes' : 'Add Customer'}
+              </button>
             </div>
           </div>
         </div>
