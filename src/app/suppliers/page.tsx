@@ -72,6 +72,15 @@ export default function Suppliers() {
     fetchSuppliers()
   }
 
+  async function handleDelete() {
+    if (!editSupplier) return
+    if (!confirm(`"${editSupplier.name}" 공급업체를 삭제하시겠습니까?`)) return
+    await supabase.from('suppliers').delete().eq('id', editSupplier.id)
+    setShowModal(false)
+    setEditSupplier(null)
+    fetchSuppliers()
+  }
+
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -86,14 +95,21 @@ export default function Suppliers() {
       for (const row of rows) {
         const name = String(row['Company Name'] || row['name'] || '').trim()
         if (!name) { failed++; continue }
-        const { error } = await supabase.from('suppliers').insert([{
+        const payload = {
           name,
           contact_name: String(row['Contact Name'] || row['contact_name'] || ''),
           contact_email: String(row['Contact Email'] || row['contact_email'] || ''),
           contact_phone: String(row['Contact Phone'] || row['contact_phone'] || ''),
           country: String(row['Country'] || row['country'] || 'Canada'),
           notes: String(row['Notes'] || row['notes'] || ''),
-        }])
+        }
+        const { data: existing } = await supabase.from('suppliers').select('id').eq('name', name).maybeSingle()
+        let error
+        if (existing) {
+          ;({ error } = await supabase.from('suppliers').update(payload).eq('id', existing.id))
+        } else {
+          ;({ error } = await supabase.from('suppliers').insert([payload]))
+        }
         if (error) failed++; else success++
       }
       setImportResult(`✅ ${success} suppliers imported.${failed > 0 ? ` ❌ ${failed} failed.` : ''}`)
@@ -237,11 +253,20 @@ export default function Suppliers() {
                 />
               </div>
             ))}
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '8px' }}>
-              <button onClick={() => { setShowModal(false); setEditSupplier(null) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-              <button onClick={handleSubmit} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>
-                {editSupplier ? 'Save Changes' : 'Save Supplier'}
-              </button>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'space-between', marginTop: '8px', alignItems: 'center' }}>
+              <div>
+                {editSupplier && (
+                  <button onClick={handleDelete} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
+                    Delete
+                  </button>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button onClick={() => { setShowModal(false); setEditSupplier(null) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                <button onClick={handleSubmit} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>
+                  {editSupplier ? 'Save Changes' : 'Save Supplier'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
