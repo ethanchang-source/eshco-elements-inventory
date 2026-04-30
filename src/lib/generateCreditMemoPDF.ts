@@ -66,10 +66,6 @@ export function generateCreditMemoPDF(data: CreditMemoData) {
   doc.setFont('helvetica', 'normal')
   doc.text(`DATE: ${new Date(data.issued_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase()}`, pageWidth - 14, 24, { align: 'right' })
   let headerY = 30
-  if (data.applied_date) {
-    doc.text(`APPLIED DATE: ${new Date(data.applied_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase()}`, pageWidth - 14, headerY, { align: 'right' })
-    headerY += 6
-  }
   if (data.po_number) {
     doc.text(`REFERENCE #: ${data.po_number}`, pageWidth - 14, headerY, { align: 'right' })
     headerY += 6
