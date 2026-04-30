@@ -52,6 +52,13 @@ export default function Customers() {
     setShowModal(true)
   }
 
+  function normalizePaymentTerms(val: string): string {
+    const map: Record<string, string> = {
+      'Net15': 'Net 15', 'Net30': 'Net 30', 'Net45': 'Net 45', 'Net60': 'Net 60',
+    }
+    return map[val] || val || 'Net 30'
+  }
+
   function openEditModal(c: Customer) {
     setEditCustomer(c)
     setForm({
@@ -63,7 +70,7 @@ export default function Customers() {
       contact_name: c.contact_name || '',
       contact_email: c.contact_email || '',
       contact_phone: c.contact_phone || '',
-      payment_terms: c.payment_terms || 'Net30',
+      payment_terms: normalizePaymentTerms(c.payment_terms),
       currency: c.currency || 'CAD',
       notes: c.notes || '',
     })
