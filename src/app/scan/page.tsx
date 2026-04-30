@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { ScanLine, RotateCcw, Package, AlertTriangle, CheckCircle } from 'lucide-react'
+import { ScanLine, RotateCcw, Package, AlertTriangle, CheckCircle, Camera } from 'lucide-react'
 
 interface Product {
   id: string
@@ -19,15 +19,14 @@ interface Product {
   is_active: boolean
 }
 
-type ScanState = 'scanning' | 'found' | 'not_found' | 'error'
+type ScanState = 'idle' | 'scanning' | 'found' | 'not_found' | 'error'
 
 export default function ScanPage() {
-  const [scanState, setScanState] = useState<ScanState>('scanning')
+  const [scanState, setScanState] = useState<ScanState>('idle')
   const [product, setProduct] = useState<Product | null>(null)
   const [scannedCode, setScannedCode] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
   const scannerRef = useRef<any>(null)
-  const readerRef = useRef<HTMLDivElement>(null)
 
   const stopScanner = useCallback(async () => {
     if (scannerRef.current) {
@@ -37,16 +36,19 @@ export default function ScanPage() {
   }, [])
 
   const startScanner = useCallback(async () => {
-    setScanState('scanning')
     setProduct(null)
     setScannedCode('')
     setErrorMsg('')
+    setScanState('scanning')
 
-    const { Html5Qrcode } = await import('html5-qrcode')
-    const html5QrCode = new Html5Qrcode('qr-reader')
-    scannerRef.current = html5QrCode
+    // Give React a tick to render the #qr-reader div before initializing
+    await new Promise(resolve => setTimeout(resolve, 100))
 
     try {
+      const { Html5Qrcode } = await import('html5-qrcode')
+      const html5QrCode = new Html5Qrcode('qr-reader')
+      scannerRef.current = html5QrCode
+
       await html5QrCode.start(
         { facingMode: 'environment' },
         { fps: 10, qrbox: { width: 260, height: 120 } },
@@ -69,16 +71,22 @@ export default function ScanPage() {
         },
         () => {}
       )
-    } catch {
+    } catch (err: any) {
       setScanState('error')
-      setErrorMsg('Camera access is required. Please allow camera permission in your browser settings.')
+      const msg = err?.message || ''
+      if (msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('notallowed')) {
+        setErrorMsg('카메라 권한이 필요합니다. 브라우저 설정에서 카메라 접근을 허용해주세요.')
+      } else if (msg.toLowerCase().includes('notfound') || msg.toLowerCase().includes('no camera')) {
+        setErrorMsg('카메라를 찾을 수 없습니다. 카메라가 연결되어 있는지 확인해주세요.')
+      } else {
+        setErrorMsg(`카메라를 시작할 수 없습니다. Safari → 설정 → 카메라 권한을 확인해주세요. (${msg || 'unknown error'})`)
+      }
     }
   }, [stopScanner])
 
   useEffect(() => {
-    startScanner()
     return () => { stopScanner() }
-  }, [startScanner, stopScanner])
+  }, [stopScanner])
 
   const isLowStock = product && product.current_stock <= product.reorder_threshold
 
@@ -90,13 +98,29 @@ export default function ScanPage() {
           <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>Point your camera at a product barcode</p>
         </div>
 
-        {/* 카메라 뷰파인더 */}
+        {/* 카메라 시작 버튼 (idle 상태) */}
+        {scanState === 'idle' && (
+          <div style={{ background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '40px 20px', textAlign: 'center', marginBottom: '20px' }}>
+            <div style={{ width: '72px', height: '72px', background: '#eff6ff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+              <Camera size={32} color='#2563eb' />
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: '600', color: '#1e293b', marginBottom: '8px' }}>카메라로 바코드 스캔</div>
+            <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '24px' }}>UPC / EAN / ITF-14 바코드 지원</div>
+            <button
+              onClick={startScanner}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '12px', padding: '14px 28px', fontSize: '15px', fontWeight: '600', cursor: 'pointer' }}
+            >
+              <Camera size={18} /> 카메라 시작
+            </button>
+          </div>
+        )}
+
+        {/* 카메라 뷰파인더 - scanning 상태일 때만 표시 */}
         {scanState === 'scanning' && (
           <div style={{ position: 'relative', background: '#000', borderRadius: '16px', overflow: 'hidden', marginBottom: '20px' }}>
-            <div id='qr-reader' ref={readerRef} style={{ width: '100%' }} />
+            <div id='qr-reader' style={{ width: '100%', minHeight: '240px' }} />
             <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <div style={{ width: '260px', height: '120px', position: 'relative' }}>
-                {/* 모서리 가이드라인 */}
                 {[
                   { top: 0, left: 0, borderTop: '3px solid #2563eb', borderLeft: '3px solid #2563eb' },
                   { top: 0, right: 0, borderTop: '3px solid #2563eb', borderRight: '3px solid #2563eb' },
@@ -105,7 +129,6 @@ export default function ScanPage() {
                 ].map((style, i) => (
                   <div key={i} style={{ position: 'absolute', width: '20px', height: '20px', ...style }} />
                 ))}
-                {/* 스캔 라인 */}
                 <style>{`
                   @keyframes scan { 0%,100% { top: 10px } 50% { top: calc(100% - 10px) } }
                   .scan-line { animation: scan 2s ease-in-out infinite; }
@@ -143,7 +166,6 @@ export default function ScanPage() {
                 </div>
               </div>
 
-              {/* 재고 현황 - 크게 표시 */}
               <div style={{ background: isLowStock ? '#fef2f2' : '#f0fdf4', borderRadius: '12px', padding: '20px', textAlign: 'center', marginBottom: '16px' }}>
                 <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>Current Stock</div>
                 <div style={{ fontSize: '48px', fontWeight: '800', color: isLowStock ? '#dc2626' : '#16a34a', lineHeight: 1 }}>
@@ -157,7 +179,6 @@ export default function ScanPage() {
                 )}
               </div>
 
-              {/* 가격 정보 */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
                 {[
                   { label: 'Cost', value: `$${product.unit_cost_cad?.toFixed(2)}` },
