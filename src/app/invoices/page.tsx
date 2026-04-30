@@ -679,7 +679,7 @@ export default function Invoices() {
       setAppliedInfo({ memoId: id, date: new Date().toISOString().split('T')[0] })
       setShowAppliedModal(true)
     } else {
-      await supabase.from('credit_memos').update({ status }).eq('id', id)
+      await supabase.from('credit_memos').update({ status, applied_date: null }).eq('id', id)
       fetchAll()
     }
   }
