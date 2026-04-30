@@ -70,6 +70,15 @@ export default function Customers() {
     setShowModal(true)
   }
 
+  async function handleDelete() {
+    if (!editCustomer) return
+    if (!confirm(`"${editCustomer.company_name}" 고객을 삭제하시겠습니까?`)) return
+    await supabase.from('customers').delete().eq('id', editCustomer.id)
+    setShowModal(false)
+    setEditCustomer(null)
+    fetchCustomers()
+  }
+
   async function handleSubmit() {
     if (!form.company_name.trim()) return
     if (editCustomer) {
@@ -97,7 +106,7 @@ export default function Customers() {
       for (const row of rows) {
         const name = String(row['Company Name'] || row['company_name'] || '').trim()
         if (!name) { failed++; continue }
-        const { error } = await supabase.from('customers').insert([{
+        const payload = {
           company_name: name,
           warehouse_address: String(row['Warehouse Address'] || row['warehouse_address'] || ''),
           city: String(row['City'] || row['city'] || ''),
@@ -109,7 +118,14 @@ export default function Customers() {
           payment_terms: String(row['Payment Terms'] || row['payment_terms'] || 'Net30'),
           currency: String(row['Currency'] || row['currency'] || 'CAD'),
           notes: String(row['Notes'] || row['notes'] || ''),
-        }])
+        }
+        const { data: existing } = await supabase.from('customers').select('id').eq('company_name', name).maybeSingle()
+        let error
+        if (existing) {
+          ;({ error } = await supabase.from('customers').update(payload).eq('id', existing.id))
+        } else {
+          ;({ error } = await supabase.from('customers').insert([payload]))
+        }
         if (error) failed++; else success++
       }
       setImportResult(`✅ ${success} customers imported.${failed > 0 ? ` ❌ ${failed} failed.` : ''}`)
@@ -292,11 +308,20 @@ export default function Customers() {
                 </select>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '8px' }}>
-              <button onClick={() => { setShowModal(false); setEditCustomer(null) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-              <button onClick={handleSubmit} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>
-                {editCustomer ? 'Save Changes' : 'Add Customer'}
-              </button>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'space-between', marginTop: '8px', alignItems: 'center' }}>
+              <div>
+                {editCustomer && (
+                  <button onClick={handleDelete} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
+                    Delete
+                  </button>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button onClick={() => { setShowModal(false); setEditCustomer(null) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                <button onClick={handleSubmit} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>
+                  {editCustomer ? 'Save Changes' : 'Add Customer'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
