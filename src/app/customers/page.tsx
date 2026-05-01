@@ -21,6 +21,14 @@ interface Customer {
   notes: string
 }
 
+interface Product {
+  id: string
+  sku: string
+  name: string
+  size_oz: number
+  price_whs_cad: number
+}
+
 const emptyForm = {
   company_name: '', warehouse_address: '', city: '', province: '',
   postal_code: '', contact_name: '', contact_email: '', contact_phone: '',
@@ -37,13 +45,22 @@ export default function Customers() {
   const [importResult, setImportResult] = useState('')
   const importFileRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState({ ...emptyForm })
+  const [products, setProducts] = useState<Product[]>([])
+  const [modalTab, setModalTab] = useState<'info' | 'prices'>('info')
+  const [priceList, setPriceList] = useState<{ product_id: string; sku: string; name: string; size: string; default_price: number; custom_price: string }[]>([])
+  const [savingPrices, setSavingPrices] = useState(false)
 
-  useEffect(() => { fetchCustomers() }, [])
+  useEffect(() => { fetchCustomers(); fetchProducts() }, [])
 
   async function fetchCustomers() {
     const { data } = await supabase.from('customers').select('*').order('company_name')
     setCustomers(data || [])
     setLoading(false)
+  }
+
+  async function fetchProducts() {
+    const { data } = await supabase.from('products').select('id, sku, name, size_oz, price_whs_cad').eq('is_active', true).order('sku')
+    setProducts(data || [])
   }
 
   function openAddModal() {
@@ -59,7 +76,7 @@ export default function Customers() {
     return map[val] || val || 'Net 30'
   }
 
-  function openEditModal(c: Customer) {
+  async function openEditModal(c: Customer) {
     setEditCustomer(c)
     setForm({
       company_name: c.company_name || '',
@@ -74,6 +91,15 @@ export default function Customers() {
       currency: c.currency || 'CAD',
       notes: c.notes || '',
     })
+    const { data: prices } = await supabase.from('customer_prices').select('product_id, unit_price').eq('customer_id', c.id)
+    const priceMap: Record<string, number> = {}
+    if (prices) prices.forEach(p => { priceMap[p.product_id] = p.unit_price })
+    setPriceList(products.map(p => ({
+      product_id: p.id, sku: p.sku, name: p.name, size: `${p.size_oz} FL. OZ.`,
+      default_price: p.price_whs_cad || 0,
+      custom_price: priceMap[p.id] != null ? String(priceMap[p.id]) : '',
+    })))
+    setModalTab('info')
     setShowModal(true)
   }
 
@@ -97,6 +123,17 @@ export default function Customers() {
     setEditCustomer(null)
     setForm({ ...emptyForm })
     fetchCustomers()
+  }
+
+  async function handleSavePrices() {
+    if (!editCustomer) return
+    setSavingPrices(true)
+    await supabase.from('customer_prices').delete().eq('customer_id', editCustomer.id)
+    const toInsert = priceList
+      .filter(p => p.custom_price.trim() !== '' && !isNaN(parseFloat(p.custom_price)))
+      .map(p => ({ customer_id: editCustomer.id, product_id: p.product_id, unit_price: parseFloat(p.custom_price), notes: '' }))
+    if (toInsert.length > 0) await supabase.from('customer_prices').insert(toInsert)
+    setSavingPrices(false)
   }
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -270,66 +307,123 @@ export default function Customers() {
 
       {showModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '520px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>
-              {editCustomer ? 'Edit Customer' : 'Add New Customer'}
-            </h2>
-            {[
-              { label: 'Company Name *', key: 'company_name', placeholder: 'ABC Beauty Inc.' },
-              { label: 'Warehouse Address', key: 'warehouse_address', placeholder: '123 Warehouse St' },
-              { label: 'City', key: 'city', placeholder: 'Toronto' },
-              { label: 'Province', key: 'province', placeholder: 'ON' },
-              { label: 'Postal Code', key: 'postal_code', placeholder: 'M1M 1M1' },
-              { label: 'Contact Name', key: 'contact_name', placeholder: 'John Smith' },
-              { label: 'Contact Email', key: 'contact_email', placeholder: 'john@company.com' },
-              { label: 'Contact Phone', key: 'contact_phone', placeholder: '416-555-0000' },
-              { label: 'Notes', key: 'notes', placeholder: 'Any notes...' },
-            ].map(field => (
-              <div key={field.key} style={{ marginBottom: '14px' }}>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>{field.label}</label>
-                <input
-                  value={form[field.key as keyof typeof form]}
-                  onChange={e => setForm({ ...form, [field.key]: e.target.value })}
-                  placeholder={field.placeholder}
-                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}
-                />
-              </div>
-            ))}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Payment Terms</label>
-                <select value={form.payment_terms} onChange={e => setForm({ ...form, payment_terms: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}>
-                  <option value='Net 15'>Net 15</option>
-                  <option value='Net 30'>Net 30</option>
-                  <option value='Net 45'>Net 45</option>
-                  <option value='Net 60'>Net 60</option>
-                  <option value='COD'>COD</option>
-                  <option value='Prepaid'>Prepaid</option>
-                </select>
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Currency</label>
-                <select value={form.currency} onChange={e => setForm({ ...form, currency: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}>
-                  <option value='CAD'>CAD</option>
-                  <option value='USD'>USD</option>
-                </select>
-              </div>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: editCustomer ? '640px' : '520px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: '600' }}>
+                {editCustomer ? 'Edit Customer' : 'Add New Customer'}
+              </h2>
+              {editCustomer && (
+                <div style={{ display: 'flex', gap: '3px', background: '#f1f5f9', borderRadius: '8px', padding: '3px' }}>
+                  {(['info', 'prices'] as const).map(tab => (
+                    <button key={tab} onClick={() => setModalTab(tab)} style={{ padding: '5px 14px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: '500', background: modalTab === tab ? '#fff' : 'transparent', color: modalTab === tab ? '#1e293b' : '#64748b', boxShadow: modalTab === tab ? '0 1px 3px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s' }}>
+                      {tab === 'info' ? 'Info' : 'Price List'}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'space-between', marginTop: '8px', alignItems: 'center' }}>
-              <div>
-                {editCustomer && (
-                  <button onClick={handleDelete} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
-                    Delete
-                  </button>
-                )}
+
+            {modalTab === 'info' && <>
+              {[
+                { label: 'Company Name *', key: 'company_name', placeholder: 'ABC Beauty Inc.' },
+                { label: 'Warehouse Address', key: 'warehouse_address', placeholder: '123 Warehouse St' },
+                { label: 'City', key: 'city', placeholder: 'Toronto' },
+                { label: 'Province', key: 'province', placeholder: 'ON' },
+                { label: 'Postal Code', key: 'postal_code', placeholder: 'M1M 1M1' },
+                { label: 'Contact Name', key: 'contact_name', placeholder: 'John Smith' },
+                { label: 'Contact Email', key: 'contact_email', placeholder: 'john@company.com' },
+                { label: 'Contact Phone', key: 'contact_phone', placeholder: '416-555-0000' },
+                { label: 'Notes', key: 'notes', placeholder: 'Any notes...' },
+              ].map(field => (
+                <div key={field.key} style={{ marginBottom: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>{field.label}</label>
+                  <input
+                    value={form[field.key as keyof typeof form]}
+                    onChange={e => setForm({ ...form, [field.key]: e.target.value })}
+                    placeholder={field.placeholder}
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}
+                  />
+                </div>
+              ))}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Payment Terms</label>
+                  <select value={form.payment_terms} onChange={e => setForm({ ...form, payment_terms: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}>
+                    <option value='Net 15'>Net 15</option>
+                    <option value='Net 30'>Net 30</option>
+                    <option value='Net 45'>Net 45</option>
+                    <option value='Net 60'>Net 60</option>
+                    <option value='COD'>COD</option>
+                    <option value='Prepaid'>Prepaid</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Currency</label>
+                  <select value={form.currency} onChange={e => setForm({ ...form, currency: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}>
+                    <option value='CAD'>CAD</option>
+                    <option value='USD'>USD</option>
+                  </select>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '12px' }}>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'space-between', marginTop: '8px', alignItems: 'center' }}>
+                <div>
+                  {editCustomer && (
+                    <button onClick={handleDelete} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
+                      Delete
+                    </button>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button onClick={() => { setShowModal(false); setEditCustomer(null) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                  <button onClick={handleSubmit} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>
+                    {editCustomer ? 'Save Changes' : 'Add Customer'}
+                  </button>
+                </div>
+              </div>
+            </>}
+
+            {modalTab === 'prices' && editCustomer && <>
+              {priceList.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '48px', color: '#94a3b8', fontSize: '13px' }}>No active products found.</div>
+              ) : (
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', marginBottom: '16px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        {['SKU', 'Product', 'Size', 'Default Price', 'Custom Price'].map(h => (
+                          <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {priceList.map((item, idx) => (
+                        <tr key={item.product_id} style={{ borderBottom: '1px solid #f1f5f9', background: item.custom_price ? '#eff6ff' : '#fff' }}>
+                          <td style={{ padding: '8px 12px', fontSize: '12px', fontWeight: '600', color: '#2563eb' }}>{item.sku}</td>
+                          <td style={{ padding: '8px 12px', fontSize: '12px', color: '#1e293b' }}>{item.name}</td>
+                          <td style={{ padding: '8px 12px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{item.size}</td>
+                          <td style={{ padding: '8px 12px', fontSize: '12px', color: '#94a3b8' }}>${item.default_price.toFixed(2)}</td>
+                          <td style={{ padding: '8px 12px' }}>
+                            <input
+                              type='number'
+                              value={item.custom_price}
+                              onChange={e => setPriceList(prev => { const u = [...prev]; u[idx] = { ...u[idx], custom_price: e.target.value }; return u })}
+                              placeholder={item.default_price.toFixed(2)}
+                              style={{ width: '80px', padding: '4px 8px', border: item.custom_price ? '1px solid #2563eb' : '1px solid #e2e8f0', borderRadius: '4px', fontSize: '12px', outline: 'none' }}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                 <button onClick={() => { setShowModal(false); setEditCustomer(null) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-                <button onClick={handleSubmit} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>
-                  {editCustomer ? 'Save Changes' : 'Add Customer'}
+                <button onClick={handleSavePrices} disabled={savingPrices} style={{ padding: '8px 20px', background: savingPrices ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: savingPrices ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
+                  {savingPrices ? 'Saving...' : 'Save Prices'}
                 </button>
               </div>
-            </div>
+            </>}
           </div>
         </div>
       )}
