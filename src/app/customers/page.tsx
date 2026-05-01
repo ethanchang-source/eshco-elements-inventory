@@ -172,25 +172,30 @@ export default function Customers() {
       const records: any[] = []
       let skipped = 0
       for (const row of rows) {
-        const name = String(row['Company Name'] || row['company_name'] || '').trim()
+        // normalize all header keys to lowercase with underscores so any casing works
+        const r: Record<string, any> = {}
+        for (const key of Object.keys(row)) {
+          r[key.toLowerCase().replace(/\s+/g, '_')] = row[key]
+        }
+        const name = String(r['company_name'] || '').trim()
         if (!name) { skipped++; continue }
         records.push({
           company_name: name,
-          ship_to_address: String(row['Ship To Address'] || row['ship_to_address'] || ''),
-          ship_to_city: String(row['Ship To City'] || row['ship_to_city'] || ''),
-          ship_to_province: String(row['Ship To Province'] || row['ship_to_province'] || ''),
-          ship_to_postal_code: String(row['Ship To Postal Code'] || row['ship_to_postal_code'] || ''),
-          bill_to_same_as_ship_to: Boolean(row['Bill To Same As Ship To'] || row['bill_to_same_as_ship_to'] || false),
-          warehouse_address: String(row['Bill To Address'] || row['Warehouse Address'] || row['warehouse_address'] || ''),
-          city: String(row['Bill To City'] || row['City'] || row['city'] || ''),
-          province: String(row['Bill To Province'] || row['Province'] || row['province'] || ''),
-          postal_code: String(row['Bill To Postal Code'] || row['Postal Code'] || row['postal_code'] || ''),
-          contact_name: String(row['Contact Name'] || row['contact_name'] || ''),
-          contact_email: String(row['Contact Email'] || row['contact_email'] || ''),
-          contact_phone: String(row['Contact Phone'] || row['contact_phone'] || ''),
-          payment_terms: String(row['Payment Terms'] || row['payment_terms'] || 'Net30'),
-          currency: String(row['Currency'] || row['currency'] || 'CAD'),
-          notes: String(row['Notes'] || row['notes'] || ''),
+          ship_to_address: String(r['ship_to_address'] || ''),
+          ship_to_city: String(r['ship_to_city'] || ''),
+          ship_to_province: String(r['ship_to_province'] || ''),
+          ship_to_postal_code: String(r['ship_to_postal_code'] || ''),
+          bill_to_same_as_ship_to: Boolean(r['bill_to_same_as_ship_to'] || false),
+          warehouse_address: String(r['bill_to_address'] || r['warehouse_address'] || ''),
+          city: String(r['bill_to_city'] || r['city'] || ''),
+          province: String(r['bill_to_province'] || r['province'] || ''),
+          postal_code: String(r['bill_to_postal_code'] || r['postal_code'] || ''),
+          contact_name: String(r['contact_name'] || ''),
+          contact_email: String(r['contact_email'] || ''),
+          contact_phone: String(r['contact_phone'] || ''),
+          payment_terms: String(r['payment_terms'] || 'Net30'),
+          currency: String(r['currency'] || 'CAD'),
+          notes: String(r['notes'] || ''),
         })
       }
       if (records.length === 0) {
