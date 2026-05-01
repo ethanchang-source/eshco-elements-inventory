@@ -31,7 +31,8 @@ interface Product {
   sku: string
   name: string
   size_oz: number
-  price_warehouse: number
+  price_whs_cad: number
+  unit_cost_cad: number
 }
 
 const emptyForm = {
@@ -66,7 +67,7 @@ export default function Customers() {
   }
 
   async function fetchProducts() {
-    const { data } = await supabase.from('products').select('id, sku, name, size_oz, price_warehouse').eq('is_active', true).order('sku')
+    const { data } = await supabase.from('products').select('id, sku, name, size_oz, price_whs_cad, unit_cost_cad').eq('is_active', true).order('sku')
     setProducts(data || [])
   }
 
@@ -109,7 +110,7 @@ export default function Customers() {
     if (prices) prices.forEach(p => { priceMap[p.product_id] = p.unit_price })
     setPriceList(products.map(p => ({
       product_id: p.id, sku: p.sku, name: p.name, size: `${p.size_oz} FL. OZ.`,
-      default_price: p.price_warehouse ?? null,
+      default_price: p.price_whs_cad ?? null,
       custom_price: priceMap[p.id] != null ? String(priceMap[p.id]) : '',
     })))
     setModalTab('info')
