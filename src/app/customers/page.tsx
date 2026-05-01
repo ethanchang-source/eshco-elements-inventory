@@ -13,6 +13,11 @@ interface Customer {
   city: string
   province: string
   postal_code: string
+  ship_to_address: string
+  ship_to_city: string
+  ship_to_province: string
+  ship_to_postal_code: string
+  bill_to_same_as_ship_to: boolean
   contact_name: string
   contact_email: string
   contact_phone: string
@@ -26,12 +31,13 @@ interface Product {
   sku: string
   name: string
   size_oz: number
-  price_whs_cad: number
+  price_warehouse: number
 }
 
 const emptyForm = {
   company_name: '', warehouse_address: '', city: '', province: '',
-  postal_code: '', contact_name: '', contact_email: '', contact_phone: '',
+  postal_code: '', ship_to_address: '', ship_to_city: '', ship_to_province: '', ship_to_postal_code: '',
+  contact_name: '', contact_email: '', contact_phone: '',
   payment_terms: 'Net 30', currency: 'CAD', notes: '',
 }
 
@@ -47,8 +53,9 @@ export default function Customers() {
   const [form, setForm] = useState({ ...emptyForm })
   const [products, setProducts] = useState<Product[]>([])
   const [modalTab, setModalTab] = useState<'info' | 'prices'>('info')
-  const [priceList, setPriceList] = useState<{ product_id: string; sku: string; name: string; size: string; default_price: number; custom_price: string }[]>([])
+  const [priceList, setPriceList] = useState<{ product_id: string; sku: string; name: string; size: string; default_price: number | null; custom_price: string }[]>([])
   const [savingPrices, setSavingPrices] = useState(false)
+  const [billToSameAsShipTo, setBillToSameAsShipTo] = useState(false)
 
   useEffect(() => { fetchCustomers(); fetchProducts() }, [])
 
@@ -59,13 +66,14 @@ export default function Customers() {
   }
 
   async function fetchProducts() {
-    const { data } = await supabase.from('products').select('id, sku, name, size_oz, price_whs_cad').eq('is_active', true).order('sku')
+    const { data } = await supabase.from('products').select('id, sku, name, size_oz, price_warehouse').eq('is_active', true).order('sku')
     setProducts(data || [])
   }
 
   function openAddModal() {
     setEditCustomer(null)
     setForm({ ...emptyForm })
+    setBillToSameAsShipTo(false)
     setShowModal(true)
   }
 
@@ -84,6 +92,10 @@ export default function Customers() {
       city: c.city || '',
       province: c.province || '',
       postal_code: c.postal_code || '',
+      ship_to_address: c.ship_to_address || '',
+      ship_to_city: c.ship_to_city || '',
+      ship_to_province: c.ship_to_province || '',
+      ship_to_postal_code: c.ship_to_postal_code || '',
       contact_name: c.contact_name || '',
       contact_email: c.contact_email || '',
       contact_phone: c.contact_phone || '',
@@ -91,12 +103,13 @@ export default function Customers() {
       currency: c.currency || 'CAD',
       notes: c.notes || '',
     })
+    setBillToSameAsShipTo(c.bill_to_same_as_ship_to || false)
     const { data: prices } = await supabase.from('customer_prices').select('product_id, unit_price').eq('customer_id', c.id)
     const priceMap: Record<string, number> = {}
     if (prices) prices.forEach(p => { priceMap[p.product_id] = p.unit_price })
     setPriceList(products.map(p => ({
       product_id: p.id, sku: p.sku, name: p.name, size: `${p.size_oz} FL. OZ.`,
-      default_price: p.price_whs_cad || 0,
+      default_price: p.price_warehouse ?? null,
       custom_price: priceMap[p.id] != null ? String(priceMap[p.id]) : '',
     })))
     setModalTab('info')
@@ -114,10 +127,20 @@ export default function Customers() {
 
   async function handleSubmit() {
     if (!form.company_name.trim()) return
+    const payload = {
+      ...form,
+      bill_to_same_as_ship_to: billToSameAsShipTo,
+      ...(billToSameAsShipTo ? {
+        warehouse_address: form.ship_to_address,
+        city: form.ship_to_city,
+        province: form.ship_to_province,
+        postal_code: form.ship_to_postal_code,
+      } : {}),
+    }
     if (editCustomer) {
-      await supabase.from('customers').update(form).eq('id', editCustomer.id)
+      await supabase.from('customers').update(payload).eq('id', editCustomer.id)
     } else {
-      await supabase.from('customers').insert([form])
+      await supabase.from('customers').insert([payload])
     }
     setShowModal(false)
     setEditCustomer(null)
@@ -152,10 +175,15 @@ export default function Customers() {
         if (!name) { failed++; continue }
         const payload = {
           company_name: name,
-          warehouse_address: String(row['Warehouse Address'] || row['warehouse_address'] || ''),
-          city: String(row['City'] || row['city'] || ''),
-          province: String(row['Province'] || row['province'] || ''),
-          postal_code: String(row['Postal Code'] || row['postal_code'] || ''),
+          ship_to_address: String(row['Ship To Address'] || row['ship_to_address'] || ''),
+          ship_to_city: String(row['Ship To City'] || row['ship_to_city'] || ''),
+          ship_to_province: String(row['Ship To Province'] || row['ship_to_province'] || ''),
+          ship_to_postal_code: String(row['Ship To Postal Code'] || row['ship_to_postal_code'] || ''),
+          bill_to_same_as_ship_to: Boolean(row['Bill To Same As Ship To'] || row['bill_to_same_as_ship_to'] || false),
+          warehouse_address: String(row['Bill To Address'] || row['Warehouse Address'] || row['warehouse_address'] || ''),
+          city: String(row['Bill To City'] || row['City'] || row['city'] || ''),
+          province: String(row['Bill To Province'] || row['Province'] || row['province'] || ''),
+          postal_code: String(row['Bill To Postal Code'] || row['Postal Code'] || row['postal_code'] || ''),
           contact_name: String(row['Contact Name'] || row['contact_name'] || ''),
           contact_email: String(row['Contact Email'] || row['contact_email'] || ''),
           contact_phone: String(row['Contact Phone'] || row['contact_phone'] || ''),
@@ -184,10 +212,15 @@ export default function Customers() {
   function handleExport() {
     const rows = customers.map(c => ({
       'Company Name': c.company_name,
-      'Warehouse Address': c.warehouse_address || '',
-      'City': c.city || '',
-      'Province': c.province || '',
-      'Postal Code': c.postal_code || '',
+      'Ship To Address': c.ship_to_address || '',
+      'Ship To City': c.ship_to_city || '',
+      'Ship To Province': c.ship_to_province || '',
+      'Ship To Postal Code': c.ship_to_postal_code || '',
+      'Bill To Same As Ship To': c.bill_to_same_as_ship_to || false,
+      'Bill To Address': c.warehouse_address || '',
+      'Bill To City': c.city || '',
+      'Bill To Province': c.province || '',
+      'Bill To Postal Code': c.postal_code || '',
       'Contact Name': c.contact_name || '',
       'Contact Email': c.contact_email || '',
       'Contact Phone': c.contact_phone || '',
@@ -203,10 +236,15 @@ export default function Customers() {
   function downloadTemplate() {
     const rows = [{
       'Company Name': 'Example Retailer Inc.',
-      'Warehouse Address': '123 Warehouse St',
-      'City': 'Toronto',
-      'Province': 'ON',
-      'Postal Code': 'M1M 1M1',
+      'Ship To Address': '123 Warehouse St',
+      'Ship To City': 'Toronto',
+      'Ship To Province': 'ON',
+      'Ship To Postal Code': 'M1M 1M1',
+      'Bill To Same As Ship To': true,
+      'Bill To Address': '',
+      'Bill To City': '',
+      'Bill To Province': '',
+      'Bill To Postal Code': '',
       'Contact Name': 'John Smith',
       'Contact Email': 'john@company.com',
       'Contact Phone': '416-555-0000',
@@ -281,10 +319,16 @@ export default function Customers() {
                 </div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {(c.warehouse_address || c.city) && (
+                {(c.ship_to_address || c.ship_to_city) && (
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '13px', color: '#64748b' }}>
                     <MapPin size={14} style={{ marginTop: '2px', flexShrink: 0 }} />
-                    <span>{[c.warehouse_address, c.city, c.province, c.postal_code].filter(Boolean).join(', ')}</span>
+                    <span><span style={{ fontSize: '10px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginRight: '4px' }}>Ship To</span>{[c.ship_to_address, c.ship_to_city, c.ship_to_province, c.ship_to_postal_code].filter(Boolean).join(', ')}</span>
+                  </div>
+                )}
+                {!c.bill_to_same_as_ship_to && (c.warehouse_address || c.city) && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '13px', color: '#64748b' }}>
+                    <MapPin size={14} style={{ marginTop: '2px', flexShrink: 0, opacity: 0 }} />
+                    <span><span style={{ fontSize: '10px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginRight: '4px' }}>Bill To</span>{[c.warehouse_address, c.city, c.province, c.postal_code].filter(Boolean).join(', ')}</span>
                   </div>
                 )}
                 {c.contact_name && <div style={{ fontSize: '13px', color: '#64748b' }}>👤 {c.contact_name}</div>}
@@ -324,12 +368,41 @@ export default function Customers() {
             </div>
 
             {modalTab === 'info' && <>
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Company Name *</label>
+                <input value={form.company_name} onChange={e => setForm({ ...form, company_name: e.target.value })} placeholder='ABC Beauty Inc.' style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+              </div>
+              <div style={{ fontSize: '11px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>Ship To</div>
               {[
-                { label: 'Company Name *', key: 'company_name', placeholder: 'ABC Beauty Inc.' },
-                { label: 'Warehouse Address', key: 'warehouse_address', placeholder: '123 Warehouse St' },
+                { label: 'Address', key: 'ship_to_address', placeholder: '123 Warehouse St' },
+                { label: 'City', key: 'ship_to_city', placeholder: 'Toronto' },
+                { label: 'Province', key: 'ship_to_province', placeholder: 'ON' },
+                { label: 'Postal Code', key: 'ship_to_postal_code', placeholder: 'M1M 1M1' },
+              ].map(field => (
+                <div key={field.key} style={{ marginBottom: '10px' }}>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>{field.label}</label>
+                  <input value={form[field.key as keyof typeof form] as string} onChange={e => setForm({ ...form, [field.key]: e.target.value })} placeholder={field.placeholder} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+                </div>
+              ))}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', marginTop: '4px' }}>
+                <div style={{ fontSize: '11px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Bill To</div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
+                  <input type='checkbox' checked={billToSameAsShipTo} onChange={e => setBillToSameAsShipTo(e.target.checked)} style={{ cursor: 'pointer' }} />
+                  Ship To와 동일
+                </label>
+              </div>
+              {!billToSameAsShipTo && [
+                { label: 'Address', key: 'warehouse_address', placeholder: '123 Warehouse St' },
                 { label: 'City', key: 'city', placeholder: 'Toronto' },
                 { label: 'Province', key: 'province', placeholder: 'ON' },
                 { label: 'Postal Code', key: 'postal_code', placeholder: 'M1M 1M1' },
+              ].map(field => (
+                <div key={field.key} style={{ marginBottom: '10px' }}>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>{field.label}</label>
+                  <input value={form[field.key as keyof typeof form] as string} onChange={e => setForm({ ...form, [field.key]: e.target.value })} placeholder={field.placeholder} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+                </div>
+              ))}
+              {[
                 { label: 'Contact Name', key: 'contact_name', placeholder: 'John Smith' },
                 { label: 'Contact Email', key: 'contact_email', placeholder: 'john@company.com' },
                 { label: 'Contact Phone', key: 'contact_phone', placeholder: '416-555-0000' },
@@ -337,12 +410,7 @@ export default function Customers() {
               ].map(field => (
                 <div key={field.key} style={{ marginBottom: '14px' }}>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>{field.label}</label>
-                  <input
-                    value={form[field.key as keyof typeof form]}
-                    onChange={e => setForm({ ...form, [field.key]: e.target.value })}
-                    placeholder={field.placeholder}
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}
-                  />
+                  <input value={form[field.key as keyof typeof form] as string} onChange={e => setForm({ ...form, [field.key]: e.target.value })} placeholder={field.placeholder} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
                 </div>
               ))}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
@@ -401,13 +469,13 @@ export default function Customers() {
                           <td style={{ padding: '8px 12px', fontSize: '12px', fontWeight: '600', color: '#2563eb' }}>{item.sku}</td>
                           <td style={{ padding: '8px 12px', fontSize: '12px', color: '#1e293b' }}>{item.name}</td>
                           <td style={{ padding: '8px 12px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{item.size}</td>
-                          <td style={{ padding: '8px 12px', fontSize: '12px', color: '#94a3b8' }}>${item.default_price.toFixed(2)}</td>
+                          <td style={{ padding: '8px 12px', fontSize: '12px', color: '#94a3b8' }}>{item.default_price != null ? `$${item.default_price.toFixed(2)}` : '—'}</td>
                           <td style={{ padding: '8px 12px' }}>
                             <input
                               type='number'
                               value={item.custom_price}
                               onChange={e => setPriceList(prev => { const u = [...prev]; u[idx] = { ...u[idx], custom_price: e.target.value }; return u })}
-                              placeholder={item.default_price.toFixed(2)}
+                              placeholder={item.default_price != null ? item.default_price.toFixed(2) : ''}
                               style={{ width: '80px', padding: '4px 8px', border: item.custom_price ? '1px solid #2563eb' : '1px solid #e2e8f0', borderRadius: '4px', fontSize: '12px', outline: 'none' }}
                             />
                           </td>
