@@ -51,6 +51,13 @@ export default function Inventory() {
   const [rawForm, setRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '' })
   const [packForm, setPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '' })
 
+  const [editRaw, setEditRaw] = useState<RawMaterial | null>(null)
+  const [editPack, setEditPack] = useState<Packaging | null>(null)
+  const [editFinished, setEditFinished] = useState<Product | null>(null)
+  const [editRawForm, setEditRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '' })
+  const [editPackForm, setEditPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '' })
+  const [editFinishedStock, setEditFinishedStock] = useState('')
+
   useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
@@ -63,6 +70,102 @@ export default function Inventory() {
     setPackaging(p.data || [])
     setProducts(fg.data || [])
     setLoading(false)
+  }
+
+  function openEditRaw(r: RawMaterial) {
+    setEditRaw(r)
+    setEditRawForm({
+      item_no: r.item_no || '',
+      name: r.name || '',
+      unit: r.unit || 'ml',
+      cost_per_unit_cad: String(r.cost_per_unit_cad ?? ''),
+      current_stock: String(r.current_stock ?? ''),
+      reorder_threshold: String(r.reorder_threshold ?? ''),
+    })
+  }
+
+  function openEditPack(p: Packaging) {
+    setEditPack(p)
+    setEditPackForm({
+      item_no: p.item_no || '',
+      name: p.name || '',
+      type: p.type || 'bottle',
+      size_oz: String(p.size_oz ?? ''),
+      cost_cad: String(p.cost_cad ?? ''),
+      current_stock: String(p.current_stock ?? ''),
+      reorder_threshold: String(p.reorder_threshold ?? ''),
+    })
+  }
+
+  function openEditFinished(p: Product) {
+    setEditFinished(p)
+    setEditFinishedStock(String(p.current_stock ?? ''))
+  }
+
+  async function handleUpdateRaw() {
+    if (!editRaw) return
+    const { error } = await supabase.from('raw_materials').update({
+      item_no: editRawForm.item_no.trim(),
+      name: editRawForm.name.trim(),
+      unit: editRawForm.unit,
+      cost_per_unit_cad: parseFloat(editRawForm.cost_per_unit_cad) || 0,
+      current_stock: parseFloat(editRawForm.current_stock) || 0,
+      reorder_threshold: parseFloat(editRawForm.reorder_threshold) || 0,
+    }).eq('id', editRaw.id)
+    if (error) console.error('raw_material update error:', error)
+    setEditRaw(null)
+    fetchAll()
+  }
+
+  async function handleDeleteRaw() {
+    if (!editRaw) return
+    if (!confirm(`Delete "${editRaw.name}"?`)) return
+    const { error } = await supabase.from('raw_materials').delete().eq('id', editRaw.id)
+    if (error) console.error('raw_material delete error:', error)
+    setEditRaw(null)
+    fetchAll()
+  }
+
+  async function handleUpdatePack() {
+    if (!editPack) return
+    const { error } = await supabase.from('packaging').update({
+      item_no: editPackForm.item_no.trim(),
+      name: editPackForm.name.trim(),
+      type: editPackForm.type,
+      size_oz: parseFloat(editPackForm.size_oz) || 0,
+      cost_cad: parseFloat(editPackForm.cost_cad) || 0,
+      current_stock: parseInt(editPackForm.current_stock) || 0,
+      reorder_threshold: parseInt(editPackForm.reorder_threshold) || 0,
+    }).eq('id', editPack.id)
+    if (error) console.error('packaging update error:', error)
+    setEditPack(null)
+    fetchAll()
+  }
+
+  async function handleDeletePack() {
+    if (!editPack) return
+    if (!confirm(`Delete "${editPack.name}"?`)) return
+    const { error } = await supabase.from('packaging').delete().eq('id', editPack.id)
+    if (error) console.error('packaging delete error:', error)
+    setEditPack(null)
+    fetchAll()
+  }
+
+  async function handleUpdateFinished() {
+    if (!editFinished) return
+    const { error } = await supabase.from('products').update({ current_stock: parseInt(editFinishedStock) || 0 }).eq('id', editFinished.id)
+    if (error) console.error('finished product update error:', error)
+    setEditFinished(null)
+    fetchAll()
+  }
+
+  async function handleDeleteFinished() {
+    if (!editFinished) return
+    if (!confirm(`Delete product "${editFinished.sku} – ${editFinished.name}"? This cannot be undone.`)) return
+    const { error } = await supabase.from('products').delete().eq('id', editFinished.id)
+    if (error) console.error('product delete error:', error)
+    setEditFinished(null)
+    fetchAll()
   }
 
   async function handleRawSubmit() {
@@ -146,6 +249,10 @@ export default function Inventory() {
     { key: 'finished', label: 'Finished Goods' },
   ] as const
 
+  const inp: React.CSSProperties = { width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }
+  const lbl: React.CSSProperties = { display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }
+  const rowHover = { onMouseEnter: (e: React.MouseEvent<HTMLTableRowElement>) => (e.currentTarget.style.background = '#f8fafc'), onMouseLeave: (e: React.MouseEvent<HTMLTableRowElement>) => (e.currentTarget.style.background = '') }
+
   return (
     <MainLayout>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
@@ -209,7 +316,7 @@ export default function Inventory() {
                   No raw materials yet
                 </td></tr>
               ) : filteredRaw.map(r => (
-                <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <tr key={r.id} onClick={() => openEditRaw(r)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }} {...rowHover}>
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{r.item_no}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{r.name}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.unit}</td>
@@ -230,7 +337,7 @@ export default function Inventory() {
                   No packaging items yet
                 </td></tr>
               ) : filteredPack.map(p => (
-                <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <tr key={p.id} onClick={() => openEditPack(p)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }} {...rowHover}>
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{p.item_no}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{p.name}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.type}</td>
@@ -252,7 +359,7 @@ export default function Inventory() {
                   No finished goods yet
                 </td></tr>
               ) : filteredProducts.map(p => (
-                <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <tr key={p.id} onClick={() => openEditFinished(p)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }} {...rowHover}>
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{p.sku}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{p.name}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.size_oz} oz</td>
@@ -271,58 +378,39 @@ export default function Inventory() {
         </table>
       </div>
 
+      {/* Add Modal (Raw / Packaging) */}
       {showModal && tab !== 'finished' && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
           <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Add {tab === 'raw' ? 'Raw Material' : 'Packaging Item'}</h2>
             {tab === 'raw' ? (
               <>
-                {[
-                  { label: 'Item #', key: 'item_no', placeholder: 'EE-R001' },
-                  { label: 'Name', key: 'name', placeholder: 'Black Castor Oil - Organic' },
-                  { label: 'Cost per unit (CAD)', key: 'cost_per_unit_cad', placeholder: '0.0140' },
-                  { label: 'Current Stock', key: 'current_stock', placeholder: '200000' },
-                  { label: 'Reorder Threshold', key: 'reorder_threshold', placeholder: '10000' },
-                ].map(field => (
-                  <div key={field.key} style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>{field.label}</label>
-                    <input value={rawForm[field.key as keyof typeof rawForm]} onChange={e => setRawForm({ ...rawForm, [field.key]: e.target.value })} placeholder={field.placeholder} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+                {([['Item #', 'item_no', 'EE-R001'], ['Name', 'name', 'Black Castor Oil - Organic'], ['Cost per unit (CAD)', 'cost_per_unit_cad', '0.0140'], ['Current Stock', 'current_stock', '200000'], ['Reorder Threshold', 'reorder_threshold', '10000']] as [string, string, string][]).map(([label, key, placeholder]) => (
+                  <div key={key} style={{ marginBottom: '16px' }}>
+                    <label style={lbl}>{label}</label>
+                    <input value={rawForm[key as keyof typeof rawForm]} onChange={e => setRawForm({ ...rawForm, [key]: e.target.value })} placeholder={placeholder} style={inp} />
                   </div>
                 ))}
                 <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Unit</label>
-                  <select value={rawForm.unit} onChange={e => setRawForm({ ...rawForm, unit: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}>
-                    <option value='ml'>ml</option>
-                    <option value='g'>g</option>
-                    <option value='kg'>kg</option>
-                    <option value='L'>L</option>
+                  <label style={lbl}>Unit</label>
+                  <select value={rawForm.unit} onChange={e => setRawForm({ ...rawForm, unit: e.target.value })} style={inp}>
+                    <option value='ml'>ml</option><option value='g'>g</option><option value='kg'>kg</option><option value='L'>L</option>
                   </select>
                 </div>
               </>
             ) : (
               <>
-                {[
-                  { label: 'Item #', key: 'item_no', placeholder: 'EE-P001' },
-                  { label: 'Name', key: 'name', placeholder: '2oz Amber Boston Bottle' },
-                  { label: 'Size (oz)', key: 'size_oz', placeholder: '2' },
-                  { label: 'Cost (CAD)', key: 'cost_cad', placeholder: '0.28' },
-                  { label: 'Current Stock (qty)', key: 'current_stock', placeholder: '1000' },
-                  { label: 'Reorder Threshold (qty)', key: 'reorder_threshold', placeholder: '200' },
-                ].map(field => (
-                  <div key={field.key} style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>{field.label}</label>
-                    <input value={packForm[field.key as keyof typeof packForm]} onChange={e => setPackForm({ ...packForm, [field.key]: e.target.value })} placeholder={field.placeholder} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+                {([['Item #', 'item_no', 'EE-P001'], ['Name', 'name', '2oz Amber Boston Bottle'], ['Size (oz)', 'size_oz', '2'], ['Cost (CAD)', 'cost_cad', '0.28'], ['Current Stock (qty)', 'current_stock', '1000'], ['Reorder Threshold (qty)', 'reorder_threshold', '200']] as [string, string, string][]).map(([label, key, placeholder]) => (
+                  <div key={key} style={{ marginBottom: '16px' }}>
+                    <label style={lbl}>{label}</label>
+                    <input value={packForm[key as keyof typeof packForm]} onChange={e => setPackForm({ ...packForm, [key]: e.target.value })} placeholder={placeholder} style={inp} />
                   </div>
                 ))}
                 <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Type</label>
-                  <select value={packForm.type} onChange={e => setPackForm({ ...packForm, type: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}>
-                    <option value='bottle'>Bottle</option>
-                    <option value='dropper'>Dropper</option>
-                    <option value='cap'>Cap</option>
-                    <option value='box'>Box</option>
-                    <option value='shrink_band'>Shrink Band</option>
-                    <option value='label'>Label</option>
+                  <label style={lbl}>Type</label>
+                  <select value={packForm.type} onChange={e => setPackForm({ ...packForm, type: e.target.value })} style={inp}>
+                    <option value='bottle'>Bottle</option><option value='dropper'>Dropper</option><option value='cap'>Cap</option>
+                    <option value='box'>Box</option><option value='shrink_band'>Shrink Band</option><option value='label'>Label</option>
                   </select>
                 </div>
               </>
@@ -330,6 +418,84 @@ export default function Inventory() {
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '8px' }}>
               <button onClick={() => setShowModal(false)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
               <button onClick={tab === 'raw' ? handleRawSubmit : handlePackSubmit} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Raw Material Modal */}
+      {editRaw && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Edit Raw Material</h2>
+            {([['Item #', 'item_no'], ['Name', 'name'], ['Cost per unit (CAD)', 'cost_per_unit_cad'], ['Current Stock', 'current_stock'], ['Reorder Threshold', 'reorder_threshold']] as [string, string][]).map(([label, key]) => (
+              <div key={key} style={{ marginBottom: '16px' }}>
+                <label style={lbl}>{label}</label>
+                <input value={editRawForm[key as keyof typeof editRawForm]} onChange={e => setEditRawForm({ ...editRawForm, [key]: e.target.value })} style={inp} />
+              </div>
+            ))}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={lbl}>Unit</label>
+              <select value={editRawForm.unit} onChange={e => setEditRawForm({ ...editRawForm, unit: e.target.value })} style={inp}>
+                <option value='ml'>ml</option><option value='g'>g</option><option value='kg'>kg</option><option value='L'>L</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
+              <button onClick={handleDeleteRaw} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>Delete</button>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button onClick={() => setEditRaw(null)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                <button onClick={handleUpdateRaw} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Save Changes</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Packaging Modal */}
+      {editPack && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Edit Packaging</h2>
+            {([['Item #', 'item_no'], ['Name', 'name'], ['Size (oz)', 'size_oz'], ['Cost (CAD)', 'cost_cad'], ['Current Stock', 'current_stock'], ['Reorder Threshold', 'reorder_threshold']] as [string, string][]).map(([label, key]) => (
+              <div key={key} style={{ marginBottom: '16px' }}>
+                <label style={lbl}>{label}</label>
+                <input value={editPackForm[key as keyof typeof editPackForm]} onChange={e => setEditPackForm({ ...editPackForm, [key]: e.target.value })} style={inp} />
+              </div>
+            ))}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={lbl}>Type</label>
+              <select value={editPackForm.type} onChange={e => setEditPackForm({ ...editPackForm, type: e.target.value })} style={inp}>
+                <option value='bottle'>Bottle</option><option value='dropper'>Dropper</option><option value='cap'>Cap</option>
+                <option value='box'>Box</option><option value='shrink_band'>Shrink Band</option><option value='label'>Label</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
+              <button onClick={handleDeletePack} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>Delete</button>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button onClick={() => setEditPack(null)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                <button onClick={handleUpdatePack} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Save Changes</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Finished Goods Modal */}
+      {editFinished && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '400px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '4px' }}>Edit Stock</h2>
+            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>{editFinished.sku} – {editFinished.name}</p>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={lbl}>Current Stock</label>
+              <input type='number' value={editFinishedStock} onChange={e => setEditFinishedStock(e.target.value)} style={inp} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
+              <button onClick={handleDeleteFinished} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>Delete</button>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button onClick={() => setEditFinished(null)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                <button onClick={handleUpdateFinished} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Save Changes</button>
+              </div>
             </div>
           </div>
         </div>

@@ -21,16 +21,22 @@ interface Product {
   current_stock: number
   reorder_threshold: number
   is_active: boolean
+  notes?: string
 }
+
+const emptyAddForm = { sku: '', name: '', size_oz: '', barcode_upc: '', unit_cost_cad: '', msrp_cad: '', price_whs_cad: '', reorder_threshold: '' }
+const emptyEditForm = { sku: '', name: '', size_oz: '', barcode_upc: '', barcode_itf14: '', unit_cost_cad: '', msrp_cad: '', price_whs_cad: '', price_dist_cad: '', reorder_threshold: '', is_active: 'true', notes: '' }
 
 export default function Products() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [showModal, setShowModal] = useState(false)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [editProduct, setEditProduct] = useState<Product | null>(null)
+  const [addForm, setAddForm] = useState({ ...emptyAddForm })
+  const [editForm, setEditForm] = useState({ ...emptyEditForm })
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState('')
-  const [form, setForm] = useState({ sku: '', name: '', size_oz: '', barcode_upc: '', unit_cost_cad: '', msrp_cad: '', price_whs_cad: '', reorder_threshold: '' })
 
   useEffect(() => { fetchProducts() }, [])
 
@@ -40,19 +46,68 @@ export default function Products() {
     setLoading(false)
   }
 
-  async function handleSubmit() {
-    await supabase.from('products').insert([{
-      sku: form.sku,
-      name: form.name,
-      size_oz: parseFloat(form.size_oz),
-      barcode_upc: form.barcode_upc,
-      unit_cost_cad: parseFloat(form.unit_cost_cad),
-      msrp_cad: parseFloat(form.msrp_cad),
-      price_whs_cad: parseFloat(form.price_whs_cad),
-      reorder_threshold: parseInt(form.reorder_threshold),
+  function openEditModal(p: Product) {
+    setEditProduct(p)
+    setEditForm({
+      sku: p.sku || '',
+      name: p.name || '',
+      size_oz: String(p.size_oz ?? ''),
+      barcode_upc: p.barcode_upc || '',
+      barcode_itf14: p.barcode_itf14 || '',
+      unit_cost_cad: String(p.unit_cost_cad ?? ''),
+      msrp_cad: String(p.msrp_cad ?? ''),
+      price_whs_cad: String(p.price_whs_cad ?? ''),
+      price_dist_cad: p.price_dist_cad != null ? String(p.price_dist_cad) : '',
+      reorder_threshold: String(p.reorder_threshold ?? ''),
+      is_active: String(p.is_active ?? true),
+      notes: p.notes || '',
+    })
+  }
+
+  async function handleUpdate() {
+    if (!editProduct) return
+    const { error } = await supabase.from('products').update({
+      sku: editForm.sku.trim(),
+      name: editForm.name.trim(),
+      size_oz: parseFloat(editForm.size_oz) || 0,
+      barcode_upc: editForm.barcode_upc.trim(),
+      barcode_itf14: editForm.barcode_itf14.trim() || null,
+      unit_cost_cad: parseFloat(editForm.unit_cost_cad) || 0,
+      msrp_cad: parseFloat(editForm.msrp_cad) || 0,
+      price_whs_cad: parseFloat(editForm.price_whs_cad) || 0,
+      price_dist_cad: editForm.price_dist_cad.trim() ? parseFloat(editForm.price_dist_cad) : null,
+      reorder_threshold: parseInt(editForm.reorder_threshold) || 0,
+      is_active: editForm.is_active === 'true',
+      notes: editForm.notes.trim() || null,
+    }).eq('id', editProduct.id)
+    if (error) console.error('product update error:', error)
+    setEditProduct(null)
+    fetchProducts()
+  }
+
+  async function handleDeleteProduct() {
+    if (!editProduct) return
+    if (!confirm(`Delete "${editProduct.sku} – ${editProduct.name}"? This cannot be undone.`)) return
+    const { error } = await supabase.from('products').delete().eq('id', editProduct.id)
+    if (error) console.error('product delete error:', error)
+    setEditProduct(null)
+    fetchProducts()
+  }
+
+  async function handleAddSubmit() {
+    const { error } = await supabase.from('products').insert([{
+      sku: addForm.sku,
+      name: addForm.name,
+      size_oz: parseFloat(addForm.size_oz),
+      barcode_upc: addForm.barcode_upc,
+      unit_cost_cad: parseFloat(addForm.unit_cost_cad),
+      msrp_cad: parseFloat(addForm.msrp_cad),
+      price_whs_cad: parseFloat(addForm.price_whs_cad),
+      reorder_threshold: parseInt(addForm.reorder_threshold),
     }])
-    setShowModal(false)
-    setForm({ sku: '', name: '', size_oz: '', barcode_upc: '', unit_cost_cad: '', msrp_cad: '', price_whs_cad: '', reorder_threshold: '' })
+    if (error) console.error('product insert error:', error)
+    setShowAddModal(false)
+    setAddForm({ ...emptyAddForm })
     fetchProducts()
   }
 
@@ -68,10 +123,8 @@ export default function Products() {
       for (const row of rows) {
         const sku = String(row.sku || '').trim()
         if (!sku) { skipped++; continue }
-
-        // Only include columns that have actual values — don't overwrite blanks
         const update: Record<string, any> = { sku }
-        const str = (v: any) => { const s = String(v ?? '').trim(); return s }
+        const str = (v: any) => String(v ?? '').trim()
         if (str(row.name)) update.name = str(row.name)
         if (str(row.size_oz)) update.size_oz = parseFloat(str(row.size_oz))
         if (str(row.barcode_upc)) update.barcode_upc = str(row.barcode_upc)
@@ -83,7 +136,6 @@ export default function Products() {
         if (str(row.current_stock)) update.current_stock = parseInt(str(row.current_stock))
         if (str(row.reorder_threshold)) update.reorder_threshold = parseInt(str(row.reorder_threshold))
         if (str(row.is_active)) update.is_active = str(row.is_active) !== 'false'
-
         const { error } = await supabase.from('products').upsert([update], { onConflict: 'sku' })
         if (error) failed++; else success++
       }
@@ -108,18 +160,12 @@ export default function Products() {
 
   function handleExport() {
     const rows = products.map(p => ({
-      sku: p.sku,
-      name: p.name,
-      size_oz: p.size_oz,
-      barcode_upc: p.barcode_upc || '',
-      barcode_itf14: p.barcode_itf14 || '',
-      unit_cost: p.unit_cost_cad,
-      price_msrp: p.msrp_cad,
-      price_warehouse: p.price_whs_cad,
-      price_dist_cad: p.price_dist_cad ?? '',
-      stock_quantity: p.current_stock,
-      reorder_threshold: p.reorder_threshold,
-      active: p.is_active,
+      sku: p.sku, name: p.name, size_oz: p.size_oz,
+      barcode_upc: p.barcode_upc || '', barcode_itf14: p.barcode_itf14 || '',
+      unit_cost_cad: p.unit_cost_cad, msrp_cad: p.msrp_cad,
+      price_whs_cad: p.price_whs_cad, price_dist_cad: p.price_dist_cad ?? '',
+      current_stock: p.current_stock, reorder_threshold: p.reorder_threshold,
+      is_active: p.is_active, notes: p.notes || '',
     }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Products')
@@ -130,6 +176,9 @@ export default function Products() {
     p.name?.toLowerCase().includes(search.toLowerCase()) ||
     p.sku?.toLowerCase().includes(search.toLowerCase())
   )
+
+  const inp: React.CSSProperties = { width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }
+  const lbl: React.CSSProperties = { display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }
 
   return (
     <MainLayout>
@@ -149,7 +198,7 @@ export default function Products() {
           <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
             <TableIcon size={14} /> Export Excel
           </button>
-          <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
+          <button onClick={() => setShowAddModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={14} /> Add Product
           </button>
         </div>
@@ -181,7 +230,9 @@ export default function Products() {
                 </td>
               </tr>
             ) : filtered.map(p => (
-              <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              <tr key={p.id} onClick={() => openEditModal(p)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                onMouseLeave={e => (e.currentTarget.style.background = '')}>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{p.sku}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{p.name}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.size_oz} oz</td>
@@ -203,28 +254,70 @@ export default function Products() {
         </table>
       </div>
 
-      {showModal && (
+      {/* Add Product Modal */}
+      {showAddModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
           <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Add New Product</h2>
-            {[
-              { label: 'SKU', key: 'sku', placeholder: 'IAP013' },
-              { label: 'Product Name', key: 'name', placeholder: 'JBCO 2oz' },
-              { label: 'Size (oz)', key: 'size_oz', placeholder: '2' },
-              { label: 'Barcode UPC', key: 'barcode_upc', placeholder: '628176712130' },
-              { label: 'Unit Cost (CAD)', key: 'unit_cost_cad', placeholder: '0.00' },
-              { label: 'MSRP (CAD)', key: 'msrp_cad', placeholder: '0.00' },
-              { label: 'WHS Price (CAD)', key: 'price_whs_cad', placeholder: '0.00' },
-              { label: 'Reorder Threshold', key: 'reorder_threshold', placeholder: '100' },
-            ].map(field => (
-              <div key={field.key} style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>{field.label}</label>
-                <input value={form[field.key as keyof typeof form]} onChange={e => setForm({ ...form, [field.key]: e.target.value })} placeholder={field.placeholder} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+            {([
+              ['SKU', 'sku', 'IAP013'], ['Product Name', 'name', 'JBCO 2oz'],
+              ['Size (oz)', 'size_oz', '2'], ['Barcode UPC', 'barcode_upc', '628176712130'],
+              ['Unit Cost (CAD)', 'unit_cost_cad', '0.00'], ['MSRP (CAD)', 'msrp_cad', '0.00'],
+              ['WHS Price (CAD)', 'price_whs_cad', '0.00'], ['Reorder Threshold', 'reorder_threshold', '100'],
+            ] as [string, string, string][]).map(([label, key, placeholder]) => (
+              <div key={key} style={{ marginBottom: '16px' }}>
+                <label style={lbl}>{label}</label>
+                <input value={addForm[key as keyof typeof addForm]} onChange={e => setAddForm({ ...addForm, [key]: e.target.value })} placeholder={placeholder} style={inp} />
               </div>
             ))}
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '8px' }}>
-              <button onClick={() => setShowModal(false)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-              <button onClick={handleSubmit} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Save Product</button>
+              <button onClick={() => { setShowAddModal(false); setAddForm({ ...emptyAddForm }) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={handleAddSubmit} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Save Product</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Product Modal */}
+      {editProduct && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '540px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Edit Product</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={lbl}>Product Name</label>
+                <input value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} style={inp} />
+              </div>
+              {([
+                ['SKU', 'sku'], ['Size (oz)', 'size_oz'],
+                ['Barcode UPC', 'barcode_upc'], ['Barcode ITF-14', 'barcode_itf14'],
+                ['Unit Cost (CAD)', 'unit_cost_cad'], ['MSRP (CAD)', 'msrp_cad'],
+                ['WHS Price (CAD)', 'price_whs_cad'], ['Dist Price (CAD)', 'price_dist_cad'],
+                ['Reorder Threshold', 'reorder_threshold'],
+              ] as [string, string][]).map(([label, key]) => (
+                <div key={key}>
+                  <label style={lbl}>{label}</label>
+                  <input value={editForm[key as keyof typeof editForm]} onChange={e => setEditForm({ ...editForm, [key]: e.target.value })} style={inp} />
+                </div>
+              ))}
+              <div>
+                <label style={lbl}>Status</label>
+                <select value={editForm.is_active} onChange={e => setEditForm({ ...editForm, is_active: e.target.value })} style={inp}>
+                  <option value='true'>Active</option>
+                  <option value='false'>Inactive</option>
+                </select>
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={lbl}>Notes</label>
+                <textarea value={editForm.notes} onChange={e => setEditForm({ ...editForm, notes: e.target.value })} rows={2} style={{ ...inp, resize: 'vertical' }} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
+              <button onClick={handleDeleteProduct} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>Delete</button>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button onClick={() => setEditProduct(null)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                <button onClick={handleUpdate} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Save Changes</button>
+              </div>
             </div>
           </div>
         </div>
