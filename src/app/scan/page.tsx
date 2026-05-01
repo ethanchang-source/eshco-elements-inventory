@@ -75,11 +75,11 @@ export default function ScanPage() {
       setScanState('error')
       const msg = err?.message || ''
       if (msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('notallowed')) {
-        setErrorMsg('카메라 권한이 필요합니다. 브라우저 설정에서 카메라 접근을 허용해주세요.')
+        setErrorMsg('Camera permission is required. Please allow camera access in your browser settings.')
       } else if (msg.toLowerCase().includes('notfound') || msg.toLowerCase().includes('no camera')) {
-        setErrorMsg('카메라를 찾을 수 없습니다. 카메라가 연결되어 있는지 확인해주세요.')
+        setErrorMsg('No camera found. Please make sure a camera is connected.')
       } else {
-        setErrorMsg(`카메라를 시작할 수 없습니다. Safari → 설정 → 카메라 권한을 확인해주세요. (${msg || 'unknown error'})`)
+        setErrorMsg(`Unable to start camera. Check camera permissions in Safari → Settings. (${msg || 'unknown error'})`)
       }
     }
   }, [stopScanner])
@@ -98,24 +98,24 @@ export default function ScanPage() {
           <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>Point your camera at a product barcode</p>
         </div>
 
-        {/* 카메라 시작 버튼 (idle 상태) */}
+        {/* Start camera button (idle state) */}
         {scanState === 'idle' && (
           <div style={{ background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '40px 20px', textAlign: 'center', marginBottom: '20px' }}>
             <div style={{ width: '72px', height: '72px', background: '#eff6ff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
               <Camera size={32} color='#2563eb' />
             </div>
-            <div style={{ fontSize: '16px', fontWeight: '600', color: '#1e293b', marginBottom: '8px' }}>카메라로 바코드 스캔</div>
-            <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '24px' }}>UPC / EAN / ITF-14 바코드 지원</div>
+            <div style={{ fontSize: '16px', fontWeight: '600', color: '#1e293b', marginBottom: '8px' }}>Scan Barcode with Camera</div>
+            <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '24px' }}>Supports UPC / EAN / ITF-14 barcodes</div>
             <button
               onClick={startScanner}
               style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '12px', padding: '14px 28px', fontSize: '15px', fontWeight: '600', cursor: 'pointer' }}
             >
-              <Camera size={18} /> 카메라 시작
+              <Camera size={18} /> Start Camera
             </button>
           </div>
         )}
 
-        {/* 카메라 뷰파인더 - scanning 상태일 때만 표시 */}
+        {/* Camera viewfinder - shown only while scanning */}
         {scanState === 'scanning' && (
           <div style={{ position: 'relative', background: '#000', borderRadius: '16px', overflow: 'hidden', marginBottom: '20px' }}>
             <div id='qr-reader' style={{ width: '100%', minHeight: '240px' }} />
@@ -139,7 +139,7 @@ export default function ScanPage() {
           </div>
         )}
 
-        {/* 스캔 결과: 제품 찾음 */}
+        {/* Scan result: product found */}
         {scanState === 'found' && product && (
           <div style={{ background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '16px' }}>
             <div style={{ background: isLowStock ? '#fef2f2' : '#f0fdf4', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -195,7 +195,7 @@ export default function ScanPage() {
           </div>
         )}
 
-        {/* 스캔 결과: 제품 없음 */}
+        {/* Scan result: product not found */}
         {scanState === 'not_found' && (
           <div style={{ background: '#fff', borderRadius: '16px', border: '1px solid #fecaca', padding: '32px 20px', textAlign: 'center', marginBottom: '16px' }}>
             <Package size={36} color='#fca5a5' style={{ display: 'block', margin: '0 auto 12px' }} />
@@ -205,7 +205,7 @@ export default function ScanPage() {
           </div>
         )}
 
-        {/* 에러 */}
+        {/* Error */}
         {scanState === 'error' && (
           <div style={{ background: '#fef2f2', borderRadius: '16px', border: '1px solid #fecaca', padding: '32px 20px', textAlign: 'center', marginBottom: '16px' }}>
             <AlertTriangle size={36} color='#f87171' style={{ display: 'block', margin: '0 auto 12px' }} />
@@ -214,7 +214,7 @@ export default function ScanPage() {
           </div>
         )}
 
-        {/* 다시 스캔 버튼 */}
+        {/* Scan again button */}
         {(scanState === 'found' || scanState === 'not_found' || scanState === 'error') && (
           <button
             onClick={startScanner}

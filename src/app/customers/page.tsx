@@ -118,7 +118,7 @@ export default function Customers() {
 
   async function handleDelete() {
     if (!editCustomer) return
-    if (!confirm(`"${editCustomer.company_name}" 고객을 삭제하시겠습니까?`)) return
+    if (!confirm(`Delete customer "${editCustomer.company_name}"?`)) return
     await supabase.from('customers').delete().eq('id', editCustomer.id)
     setShowModal(false)
     setEditCustomer(null)
@@ -388,7 +388,7 @@ export default function Customers() {
                 <div style={{ fontSize: '11px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Bill To</div>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
                   <input type='checkbox' checked={billToSameAsShipTo} onChange={e => setBillToSameAsShipTo(e.target.checked)} style={{ cursor: 'pointer' }} />
-                  Ship To와 동일
+                  Same as Ship To
                 </label>
               </div>
               {!billToSameAsShipTo && [
