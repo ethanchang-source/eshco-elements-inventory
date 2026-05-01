@@ -169,11 +169,12 @@ export default function Customers() {
       const wb = XLSX.read(buffer, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json<any>(ws, { defval: '' })
-      let success = 0, failed = 0
+      const records: any[] = []
+      let skipped = 0
       for (const row of rows) {
         const name = String(row['Company Name'] || row['company_name'] || '').trim()
-        if (!name) { failed++; continue }
-        const payload = {
+        if (!name) { skipped++; continue }
+        records.push({
           company_name: name,
           ship_to_address: String(row['Ship To Address'] || row['ship_to_address'] || ''),
           ship_to_city: String(row['Ship To City'] || row['ship_to_city'] || ''),
@@ -190,19 +191,24 @@ export default function Customers() {
           payment_terms: String(row['Payment Terms'] || row['payment_terms'] || 'Net30'),
           currency: String(row['Currency'] || row['currency'] || 'CAD'),
           notes: String(row['Notes'] || row['notes'] || ''),
-        }
-        const { data: existing } = await supabase.from('customers').select('id').eq('company_name', name).maybeSingle()
-        let error
-        if (existing) {
-          ;({ error } = await supabase.from('customers').update(payload).eq('id', existing.id))
-        } else {
-          ;({ error } = await supabase.from('customers').insert([payload]))
-        }
-        if (error) failed++; else success++
+        })
       }
-      setImportResult(`✅ ${success} customers imported.${failed > 0 ? ` ❌ ${failed} failed.` : ''}`)
-      fetchCustomers()
-    } catch {
+      if (records.length === 0) {
+        setImportResult('❌ No valid rows found. Make sure "Company Name" column is present.')
+      } else {
+        const { error } = await supabase
+          .from('customers')
+          .upsert(records, { onConflict: 'company_name', ignoreDuplicates: false })
+        if (error) {
+          console.error('customers upsert failed:', error)
+          setImportResult(`❌ Import failed: ${error.message}`)
+        } else {
+          setImportResult(`✅ ${records.length} customers upserted.${skipped > 0 ? ` (${skipped} rows skipped — missing company name)` : ''}`)
+          fetchCustomers()
+        }
+      }
+    } catch (err) {
+      console.error('customers import error:', err)
       setImportResult('❌ Error reading file. Please check the format.')
     }
     setImporting(false)
