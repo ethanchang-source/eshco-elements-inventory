@@ -67,7 +67,8 @@ export default function Customers() {
   }
 
   async function fetchProducts() {
-    const { data } = await supabase.from('products').select('id, sku, name, size_oz, price_whs_cad, unit_cost_cad').eq('is_active', true).order('sku')
+    const { data, error } = await supabase.from('products').select('id, sku, name, size_oz, price_whs_cad, unit_cost_cad').eq('is_active', true).order('sku')
+    if (error) console.error('fetchProducts error:', error)
     setProducts(data || [])
   }
 
@@ -105,10 +106,16 @@ export default function Customers() {
       notes: c.notes || '',
     })
     setBillToSameAsShipTo(c.bill_to_same_as_ship_to || false)
-    const { data: prices } = await supabase.from('customer_prices').select('product_id, unit_price').eq('customer_id', c.id)
+    const [{ data: prices, error: pricesError }, { data: freshProducts, error: productsError }] = await Promise.all([
+      supabase.from('customer_prices').select('product_id, unit_price').eq('customer_id', c.id),
+      supabase.from('products').select('id, sku, name, size_oz, price_whs_cad, unit_cost_cad').eq('is_active', true).order('sku'),
+    ])
+    if (pricesError) console.error('customer_prices fetch error:', pricesError)
+    if (productsError) console.error('products fetch error (openEditModal):', productsError)
     const priceMap: Record<string, number> = {}
     if (prices) prices.forEach(p => { priceMap[p.product_id] = p.unit_price })
-    setPriceList(products.map(p => ({
+    const productList = freshProducts || products
+    setPriceList(productList.map(p => ({
       product_id: p.id, sku: p.sku, name: p.name, size: `${p.size_oz} FL. OZ.`,
       default_price: p.price_whs_cad ?? null,
       custom_price: priceMap[p.id] != null ? String(priceMap[p.id]) : '',
