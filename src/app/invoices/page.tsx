@@ -113,6 +113,12 @@ export default function Invoices() {
   const [importStatus, setImportStatus] = useState<string>('')
   const [importing, setImporting] = useState(false)
   const importFileRef = useRef<HTMLInputElement>(null)
+
+  const [showCmImportModal, setShowCmImportModal] = useState(false)
+  const [cmImportRows, setCmImportRows] = useState<any[]>([])
+  const [cmImportStatus, setCmImportStatus] = useState<string>('')
+  const [cmImporting, setCmImporting] = useState(false)
+  const cmImportFileRef = useRef<HTMLInputElement>(null)
   const [editInvoice, setEditInvoice] = useState<Invoice | null>(null)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([])
@@ -141,16 +147,21 @@ export default function Invoices() {
     setLoading(false)
   }
 
-  function handleCustomerChange(customerId: string) {
+  async function handleCustomerChange(customerId: string) {
     const customer = customers.find(c => c.id === customerId) || null
     setSelectedCustomer(customer)
     setForm(prev => ({ ...prev, customer_id: customerId }))
+    const priceMap: Record<string, number> = {}
+    if (customerId) {
+      const { data: prices } = await supabase.from('customer_prices').select('product_id, unit_price').eq('customer_id', customerId)
+      if (prices) prices.forEach(p => { priceMap[p.product_id] = p.unit_price })
+    }
     setLineItems(products.map(p => ({
       product_id: p.id,
       sku: p.sku,
       name: p.name,
       size: `${p.size_oz} FL. OZ.`,
-      unit_price: p.price_whs_cad || 0,
+      unit_price: priceMap[p.id] ?? p.price_whs_cad ?? 0,
       qty: 0,
       total: 0,
     })))
@@ -169,10 +180,10 @@ export default function Invoices() {
       tax_rate: String(Math.round(invoice.tax_rate * 100)),
       notes: invoice.notes || '',
     })
-    const { data: items } = await supabase
-      .from('invoice_items')
-      .select('*, products(id, sku, name, size_oz, price_whs_cad)')
-      .eq('invoice_id', invoice.id)
+    const [{ data: items }, { data: custPrices }] = await Promise.all([
+      supabase.from('invoice_items').select('*, products(id, sku, name, size_oz, price_whs_cad)').eq('invoice_id', invoice.id),
+      supabase.from('customer_prices').select('product_id, unit_price').eq('customer_id', invoice.customer_id),
+    ])
 
     const existingMap: { [key: string]: { qty: number; unit_price: number } } = {}
     if (items) {
@@ -182,14 +193,17 @@ export default function Invoices() {
         }
       })
     }
+    const custPriceMap: Record<string, number> = {}
+    if (custPrices) custPrices.forEach(p => { custPriceMap[p.product_id] = p.unit_price })
+
     setLineItems(products.map(p => ({
       product_id: p.id,
       sku: p.sku,
       name: p.name,
       size: `${p.size_oz} FL. OZ.`,
-      unit_price: existingMap[p.id]?.unit_price ?? p.price_whs_cad ?? 0,
+      unit_price: existingMap[p.id]?.unit_price ?? custPriceMap[p.id] ?? p.price_whs_cad ?? 0,
       qty: existingMap[p.id]?.qty ?? 0,
-      total: (existingMap[p.id]?.unit_price ?? p.price_whs_cad ?? 0) * (existingMap[p.id]?.qty ?? 0),
+      total: (existingMap[p.id]?.unit_price ?? custPriceMap[p.id] ?? p.price_whs_cad ?? 0) * (existingMap[p.id]?.qty ?? 0),
     })))
     setShowModal(true)
   }
@@ -527,13 +541,18 @@ export default function Invoices() {
 
   // ── Credit Memo helpers ──
 
-  function cmHandleCustomerChange(customerId: string) {
+  async function cmHandleCustomerChange(customerId: string) {
     const customer = customers.find(c => c.id === customerId) || null
     setCmSelectedCustomer(customer)
     setCmForm(prev => ({ ...prev, customer_id: customerId }))
+    const priceMap: Record<string, number> = {}
+    if (customerId) {
+      const { data: prices } = await supabase.from('customer_prices').select('product_id, unit_price').eq('customer_id', customerId)
+      if (prices) prices.forEach(p => { priceMap[p.product_id] = p.unit_price })
+    }
     setCmLineItems(products.map(p => ({
       product_id: p.id, sku: p.sku, name: p.name,
-      size: `${p.size_oz} FL. OZ.`, unit_price: p.price_whs_cad || 0, qty: 0, total: 0,
+      size: `${p.size_oz} FL. OZ.`, unit_price: priceMap[p.id] ?? p.price_whs_cad ?? 0, qty: 0, total: 0,
     })))
   }
 
@@ -542,14 +561,19 @@ export default function Invoices() {
     setEditCm(cm)
     setCmSelectedCustomer(customers.find(c => c.id === cm.customer_id) || null)
     setCmForm({ customer_id: cm.customer_id, issued_at: cm.issued_at, po_number: cm.po_number || '', tax_rate: String(Math.round(cm.tax_rate * 100)), notes: cm.notes || '', applied_date: cm.applied_date || '' })
-    const { data: items } = await supabase.from('credit_memo_items').select('*, products(id, sku, name, size_oz, price_whs_cad)').eq('memo_id', cm.id)
+    const [{ data: items }, { data: cmCustPrices }] = await Promise.all([
+      supabase.from('credit_memo_items').select('*, products(id, sku, name, size_oz, price_whs_cad)').eq('memo_id', cm.id),
+      supabase.from('customer_prices').select('product_id, unit_price').eq('customer_id', cm.customer_id),
+    ])
     const existingMap: { [key: string]: { qty: number; unit_price: number } } = {}
     if (items) items.forEach(item => { if (item.products?.id) existingMap[item.products.id] = { qty: item.qty, unit_price: item.unit_price_cad } })
+    const cmCustPriceMap: Record<string, number> = {}
+    if (cmCustPrices) cmCustPrices.forEach(p => { cmCustPriceMap[p.product_id] = p.unit_price })
     setCmLineItems(products.map(p => ({
       product_id: p.id, sku: p.sku, name: p.name, size: `${p.size_oz} FL. OZ.`,
-      unit_price: existingMap[p.id]?.unit_price ?? p.price_whs_cad ?? 0,
+      unit_price: existingMap[p.id]?.unit_price ?? cmCustPriceMap[p.id] ?? p.price_whs_cad ?? 0,
       qty: existingMap[p.id]?.qty ?? 0,
-      total: (existingMap[p.id]?.unit_price ?? p.price_whs_cad ?? 0) * (existingMap[p.id]?.qty ?? 0),
+      total: (existingMap[p.id]?.unit_price ?? cmCustPriceMap[p.id] ?? p.price_whs_cad ?? 0) * (existingMap[p.id]?.qty ?? 0),
     })))
     setShowCmModal(true)
   }
@@ -665,6 +689,161 @@ export default function Invoices() {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Credit Memos')
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(itemRows), 'Line Items')
     XLSX.writeFile(wb, `credit_memos_export_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
+  function downloadCmTemplate() {
+    const rows = [
+      {
+        'Credit Memo #': 'C25-00001',
+        'Customer Name': 'Example Retailer Inc.',
+        'Date': '2025-01-15',
+        'Reference #': 'REF001',
+        'Status': 'applied',
+        'Applied Date': '2025-02-01',
+        'Notes': '',
+        'SKU': 'IPB-001',
+        'Qty': 12,
+        'Unit Price CAD': 25.00,
+        'Tax Rate %': 13,
+      },
+      {
+        'Credit Memo #': 'C25-00001',
+        'Customer Name': 'Example Retailer Inc.',
+        'Date': '2025-01-15',
+        'Reference #': 'REF001',
+        'Status': 'applied',
+        'Applied Date': '2025-02-01',
+        'Notes': '',
+        'SKU': 'IPB-002',
+        'Qty': 6,
+        'Unit Price CAD': 30.00,
+        'Tax Rate %': 13,
+      },
+    ]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Import Template')
+    XLSX.writeFile(wb, 'credit_memo_import_template.xlsx')
+  }
+
+  function handleCmFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const data = ev.target?.result
+      const wb = XLSX.read(data, { type: 'binary', cellDates: true })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json(ws, { raw: false })
+      setCmImportRows(rows as any[])
+      setCmImportStatus('')
+    }
+    reader.readAsBinaryString(file)
+  }
+
+  async function handleCmImport() {
+    if (cmImportRows.length === 0) return
+    setCmImporting(true)
+    setCmImportStatus('')
+
+    const grouped: { [key: string]: any[] } = {}
+    for (const row of cmImportRows) {
+      const no = String(row['Credit Memo #'] || '').trim()
+      if (!no) continue
+      if (!grouped[no]) grouped[no] = []
+      grouped[no].push(row)
+    }
+
+    const { data: allCustomers } = await supabase.from('customers').select('id, company_name')
+    const { data: allProducts } = await supabase.from('products').select('id, sku, price_whs_cad')
+    const { data: existingMemos } = await supabase.from('credit_memos').select('memo_no')
+    const existingNos = new Set((existingMemos || []).map(m => m.memo_no))
+
+    const customerMap: { [name: string]: string } = {}
+    for (const c of allCustomers || []) customerMap[c.company_name.toLowerCase()] = c.id
+
+    const productMap: { [sku: string]: { id: string; price: number } } = {}
+    for (const p of allProducts || []) productMap[p.sku.toUpperCase()] = { id: p.id, price: p.price_whs_cad }
+
+    let imported = 0, skipped = 0
+    const errors: string[] = []
+
+    for (const [memoNo, rows] of Object.entries(grouped)) {
+      if (existingNos.has(memoNo)) {
+        skipped++
+        errors.push(`${memoNo}: already exists, skipped`)
+        continue
+      }
+
+      const first = rows[0]
+      const customerName = String(first['Customer Name'] || '').trim()
+      const customerId = customerMap[customerName.toLowerCase()]
+      if (!customerId) {
+        skipped++
+        errors.push(`${memoNo}: customer "${customerName}" not found`)
+        continue
+      }
+
+      const issuedAt = String(first['Date'] || '').trim()
+      const taxRate = parseFloat(String(first['Tax Rate %'] || '13')) / 100
+      const poNumber = String(first['Reference #'] || '').trim()
+      const status = String(first['Status'] || 'draft').trim()
+      const appliedDate = String(first['Applied Date'] || '').trim() || null
+      const notes = String(first['Notes'] || '').trim()
+
+      const lineItemsToInsert: { product_id: string; qty: number; unit_price_cad: number; line_total_cad: number }[] = []
+      let hasError = false
+
+      for (const row of rows) {
+        const sku = String(row['SKU'] || '').trim().toUpperCase()
+        const qty = parseInt(String(row['Qty'] || '0'))
+        const unitPrice = parseFloat(String(row['Unit Price CAD'] || '0'))
+        if (!sku || qty <= 0) continue
+        const product = productMap[sku]
+        if (!product) {
+          errors.push(`${memoNo}: SKU "${sku}" not found`)
+          hasError = true
+          break
+        }
+        lineItemsToInsert.push({ product_id: product.id, qty, unit_price_cad: unitPrice, line_total_cad: unitPrice * qty })
+      }
+
+      if (hasError || lineItemsToInsert.length === 0) {
+        skipped++
+        continue
+      }
+
+      const subtotal = lineItemsToInsert.reduce((s, i) => s + i.line_total_cad, 0)
+      const taxAmount = subtotal * taxRate
+      const total = subtotal + taxAmount
+
+      const { data: cm, error } = await supabase.from('credit_memos').insert([{
+        memo_no: memoNo,
+        customer_id: customerId,
+        issued_at: issuedAt,
+        status,
+        subtotal_cad: subtotal,
+        tax_rate: taxRate,
+        tax_amount_cad: taxAmount,
+        total_cad: total,
+        currency: 'CAD',
+        notes,
+        po_number: poNumber,
+        applied_date: appliedDate,
+      }]).select().single()
+
+      if (error || !cm) {
+        skipped++
+        errors.push(`${memoNo}: DB error - ${error?.message}`)
+        continue
+      }
+
+      await supabase.from('credit_memo_items').insert(lineItemsToInsert.map(i => ({ ...i, memo_id: cm.id })))
+      imported++
+    }
+
+    setCmImportStatus(`Done: ${imported} imported, ${skipped} skipped.\n${errors.join('\n')}`)
+    setCmImporting(false)
+    if (imported > 0) fetchAll()
   }
 
   async function handleCmDelete(id: string) {
@@ -835,9 +1014,17 @@ export default function Invoices() {
           <Search size={16} color='#94a3b8' />
           <input value={cmSearch} onChange={e => setCmSearch(e.target.value)} placeholder='Search credit memos...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
         </div>
-        <button onClick={() => { setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null); setCmForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '' }); setShowCmModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
-          <Plus size={16} /> New Credit Memo
-        </button>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button onClick={() => { setShowCmImportModal(true); setCmImportRows([]); setCmImportStatus('') }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+            <Upload size={15} /> Import
+          </button>
+          <button onClick={handleCmExport} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+            <TableIcon size={15} /> Export Excel
+          </button>
+          <button onClick={() => { setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null); setCmForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '' }); setShowCmModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+            <Plus size={16} /> New Credit Memo
+          </button>
+        </div>
       </div>
 
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
@@ -951,6 +1138,65 @@ export default function Invoices() {
               <button onClick={() => { setShowImportModal(false); setImportRows([]); setImportStatus('') }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Close</button>
               <button onClick={handleImport} disabled={importRows.length === 0 || importing} style={{ padding: '8px 20px', background: importing ? '#94a3b8' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: importRows.length === 0 || importing ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
                 {importing ? 'Importing...' : `Import ${importRows.length > 0 ? new Set(importRows.map((r: any) => r['Invoice #'])).size + ' invoices' : ''}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCmImportModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '540px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '6px' }}>Import Credit Memos from Excel</h2>
+            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Import historical credit memo data. Existing memo numbers will be skipped.</p>
+
+            <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '14px 16px', marginBottom: '20px', border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '8px' }}>Required columns in your Excel file:</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
+                {['Credit Memo #', 'Customer Name', 'Date (YYYY-MM-DD)', 'SKU', 'Qty', 'Unit Price CAD'].map(col => (
+                  <div key={col} style={{ fontSize: '12px', color: '#7c3aed', fontFamily: 'monospace' }}>• {col}</div>
+                ))}
+              </div>
+              <div style={{ fontSize: '13px', fontWeight: '500', color: '#374151', marginTop: '10px', marginBottom: '4px' }}>Optional columns:</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
+                {['Reference #', 'Status (draft/sent/applied)', 'Applied Date', 'Notes', 'Tax Rate % (default 13)'].map(col => (
+                  <div key={col} style={{ fontSize: '12px', color: '#64748b', fontFamily: 'monospace' }}>• {col}</div>
+                ))}
+              </div>
+              <button onClick={downloadCmTemplate} style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '6px', background: '#f5f3ff', color: '#7c3aed', border: 'none', borderRadius: '6px', padding: '7px 14px', fontSize: '12px', cursor: 'pointer', fontWeight: '500' }}>
+                <Download size={13} /> Download Template
+              </button>
+            </div>
+
+            <div
+              onClick={() => cmImportFileRef.current?.click()}
+              style={{ border: '2px dashed #e2e8f0', borderRadius: '8px', padding: '28px', textAlign: 'center', cursor: 'pointer', marginBottom: '16px', background: cmImportRows.length > 0 ? '#f5f3ff' : '#fafafa' }}
+            >
+              <Upload size={24} color={cmImportRows.length > 0 ? '#7c3aed' : '#94a3b8'} style={{ display: 'block', margin: '0 auto 8px' }} />
+              {cmImportRows.length > 0 ? (
+                <div style={{ fontSize: '14px', color: '#7c3aed', fontWeight: '500' }}>{cmImportRows.length} rows loaded — click to change file</div>
+              ) : (
+                <div style={{ fontSize: '14px', color: '#64748b' }}>Click to select .xlsx or .xls file</div>
+              )}
+              <input ref={cmImportFileRef} type='file' accept='.xlsx,.xls' onChange={handleCmFileSelect} style={{ display: 'none' }} />
+            </div>
+
+            {cmImportRows.length > 0 && !cmImportStatus && (
+              <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '12px 14px', marginBottom: '16px', fontSize: '13px', color: '#374151' }}>
+                Preview: <strong>{cmImportRows.length}</strong> rows, <strong>{new Set(cmImportRows.map((r: any) => r['Credit Memo #'])).size}</strong> unique credit memo numbers
+              </div>
+            )}
+
+            {cmImportStatus && (
+              <div style={{ background: cmImportStatus.includes('error') || (cmImportStatus.includes('skipped') && !cmImportStatus.includes('0 skipped')) ? '#fef2f2' : '#f5f3ff', borderRadius: '8px', padding: '12px 14px', marginBottom: '16px', fontSize: '12px', color: '#374151', whiteSpace: 'pre-wrap', fontFamily: 'monospace', maxHeight: '140px', overflowY: 'auto' }}>
+                {cmImportStatus}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button onClick={() => { setShowCmImportModal(false); setCmImportRows([]); setCmImportStatus('') }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Close</button>
+              <button onClick={handleCmImport} disabled={cmImportRows.length === 0 || cmImporting} style={{ padding: '8px 20px', background: cmImporting ? '#a78bfa' : '#7c3aed', color: '#fff', border: 'none', borderRadius: '6px', cursor: cmImportRows.length === 0 || cmImporting ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
+                {cmImporting ? 'Importing...' : `Import ${cmImportRows.length > 0 ? new Set(cmImportRows.map((r: any) => r['Credit Memo #'])).size + ' credit memos' : ''}`}
               </button>
             </div>
           </div>
