@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { ScanLine, RotateCcw, Package, AlertTriangle, CheckCircle, Camera } from 'lucide-react'
+import { ScanLine, RotateCcw, Package, AlertTriangle, CheckCircle, Camera, Pencil, Save, X } from 'lucide-react'
+
+const UNITS_PER_BOX = 36
 
 interface Product {
   id: string
@@ -28,6 +30,12 @@ export default function ScanPage() {
   const [errorMsg, setErrorMsg] = useState('')
   const scannerRef = useRef<any>(null)
 
+  const [editingStock, setEditingStock] = useState(false)
+  const [stockMode, setStockMode] = useState<'units' | 'boxes'>('units')
+  const [stockInput, setStockInput] = useState('')
+  const [savingStock, setSavingStock] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+
   const stopScanner = useCallback(async () => {
     if (scannerRef.current) {
       try { await scannerRef.current.stop() } catch {}
@@ -35,10 +43,52 @@ export default function ScanPage() {
     }
   }, [])
 
+  function openEdit() {
+    if (!product) return
+    setStockMode('units')
+    setStockInput(String(product.current_stock))
+    setSaveSuccess(false)
+    setEditingStock(true)
+  }
+
+  function cancelEdit() {
+    setEditingStock(false)
+    setSaveSuccess(false)
+  }
+
+  function handleModeToggle(mode: 'units' | 'boxes') {
+    const current = parseFloat(stockInput) || 0
+    if (mode === 'boxes' && stockMode === 'units') {
+      setStockInput(String(Math.round(current / UNITS_PER_BOX * 100) / 100))
+    } else if (mode === 'units' && stockMode === 'boxes') {
+      setStockInput(String(Math.round(current * UNITS_PER_BOX)))
+    }
+    setStockMode(mode)
+  }
+
+  const computedUnits = stockMode === 'boxes'
+    ? Math.round((parseFloat(stockInput) || 0) * UNITS_PER_BOX)
+    : Math.round(parseFloat(stockInput) || 0)
+
+  async function handleSaveStock() {
+    if (!product) return
+    setSavingStock(true)
+    const newStock = computedUnits
+    const { error } = await supabase.from('products').update({ current_stock: newStock }).eq('id', product.id)
+    if (!error) {
+      setProduct({ ...product, current_stock: newStock })
+      setSaveSuccess(true)
+      setEditingStock(false)
+    }
+    setSavingStock(false)
+  }
+
   const startScanner = useCallback(async () => {
     setProduct(null)
     setScannedCode('')
     setErrorMsg('')
+    setEditingStock(false)
+    setSaveSuccess(false)
     setScanState('scanning')
 
     // Give React a tick to render the #qr-reader div before initializing
@@ -166,18 +216,73 @@ export default function ScanPage() {
                 </div>
               </div>
 
-              <div style={{ background: isLowStock ? '#fef2f2' : '#f0fdf4', borderRadius: '12px', padding: '20px', textAlign: 'center', marginBottom: '16px' }}>
-                <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>Current Stock</div>
-                <div style={{ fontSize: '48px', fontWeight: '800', color: isLowStock ? '#dc2626' : '#16a34a', lineHeight: 1 }}>
-                  {product.current_stock}
-                </div>
-                <div style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>units</div>
-                {isLowStock && (
-                  <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '8px', fontWeight: '500' }}>
-                    Reorder point: {product.reorder_threshold} units
+              {!editingStock ? (
+                <div style={{ background: isLowStock ? '#fef2f2' : '#f0fdf4', borderRadius: '12px', padding: '20px', textAlign: 'center', marginBottom: '16px', position: 'relative' }}>
+                  <button
+                    onClick={openEdit}
+                    style={{ position: 'absolute', top: '12px', right: '12px', display: 'flex', alignItems: 'center', gap: '4px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: '500', color: '#374151', cursor: 'pointer' }}
+                  >
+                    <Pencil size={12} /> Edit
+                  </button>
+                  <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>Current Stock</div>
+                  <div style={{ fontSize: '48px', fontWeight: '800', color: isLowStock ? '#dc2626' : '#16a34a', lineHeight: 1 }}>
+                    {product.current_stock}
                   </div>
-                )}
-              </div>
+                  <div style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>units</div>
+                  {isLowStock && (
+                    <div style={{ fontSize: '12px', color: '#dc2626', marginTop: '8px', fontWeight: '500' }}>
+                      Reorder point: {product.reorder_threshold} units
+                    </div>
+                  )}
+                  {saveSuccess && (
+                    <div style={{ fontSize: '13px', color: '#16a34a', fontWeight: '600', marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                      <CheckCircle size={14} /> Stock updated!
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '20px', marginBottom: '16px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '12px', textAlign: 'center' }}>Edit Stock Quantity</div>
+
+                  {/* Boxes / Units toggle */}
+                  <div style={{ display: 'flex', background: '#e2e8f0', borderRadius: '8px', padding: '3px', marginBottom: '14px' }}>
+                    {(['units', 'boxes'] as const).map(mode => (
+                      <button
+                        key={mode}
+                        onClick={() => handleModeToggle(mode)}
+                        style={{ flex: 1, padding: '7px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: '500', background: stockMode === mode ? '#fff' : 'transparent', color: stockMode === mode ? '#1e293b' : '#64748b', boxShadow: stockMode === mode ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s' }}
+                      >
+                        {mode === 'units' ? 'Units' : `Boxes (×${UNITS_PER_BOX})`}
+                      </button>
+                    ))}
+                  </div>
+
+                  <input
+                    type='number'
+                    min='0'
+                    step={stockMode === 'boxes' ? '0.5' : '1'}
+                    value={stockInput}
+                    onChange={e => setStockInput(e.target.value)}
+                    autoFocus
+                    style={{ width: '100%', padding: '12px', border: '2px solid #2563eb', borderRadius: '8px', fontSize: '24px', fontWeight: '700', textAlign: 'center', outline: 'none', color: '#1e293b', boxSizing: 'border-box' }}
+                  />
+
+                  {stockMode === 'boxes' && (
+                    <div style={{ textAlign: 'center', fontSize: '13px', color: '#64748b', marginTop: '8px' }}>
+                      = <strong style={{ color: '#1e293b' }}>{computedUnits}</strong> units
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
+                    <button onClick={cancelEdit} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', color: '#64748b', fontSize: '14px', cursor: 'pointer' }}>
+                      <X size={15} /> Cancel
+                    </button>
+                    <button onClick={handleSaveStock} disabled={savingStock} style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '10px', border: 'none', borderRadius: '8px', background: savingStock ? '#93c5fd' : '#2563eb', color: '#fff', fontSize: '14px', fontWeight: '600', cursor: savingStock ? 'not-allowed' : 'pointer' }}>
+                      <Save size={15} /> {savingStock ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
                 {[
