@@ -250,7 +250,7 @@ export default function Products() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {['SKU', 'Name', 'Size', 'Barcode', 'Unit Cost', 'MSRP', 'WHS Price', 'Margin', 'Stock', 'Status'].map(h => (
+              {['SKU', 'Name', 'Size', 'Barcode', 'Unit Cost', 'WHS Price', 'Margin Rate', 'MSRP', 'Stock', 'Status'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
@@ -274,7 +274,6 @@ export default function Products() {
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.size_oz} oz</td>
                 <td style={{ padding: '12px 16px', fontSize: '12px', color: '#64748b', fontFamily: 'monospace' }}>{p.barcode_upc}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.unit_cost_cad?.toFixed(2)}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.msrp_cad?.toFixed(2)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.price_whs_cad?.toFixed(2)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600' }}>
                   {(() => {
@@ -282,10 +281,11 @@ export default function Products() {
                     const cost = p.unit_cost_cad || 0
                     if (!whs) return <span style={{ color: '#94a3b8' }}>N/A</span>
                     const m = (whs - cost) / whs * 100
-                    const color = m >= 55 ? '#16a34a' : m >= 40 ? '#d97706' : '#dc2626'
+                    const color = m >= 30 ? '#16a34a' : m >= 15 ? '#d97706' : '#dc2626'
                     return <span style={{ color }}>{m.toFixed(1)}%</span>
                   })()}
                 </td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.msrp_cad?.toFixed(2)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px' }}>
                   <span style={{ color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a', fontWeight: '600' }}>{p.current_stock}</span>
                 </td>
@@ -369,7 +369,7 @@ export default function Products() {
                 const whs = parseFloat(editForm.price_whs_cad) || 0
                 const cost = parseFloat(editForm.unit_cost_cad) || 0
                 const margin = whs > 0 ? (whs - cost) / whs * 100 : null
-                const color = margin === null ? '#64748b' : margin >= 55 ? '#16a34a' : margin >= 40 ? '#d97706' : '#dc2626'
+                const color = margin === null ? '#64748b' : margin >= 30 ? '#16a34a' : margin >= 15 ? '#d97706' : '#dc2626'
                 return (
                   <div style={{ gridColumn: '1 / -1', background: '#f8fafc', borderRadius: '8px', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '500' }}>Margin:</span>
