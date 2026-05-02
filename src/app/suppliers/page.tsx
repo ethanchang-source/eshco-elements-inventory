@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { Truck, Plus, Search, Globe, Phone, Mail, Upload, Download, TableIcon } from 'lucide-react'
+import { Truck, Plus, Search, Globe, Phone, Mail, Upload, Download, TableIcon, AlertTriangle } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 interface Supplier {
@@ -31,6 +31,10 @@ export default function Suppliers() {
   const [importResult, setImportResult] = useState('')
   const importFileRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState({ ...emptyForm })
+  const [pendingFile, setPendingFile] = useState<File | null>(null)
+  const [showImportConfirm, setShowImportConfirm] = useState(false)
+  const [snapshot, setSnapshot] = useState<Supplier[] | null>(null)
+  const [undoRestoring, setUndoRestoring] = useState(false)
 
   useEffect(() => { fetchSuppliers() }, [])
 
@@ -81,9 +85,23 @@ export default function Suppliers() {
     fetchSuppliers()
   }
 
-  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    setPendingFile(file)
+    setShowImportConfirm(true)
+    e.target.value = ''
+  }
+
+  async function confirmImport() {
+    setShowImportConfirm(false)
+    if (!pendingFile) return
+    setSnapshot([...suppliers])
+    await runImport(pendingFile)
+    setPendingFile(null)
+  }
+
+  async function runImport(file: File) {
     setImporting(true)
     setImportResult('')
     try {
@@ -118,7 +136,16 @@ export default function Suppliers() {
       setImportResult('❌ Error reading file. Please check the format.')
     }
     setImporting(false)
-    e.target.value = ''
+  }
+
+  async function handleUndo() {
+    if (!snapshot) return
+    setUndoRestoring(true)
+    await supabase.from('suppliers').upsert(snapshot, { onConflict: 'id' })
+    setSnapshot(null)
+    setImportResult('')
+    fetchSuppliers()
+    setUndoRestoring(false)
   }
 
   function handleExport() {
@@ -167,7 +194,7 @@ export default function Suppliers() {
           </button>
           <label style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}>
             <Upload size={14} /> {importing ? 'Importing...' : 'Import Excel'}
-            <input ref={importFileRef} type='file' accept='.xlsx,.xls' onChange={handleImport} style={{ display: 'none' }} />
+            <input ref={importFileRef} type='file' accept='.xlsx,.xls' onChange={handleFileSelect} style={{ display: 'none' }} />
           </label>
           <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
             <TableIcon size={14} /> Export Excel
@@ -177,6 +204,15 @@ export default function Suppliers() {
           </button>
         </div>
       </div>
+
+      {snapshot && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: '8px', padding: '10px 16px', marginBottom: '12px' }}>
+          <div style={{ fontSize: '13px', color: '#92400e', fontWeight: '500' }}>Import applied. You can restore the previous data.</div>
+          <button onClick={handleUndo} disabled={undoRestoring} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#92400e', border: '1px solid #fcd34d', borderRadius: '6px', padding: '6px 14px', fontSize: '13px', fontWeight: '500', cursor: undoRestoring ? 'not-allowed' : 'pointer' }}>
+            {undoRestoring ? 'Restoring...' : '↩ Undo Last Import'}
+          </button>
+        </div>
+      )}
 
       {importResult && (
         <div style={{ background: importResult.includes('✅') ? '#f0fdf4' : '#fef2f2', border: `1px solid ${importResult.includes('✅') ? '#bbf7d0' : '#fecaca'}`, borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: importResult.includes('✅') ? '#16a34a' : '#dc2626' }}>
@@ -226,6 +262,26 @@ export default function Suppliers() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {showImportConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '440px', maxWidth: '90vw' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ width: '40px', height: '40px', background: '#fef2f2', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <AlertTriangle size={20} color='#dc2626' />
+              </div>
+              <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#1e293b', margin: 0 }}>Import Confirmation</h3>
+            </div>
+            <p style={{ fontSize: '14px', color: '#374151', lineHeight: '1.6', marginBottom: '24px' }}>
+              This will overwrite existing data with the contents of the uploaded file. This action cannot be undone without using Restore. Do you want to continue?
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button onClick={() => { setShowImportConfirm(false); setPendingFile(null) }} style={{ padding: '9px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={confirmImport} style={{ padding: '9px 20px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Yes, Import</button>
+            </div>
+          </div>
         </div>
       )}
 

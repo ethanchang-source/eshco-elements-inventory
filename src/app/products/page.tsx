@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { Package, Plus, Search, Upload, Download, TableIcon } from 'lucide-react'
+import { Package, Plus, Search, Upload, Download, TableIcon, AlertTriangle } from 'lucide-react'
 import { parseCSV, downloadCSVTemplate } from '@/lib/csvImport'
 import * as XLSX from 'xlsx'
 
@@ -37,6 +37,10 @@ export default function Products() {
   const [editForm, setEditForm] = useState({ ...emptyEditForm })
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState('')
+  const [pendingFile, setPendingFile] = useState<File | null>(null)
+  const [showImportConfirm, setShowImportConfirm] = useState(false)
+  const [snapshot, setSnapshot] = useState<Product[] | null>(null)
+  const [undoRestoring, setUndoRestoring] = useState(false)
 
   useEffect(() => { fetchProducts() }, [])
 
@@ -111,9 +115,23 @@ export default function Products() {
     fetchProducts()
   }
 
-  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    setPendingFile(file)
+    setShowImportConfirm(true)
+    e.target.value = ''
+  }
+
+  async function confirmImport() {
+    setShowImportConfirm(false)
+    if (!pendingFile) return
+    setSnapshot([...products])
+    await runImport(pendingFile)
+    setPendingFile(null)
+  }
+
+  async function runImport(file: File) {
     setImporting(true)
     setImportResult('')
     try {
@@ -148,7 +166,16 @@ export default function Products() {
       setImportResult('❌ Error reading file. Please check the format.')
     }
     setImporting(false)
-    e.target.value = ''
+  }
+
+  async function handleUndo() {
+    if (!snapshot) return
+    setUndoRestoring(true)
+    await supabase.from('products').upsert(snapshot, { onConflict: 'id' })
+    setSnapshot(null)
+    setImportResult('')
+    fetchProducts()
+    setUndoRestoring(false)
   }
 
   function handleDownloadTemplate() {
@@ -193,7 +220,7 @@ export default function Products() {
           </button>
           <label style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}>
             <Upload size={14} /> {importing ? 'Importing...' : 'Import CSV'}
-            <input type='file' accept='.csv' onChange={handleImport} style={{ display: 'none' }} />
+            <input type='file' accept='.csv' onChange={handleFileSelect} style={{ display: 'none' }} />
           </label>
           <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
             <TableIcon size={14} /> Export Excel
@@ -203,6 +230,15 @@ export default function Products() {
           </button>
         </div>
       </div>
+
+      {snapshot && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: '8px', padding: '10px 16px', marginBottom: '12px' }}>
+          <div style={{ fontSize: '13px', color: '#92400e', fontWeight: '500' }}>Import applied. You can restore the previous data.</div>
+          <button onClick={handleUndo} disabled={undoRestoring} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#92400e', border: '1px solid #fcd34d', borderRadius: '6px', padding: '6px 14px', fontSize: '13px', fontWeight: '500', cursor: undoRestoring ? 'not-allowed' : 'pointer' }}>
+            {undoRestoring ? 'Restoring...' : '↩ Undo Last Import'}
+          </button>
+        </div>
+      )}
 
       {importResult && (
         <div style={{ background: importResult.includes('✅') ? '#f0fdf4' : '#fef2f2', border: `1px solid ${importResult.includes('✅') ? '#bbf7d0' : '#fecaca'}`, borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: importResult.includes('✅') ? '#16a34a' : '#dc2626' }}>
@@ -214,17 +250,17 @@ export default function Products() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {['SKU', 'Name', 'Size', 'Barcode', 'Unit Cost', 'MSRP', 'WHS Price', 'Stock', 'Status'].map(h => (
+              {['SKU', 'Name', 'Size', 'Barcode', 'Unit Cost', 'MSRP', 'WHS Price', 'Margin', 'Stock', 'Status'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>Loading...</td></tr>
+              <tr><td colSpan={10} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>Loading...</td></tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={9} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
+                <td colSpan={10} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
                   <Package size={32} color='#e2e8f0' style={{ display: 'block', margin: '0 auto 8px' }} />
                   No products yet. Add one or import CSV.
                 </td>
@@ -240,6 +276,16 @@ export default function Products() {
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.unit_cost_cad?.toFixed(2)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.msrp_cad?.toFixed(2)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.price_whs_cad?.toFixed(2)}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600' }}>
+                  {(() => {
+                    const whs = p.price_whs_cad || 0
+                    const cost = p.unit_cost_cad || 0
+                    if (!whs) return <span style={{ color: '#94a3b8' }}>N/A</span>
+                    const m = (whs - cost) / whs * 100
+                    const color = m >= 55 ? '#16a34a' : m >= 40 ? '#d97706' : '#dc2626'
+                    return <span style={{ color }}>{m.toFixed(1)}%</span>
+                  })()}
+                </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px' }}>
                   <span style={{ color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a', fontWeight: '600' }}>{p.current_stock}</span>
                 </td>
@@ -253,6 +299,26 @@ export default function Products() {
           </tbody>
         </table>
       </div>
+
+      {showImportConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '440px', maxWidth: '90vw' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ width: '40px', height: '40px', background: '#fef2f2', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <AlertTriangle size={20} color='#dc2626' />
+              </div>
+              <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#1e293b', margin: 0 }}>Import Confirmation</h3>
+            </div>
+            <p style={{ fontSize: '14px', color: '#374151', lineHeight: '1.6', marginBottom: '24px' }}>
+              This will overwrite existing data with the contents of the uploaded file. This action cannot be undone without using Restore. Do you want to continue?
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button onClick={() => { setShowImportConfirm(false); setPendingFile(null) }} style={{ padding: '9px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={confirmImport} style={{ padding: '9px 20px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Yes, Import</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Product Modal */}
       {showAddModal && (
