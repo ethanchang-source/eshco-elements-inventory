@@ -79,7 +79,13 @@ export default function Dashboard() {
 
   return (
     <MainLayout>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+      <style>{`
+        @media (max-width: 768px) {
+          .dash-two-col { grid-template-columns: 1fr !important; }
+          .dash-stat-cards { grid-template-columns: 1fr 1fr !important; }
+        }
+      `}</style>
+      <div className="dash-stat-cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
         {statCards.map((card) => {
           const Icon = card.icon
           return (
@@ -97,7 +103,7 @@ export default function Dashboard() {
         })}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+      <div className="dash-two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
         <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
             <AlertTriangle size={18} color='#d97706' />

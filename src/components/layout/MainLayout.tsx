@@ -115,7 +115,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     <>
       <style>{`
         @media (max-width: 768px) {
-          .main-content { margin-left: 0 !important; margin-top: 56px !important; }
+          .main-content { margin-left: 0 !important; margin-top: 56px !important; padding: 16px !important; }
           .desktop-header { display: none !important; }
           .ptr-banner { display: flex !important; }
         }
