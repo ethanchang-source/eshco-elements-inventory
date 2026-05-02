@@ -293,6 +293,25 @@ export default function Products() {
                 ['Barcode UPC', 'barcode_upc'], ['Barcode ITF-14', 'barcode_itf14'],
                 ['Unit Cost (CAD)', 'unit_cost_cad'], ['MSRP (CAD)', 'msrp_cad'],
                 ['WHS Price (CAD)', 'price_whs_cad'], ['Dist Price (CAD)', 'price_dist_cad'],
+              ] as [string, string][]).map(([label, key]) => (
+                <div key={key}>
+                  <label style={lbl}>{label}</label>
+                  <input value={editForm[key as keyof typeof editForm]} onChange={e => setEditForm({ ...editForm, [key]: e.target.value })} style={inp} />
+                </div>
+              ))}
+              {(() => {
+                const whs = parseFloat(editForm.price_whs_cad) || 0
+                const cost = parseFloat(editForm.unit_cost_cad) || 0
+                const margin = whs > 0 ? (whs - cost) / whs * 100 : null
+                const color = margin === null ? '#64748b' : margin >= 55 ? '#16a34a' : margin >= 40 ? '#d97706' : '#dc2626'
+                return (
+                  <div style={{ gridColumn: '1 / -1', background: '#f8fafc', borderRadius: '8px', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '500' }}>Margin:</span>
+                    <span style={{ fontSize: '15px', fontWeight: '700', color }}>{margin === null ? 'N/A' : `${margin.toFixed(1)}%`}</span>
+                  </div>
+                )
+              })()}
+              {([
                 ['Reorder Threshold', 'reorder_threshold'],
               ] as [string, string][]).map(([label, key]) => (
                 <div key={key}>
