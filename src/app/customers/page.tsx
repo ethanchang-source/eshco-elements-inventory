@@ -56,6 +56,7 @@ export default function Customers() {
   const [modalTab, setModalTab] = useState<'info' | 'prices'>('info')
   const [priceList, setPriceList] = useState<{ product_id: string; sku: string; name: string; size: string; default_price: number | null; custom_price: string }[]>([])
   const [savingPrices, setSavingPrices] = useState(false)
+  const [pricesSaveMsg, setPricesSaveMsg] = useState('')
   const [billToSameAsShipTo, setBillToSameAsShipTo] = useState(false)
 
   useEffect(() => { fetchCustomers(); fetchProducts() }, [])
@@ -107,13 +108,14 @@ export default function Customers() {
     })
     setBillToSameAsShipTo(c.bill_to_same_as_ship_to || false)
     const [{ data: prices, error: pricesError }, { data: freshProducts, error: productsError }] = await Promise.all([
-      supabase.from('customer_prices').select('product_id, custom_price').eq('customer_id', c.id),
+      supabase.from('customer_prices').select('*').eq('customer_id', c.id),
       supabase.from('products').select('id, sku, name, size_oz, price_whs_cad, unit_cost_cad').eq('is_active', true).order('sku'),
     ])
     if (pricesError) console.error('customer_prices fetch error:', pricesError)
     if (productsError) console.error('products fetch error (openEditModal):', productsError)
+    console.log('customer_prices on open:', prices, pricesError)
     const priceMap: Record<string, number> = {}
-    if (prices) prices.forEach(p => { priceMap[p.product_id] = p.custom_price })
+    if (prices) prices.forEach((p: any) => { priceMap[p.product_id] = p.custom_price ?? p.unit_price })
     const productList = freshProducts || products
     setPriceList(productList.map(p => ({
       product_id: p.id, sku: p.sku, name: p.name, size: `${p.size_oz} FL. OZ.`,
@@ -159,23 +161,49 @@ export default function Customers() {
   async function handleSavePrices() {
     if (!editCustomer) return
     setSavingPrices(true)
+    setPricesSaveMsg('')
+
+    // Diagnostic: log actual columns in the table
+    const { data: diagData, error: diagError } = await supabase.from('customer_prices').select('*').eq('customer_id', editCustomer.id).limit(1)
+    console.log('customer_prices diagnostic — existing rows:', diagData, 'error:', diagError)
+
     const { error: delError } = await supabase.from('customer_prices').delete().eq('customer_id', editCustomer.id)
-    if (delError) console.error('customer_prices delete error:', delError)
+    if (delError) {
+      console.error('customer_prices delete error:', delError)
+      setPricesSaveMsg(`❌ Delete error: ${delError.message}`)
+      setSavingPrices(false)
+      return
+    }
+
     const toInsert = priceList
       .filter(p => p.custom_price.trim() !== '' && !isNaN(parseFloat(p.custom_price)))
       .map(p => ({ customer_id: editCustomer.id, product_id: p.product_id, custom_price: parseFloat(p.custom_price) }))
+
     if (toInsert.length > 0) {
       const { error: insError } = await supabase.from('customer_prices').insert(toInsert)
-      if (insError) console.error('customer_prices insert error:', insError)
-      else console.log(`customer_prices saved: ${toInsert.length} rows for customer ${editCustomer.id}`)
+      if (insError) {
+        console.error('customer_prices insert error:', insError)
+        setPricesSaveMsg(`❌ Save error: ${insError.message}`)
+        setSavingPrices(false)
+        return
+      }
+      console.log(`customer_prices saved: ${toInsert.length} rows for customer ${editCustomer.id}`)
     } else {
       console.log('customer_prices saved: 0 rows (all cleared)')
     }
-    const { data: refreshed, error: refetchError } = await supabase.from('customer_prices').select('product_id, custom_price').eq('customer_id', editCustomer.id)
-    if (refetchError) console.error('customer_prices refetch error:', refetchError)
+
+    // Re-fetch with select * to handle any column name
+    const { data: refreshed, error: refetchError } = await supabase.from('customer_prices').select('*').eq('customer_id', editCustomer.id)
+    console.log('customer_prices after save:', refreshed, refetchError)
+    if (refetchError) {
+      setPricesSaveMsg(`❌ Refetch error: ${refetchError.message}`)
+      setSavingPrices(false)
+      return
+    }
     const refreshedMap: Record<string, number> = {}
-    if (refreshed) refreshed.forEach(p => { refreshedMap[p.product_id] = p.custom_price })
+    if (refreshed) refreshed.forEach((p: any) => { refreshedMap[p.product_id] = p.custom_price ?? p.unit_price })
     setPriceList(prev => prev.map(p => ({ ...p, custom_price: refreshedMap[p.product_id] != null ? String(refreshedMap[p.product_id]) : '' })))
+    setPricesSaveMsg(`✅ Saved ${toInsert?.length ?? 0} prices`)
     setSavingPrices(false)
   }
 
@@ -516,11 +544,16 @@ export default function Customers() {
                   </table>
                 </div>
               )}
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                <button onClick={() => { setShowModal(false); setEditCustomer(null) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-                <button onClick={handleSavePrices} disabled={savingPrices} style={{ padding: '8px 20px', background: savingPrices ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: savingPrices ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
-                  {savingPrices ? 'Saving...' : 'Save Prices'}
-                </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
+                {pricesSaveMsg && (
+                  <span style={{ fontSize: '13px', color: pricesSaveMsg.startsWith('❌') ? '#dc2626' : '#16a34a', fontWeight: '500' }}>{pricesSaveMsg}</span>
+                )}
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button onClick={() => { setShowModal(false); setEditCustomer(null) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                  <button onClick={handleSavePrices} disabled={savingPrices} style={{ padding: '8px 20px', background: savingPrices ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: savingPrices ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
+                    {savingPrices ? 'Saving...' : 'Save Prices'}
+                  </button>
+                </div>
               </div>
             </>}
           </div>
