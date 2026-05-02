@@ -44,13 +44,13 @@ export default function Dashboard() {
     ] = await Promise.all([
       supabase.from('products').select('*', { count: 'exact', head: true }).eq('is_active', true),
       supabase.from('raw_materials').select('*', { count: 'exact', head: true }),
-      supabase.from('production_orders').select('quantity').gte('production_date', monthStart),
-      supabase.from('invoices').select('*', { count: 'exact', head: true }).gte('invoice_date', monthStart),
+      supabase.from('production_orders').select('qty_produced').gte('produced_at', monthStart),
+      supabase.from('invoices').select('*', { count: 'exact', head: true }).gte('issued_at', monthStart),
       supabase.from('products').select('id, sku, name, current_stock, reorder_threshold').eq('is_active', true).order('current_stock'),
       supabase.from('invoices').select('id, invoice_no, issued_at, total_cad, status, customers(company_name)').order('created_at', { ascending: false }).limit(5),
     ])
 
-    const productionQty = (productionData || []).reduce((sum, o) => sum + (o.quantity || 0), 0)
+    const productionQty = (productionData || []).reduce((sum, o) => sum + (o.qty_produced || 0), 0)
     const lowStockItems = (allActiveProducts || []).filter(p => p.current_stock <= p.reorder_threshold)
 
     setStats({
