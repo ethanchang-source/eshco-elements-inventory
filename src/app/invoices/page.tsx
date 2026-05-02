@@ -133,6 +133,19 @@ export default function Invoices() {
 
   useEffect(() => { fetchAll() }, [])
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (showDeliveryModal) { setShowDeliveryModal(false); return }
+      if (showPaymentModal) { setShowPaymentModal(false); return }
+      if (showAppliedModal) { setShowAppliedModal(false); setAppliedError(''); return }
+      if (showCmModal) { setShowCmModal(false); setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null); setCmError(''); return }
+      if (showModal) { setShowModal(false); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showModal, showCmModal, showDeliveryModal, showPaymentModal, showAppliedModal])
+
   async function fetchAll() {
     const [inv, cust, prod, cm] = await Promise.all([
       supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').order('created_at', { ascending: false }),

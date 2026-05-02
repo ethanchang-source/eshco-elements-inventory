@@ -61,6 +61,14 @@ export default function Customers() {
 
   useEffect(() => { fetchCustomers(); fetchProducts() }, [])
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showModal) { setShowModal(false); setEditCustomer(null) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showModal])
+
   async function fetchCustomers() {
     const { data } = await supabase.from('customers').select('*').order('company_name')
     setCustomers(data || [])
