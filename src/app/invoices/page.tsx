@@ -153,8 +153,8 @@ export default function Invoices() {
     setForm(prev => ({ ...prev, customer_id: customerId }))
     const priceMap: Record<string, number> = {}
     if (customerId) {
-      const { data: prices } = await supabase.from('customer_prices').select('product_id, unit_price').eq('customer_id', customerId)
-      if (prices) prices.forEach(p => { priceMap[p.product_id] = p.unit_price })
+      const { data: prices } = await supabase.from('customer_prices').select('product_id, custom_price').eq('customer_id', customerId)
+      if (prices) prices.forEach(p => { priceMap[p.product_id] = p.custom_price })
     }
     setLineItems(products.map(p => ({
       product_id: p.id,
@@ -182,7 +182,7 @@ export default function Invoices() {
     })
     const [{ data: items }, { data: custPrices }] = await Promise.all([
       supabase.from('invoice_items').select('*, products(id, sku, name, size_oz, price_whs_cad)').eq('invoice_id', invoice.id),
-      supabase.from('customer_prices').select('product_id, unit_price').eq('customer_id', invoice.customer_id),
+      supabase.from('customer_prices').select('product_id, custom_price').eq('customer_id', invoice.customer_id),
     ])
 
     const existingMap: { [key: string]: { qty: number; unit_price: number } } = {}
@@ -194,7 +194,7 @@ export default function Invoices() {
       })
     }
     const custPriceMap: Record<string, number> = {}
-    if (custPrices) custPrices.forEach(p => { custPriceMap[p.product_id] = p.unit_price })
+    if (custPrices) custPrices.forEach(p => { custPriceMap[p.product_id] = p.custom_price })
 
     setLineItems(products.map(p => ({
       product_id: p.id,
@@ -547,8 +547,8 @@ export default function Invoices() {
     setCmForm(prev => ({ ...prev, customer_id: customerId }))
     const priceMap: Record<string, number> = {}
     if (customerId) {
-      const { data: prices } = await supabase.from('customer_prices').select('product_id, unit_price').eq('customer_id', customerId)
-      if (prices) prices.forEach(p => { priceMap[p.product_id] = p.unit_price })
+      const { data: prices } = await supabase.from('customer_prices').select('product_id, custom_price').eq('customer_id', customerId)
+      if (prices) prices.forEach(p => { priceMap[p.product_id] = p.custom_price })
     }
     setCmLineItems(products.map(p => ({
       product_id: p.id, sku: p.sku, name: p.name,
@@ -563,12 +563,12 @@ export default function Invoices() {
     setCmForm({ customer_id: cm.customer_id, issued_at: cm.issued_at, po_number: cm.po_number || '', tax_rate: String(Math.round(cm.tax_rate * 100)), notes: cm.notes || '', applied_date: cm.applied_date || '' })
     const [{ data: items }, { data: cmCustPrices }] = await Promise.all([
       supabase.from('credit_memo_items').select('*, products(id, sku, name, size_oz, price_whs_cad)').eq('memo_id', cm.id),
-      supabase.from('customer_prices').select('product_id, unit_price').eq('customer_id', cm.customer_id),
+      supabase.from('customer_prices').select('product_id, custom_price').eq('customer_id', cm.customer_id),
     ])
     const existingMap: { [key: string]: { qty: number; unit_price: number } } = {}
     if (items) items.forEach(item => { if (item.products?.id) existingMap[item.products.id] = { qty: item.qty, unit_price: item.unit_price_cad } })
     const cmCustPriceMap: Record<string, number> = {}
-    if (cmCustPrices) cmCustPrices.forEach(p => { cmCustPriceMap[p.product_id] = p.unit_price })
+    if (cmCustPrices) cmCustPrices.forEach(p => { cmCustPriceMap[p.product_id] = p.custom_price })
     setCmLineItems(products.map(p => ({
       product_id: p.id, sku: p.sku, name: p.name, size: `${p.size_oz} FL. OZ.`,
       unit_price: existingMap[p.id]?.unit_price ?? cmCustPriceMap[p.id] ?? p.price_whs_cad ?? 0,
