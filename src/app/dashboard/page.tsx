@@ -37,8 +37,8 @@ export default function Dashboard() {
     const [
       { count: productCount },
       { count: rawMaterialCount },
-      { data: productionData },
-      { count: invoiceCount },
+      { data: productionData, error: prodErr },
+      { count: invoiceCount, error: invCountErr },
       { data: allActiveProducts },
       { data: recentInvData },
     ] = await Promise.all([
@@ -49,6 +49,12 @@ export default function Dashboard() {
       supabase.from('products').select('id, sku, name, current_stock, reorder_threshold').eq('is_active', true).order('current_stock'),
       supabase.from('invoices').select('id, invoice_no, issued_at, total_cad, status, customers(company_name)').order('created_at', { ascending: false }).limit(5),
     ])
+
+    console.log('dashboard monthStart:', monthStart)
+    if (prodErr) console.error('production_orders error:', prodErr)
+    else console.log('production_orders rows this month:', productionData)
+    if (invCountErr) console.error('invoices count error:', invCountErr)
+    else console.log('invoices count this month:', invoiceCount)
 
     const productionQty = (productionData || []).reduce((sum, o) => sum + (o.qty_produced || 0), 0)
     const lowStockItems = (allActiveProducts || []).filter(p => p.current_stock <= p.reorder_threshold)
