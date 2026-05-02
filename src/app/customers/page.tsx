@@ -121,9 +121,8 @@ export default function Customers() {
     ])
     if (pricesError) console.error('customer_prices fetch error:', pricesError)
     if (productsError) console.error('products fetch error (openEditModal):', productsError)
-    console.log('customer_prices on open:', prices, pricesError)
     const priceMap: Record<string, number> = {}
-    if (prices) prices.forEach((p: any) => { priceMap[p.product_id] = p.custom_price ?? p.unit_price })
+    if (prices) prices.forEach((p: any) => { priceMap[p.product_id] = p.custom_price })
     const productList = freshProducts || products
     setPriceList(productList.map(p => ({
       product_id: p.id, sku: p.sku, name: p.name, size: `${p.size_oz} FL. OZ.`,
@@ -171,47 +170,54 @@ export default function Customers() {
     setSavingPrices(true)
     setPricesSaveMsg('')
 
-    // Diagnostic: log actual columns in the table
-    const { data: diagData, error: diagError } = await supabase.from('customer_prices').select('*').eq('customer_id', editCustomer.id).limit(1)
-    console.log('customer_prices diagnostic — existing rows:', diagData, 'error:', diagError)
-
-    const { error: delError } = await supabase.from('customer_prices').delete().eq('customer_id', editCustomer.id)
-    if (delError) {
-      console.error('customer_prices delete error:', delError)
-      setPricesSaveMsg(`❌ Delete error: ${delError.message}`)
-      setSavingPrices(false)
-      return
-    }
-
-    const toInsert = priceList
+    const toUpsert = priceList
       .filter(p => p.custom_price.trim() !== '' && !isNaN(parseFloat(p.custom_price)))
       .map(p => ({ customer_id: editCustomer.id, product_id: p.product_id, custom_price: parseFloat(p.custom_price) }))
 
-    if (toInsert.length > 0) {
-      const { error: insError } = await supabase.from('customer_prices').insert(toInsert)
-      if (insError) {
-        console.error('customer_prices insert error:', insError)
-        setPricesSaveMsg(`❌ Save error: ${insError.message}`)
+    const toClearIds = priceList
+      .filter(p => p.custom_price.trim() === '' || isNaN(parseFloat(p.custom_price)))
+      .map(p => p.product_id)
+
+    if (toUpsert.length > 0) {
+      const { error: upsertErr } = await supabase
+        .from('customer_prices')
+        .upsert(toUpsert, { onConflict: 'customer_id,product_id' })
+      if (upsertErr) {
+        console.error('customer_prices upsert error:', upsertErr)
+        setPricesSaveMsg(`❌ Save error: ${upsertErr.message}`)
         setSavingPrices(false)
         return
       }
-      console.log(`customer_prices saved: ${toInsert.length} rows for customer ${editCustomer.id}`)
-    } else {
-      console.log('customer_prices saved: 0 rows (all cleared)')
     }
 
-    // Re-fetch with select * to handle any column name
-    const { data: refreshed, error: refetchError } = await supabase.from('customer_prices').select('*').eq('customer_id', editCustomer.id)
-    console.log('customer_prices after save:', refreshed, refetchError)
+    if (toClearIds.length > 0) {
+      const { error: delErr } = await supabase
+        .from('customer_prices')
+        .delete()
+        .eq('customer_id', editCustomer.id)
+        .in('product_id', toClearIds)
+      if (delErr) {
+        console.error('customer_prices delete error:', delErr)
+        setPricesSaveMsg(`❌ Delete error: ${delErr.message}`)
+        setSavingPrices(false)
+        return
+      }
+    }
+
+    const { data: refreshed, error: refetchError } = await supabase
+      .from('customer_prices')
+      .select('product_id, custom_price')
+      .eq('customer_id', editCustomer.id)
     if (refetchError) {
+      console.error('customer_prices refetch error:', refetchError)
       setPricesSaveMsg(`❌ Refetch error: ${refetchError.message}`)
       setSavingPrices(false)
       return
     }
     const refreshedMap: Record<string, number> = {}
-    if (refreshed) refreshed.forEach((p: any) => { refreshedMap[p.product_id] = p.custom_price ?? p.unit_price })
+    if (refreshed) refreshed.forEach(p => { refreshedMap[p.product_id] = p.custom_price })
     setPriceList(prev => prev.map(p => ({ ...p, custom_price: refreshedMap[p.product_id] != null ? String(refreshedMap[p.product_id]) : '' })))
-    setPricesSaveMsg(`✅ Saved ${toInsert?.length ?? 0} prices`)
+    setPricesSaveMsg(`✅ Saved ${toUpsert.length} prices`)
     setSavingPrices(false)
   }
 
