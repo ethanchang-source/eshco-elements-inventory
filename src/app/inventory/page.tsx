@@ -99,7 +99,7 @@ export default function Inventory() {
 
   function openEditFinished(p: Product) {
     setEditFinished(p)
-    setEditFinishedStock(String(p.current_stock ?? ''))
+    setEditFinishedStock(String(p.current_stock != null ? Math.round(p.current_stock / 36) : ''))
   }
 
   async function handleUpdateRaw() {
@@ -153,7 +153,7 @@ export default function Inventory() {
 
   async function handleUpdateFinished() {
     if (!editFinished) return
-    const { error } = await supabase.from('products').update({ current_stock: parseInt(editFinishedStock) || 0 }).eq('id', editFinished.id)
+    const { error } = await supabase.from('products').update({ current_stock: (parseInt(editFinishedStock) || 0) * 36 }).eq('id', editFinished.id)
     if (error) console.error('finished product update error:', error)
     setEditFinished(null)
     fetchAll()
@@ -364,7 +364,9 @@ export default function Inventory() {
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{p.name}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.size_oz} oz</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.unit_cost_cad?.toFixed(2)}</td>
-                  <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a' }}>{p.current_stock?.toLocaleString()}</td>
+                  <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a' }}>
+                    {p.current_stock?.toLocaleString()} units ({Math.round((p.current_stock || 0) / 36)} boxes)
+                  </td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.reorder_threshold?.toLocaleString()}</td>
                   <td style={{ padding: '12px 16px' }}>
                     <span style={{ background: p.current_stock <= p.reorder_threshold ? '#fef2f2' : '#f0fdf4', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a', padding: '2px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '500' }}>
@@ -487,8 +489,13 @@ export default function Inventory() {
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '4px' }}>Edit Stock</h2>
             <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>{editFinished.sku} – {editFinished.name}</p>
             <div style={{ marginBottom: '16px' }}>
-              <label style={lbl}>Current Stock</label>
-              <input type='number' value={editFinishedStock} onChange={e => setEditFinishedStock(e.target.value)} style={inp} />
+              <label style={lbl}>Boxes (1 box = 36 units)</label>
+              <input type='number' value={editFinishedStock} onChange={e => setEditFinishedStock(e.target.value)} style={inp} placeholder='0' />
+              {editFinishedStock !== '' && (
+                <div style={{ marginTop: '6px', fontSize: '13px', color: '#2563eb', fontWeight: '500' }}>
+                  {parseInt(editFinishedStock) || 0} boxes = {(parseInt(editFinishedStock) || 0) * 36} units
+                </div>
+              )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
               <button onClick={handleDeleteFinished} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>Delete</button>
