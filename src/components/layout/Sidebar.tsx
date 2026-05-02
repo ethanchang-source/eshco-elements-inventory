@@ -18,6 +18,7 @@ import {
   ScanLine,
   LogOut,
   ShoppingCart,
+  Receipt,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
@@ -31,6 +32,7 @@ const menuItems = [
   { href: '/customers', icon: Users, label: 'Customers' },
   { href: '/suppliers', icon: Truck, label: 'Suppliers' },
   { href: '/purchasing', icon: ShoppingCart, label: 'Purchasing' },
+  { href: '/expenses', icon: Receipt, label: 'Expenses' },
   { href: '/reports', icon: BarChart3, label: 'Reports' },
   { href: '/scan', icon: ScanLine, label: 'Scan Stock' },
 ]
