@@ -107,13 +107,13 @@ export default function Customers() {
     })
     setBillToSameAsShipTo(c.bill_to_same_as_ship_to || false)
     const [{ data: prices, error: pricesError }, { data: freshProducts, error: productsError }] = await Promise.all([
-      supabase.from('customer_prices').select('product_id, unit_price').eq('customer_id', c.id),
+      supabase.from('customer_prices').select('product_id, custom_price').eq('customer_id', c.id),
       supabase.from('products').select('id, sku, name, size_oz, price_whs_cad, unit_cost_cad').eq('is_active', true).order('sku'),
     ])
     if (pricesError) console.error('customer_prices fetch error:', pricesError)
     if (productsError) console.error('products fetch error (openEditModal):', productsError)
     const priceMap: Record<string, number> = {}
-    if (prices) prices.forEach(p => { priceMap[p.product_id] = p.unit_price })
+    if (prices) prices.forEach(p => { priceMap[p.product_id] = p.custom_price })
     const productList = freshProducts || products
     setPriceList(productList.map(p => ({
       product_id: p.id, sku: p.sku, name: p.name, size: `${p.size_oz} FL. OZ.`,
@@ -159,11 +159,23 @@ export default function Customers() {
   async function handleSavePrices() {
     if (!editCustomer) return
     setSavingPrices(true)
-    await supabase.from('customer_prices').delete().eq('customer_id', editCustomer.id)
+    const { error: delError } = await supabase.from('customer_prices').delete().eq('customer_id', editCustomer.id)
+    if (delError) console.error('customer_prices delete error:', delError)
     const toInsert = priceList
       .filter(p => p.custom_price.trim() !== '' && !isNaN(parseFloat(p.custom_price)))
-      .map(p => ({ customer_id: editCustomer.id, product_id: p.product_id, unit_price: parseFloat(p.custom_price), notes: '' }))
-    if (toInsert.length > 0) await supabase.from('customer_prices').insert(toInsert)
+      .map(p => ({ customer_id: editCustomer.id, product_id: p.product_id, custom_price: parseFloat(p.custom_price) }))
+    if (toInsert.length > 0) {
+      const { error: insError } = await supabase.from('customer_prices').insert(toInsert)
+      if (insError) console.error('customer_prices insert error:', insError)
+      else console.log(`customer_prices saved: ${toInsert.length} rows for customer ${editCustomer.id}`)
+    } else {
+      console.log('customer_prices saved: 0 rows (all cleared)')
+    }
+    const { data: refreshed, error: refetchError } = await supabase.from('customer_prices').select('product_id, custom_price').eq('customer_id', editCustomer.id)
+    if (refetchError) console.error('customer_prices refetch error:', refetchError)
+    const refreshedMap: Record<string, number> = {}
+    if (refreshed) refreshed.forEach(p => { refreshedMap[p.product_id] = p.custom_price })
+    setPriceList(prev => prev.map(p => ({ ...p, custom_price: refreshedMap[p.product_id] != null ? String(refreshedMap[p.product_id]) : '' })))
     setSavingPrices(false)
   }
 
