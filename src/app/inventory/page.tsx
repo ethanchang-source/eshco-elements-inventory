@@ -39,7 +39,7 @@ interface Product {
 }
 
 export default function Inventory() {
-  const [tab, setTab] = useState<'raw' | 'packaging' | 'finished'>('raw')
+  const [tab, setTab] = useState<'raw' | 'packaging' | 'finished'>('finished')
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([])
   const [packaging, setPackaging] = useState<Packaging[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -244,9 +244,9 @@ export default function Inventory() {
   const filteredProducts = products.filter(p => p.name?.toLowerCase().includes(search.toLowerCase()) || p.sku?.toLowerCase().includes(search.toLowerCase()))
 
   const tabs = [
+    { key: 'finished', label: 'Finished Goods' },
     { key: 'raw', label: 'Raw Materials' },
     { key: 'packaging', label: 'Packaging' },
-    { key: 'finished', label: 'Finished Goods' },
   ] as const
 
   const inp: React.CSSProperties = { width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }
