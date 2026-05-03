@@ -135,7 +135,6 @@ export default function Expenses() {
   const ytdCAD = expenses.reduce((s, e) => s + (e.total_amount || 0), 0)
 
   const monthTotal = monthExpenses.reduce((s, e) => s + (e.total_amount || 0), 0)
-  const monthTotalUSD = monthExpenses.reduce((s, e) => s + (e.amount_usd || 0), 0)
   const monthBeforeTax = monthExpenses.reduce((s, e) => s + (e.amount_before_tax || 0), 0)
   const monthSalesTax = monthExpenses.reduce((s, e) => s + (e.sales_tax || 0), 0)
   const monthFreight = monthExpenses.reduce((s, e) => s + (e.freight_tip || 0), 0)
@@ -455,8 +454,8 @@ export default function Expenses() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: '1200px' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                {['Date', 'Category', 'Type', 'Payee', 'Category2', 'Description', 'Before Tax', 'Sales Tax', 'Freight/Tip', 'Total', 'Reference', 'Payment', 'USD', 'Rate', ''].map((h, i) => (
-                  <th key={i} style={{ padding: '10px 12px', textAlign: ['Before Tax', 'Sales Tax', 'Freight/Tip', 'Total', 'USD', 'Rate'].includes(h) ? 'right' : 'left', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>{h}</th>
+                {['Date', 'Category', 'Type', 'Payee', 'Category2', 'Description', 'Before Tax', 'Sales Tax', 'Freight/Tip', 'Total', 'Reference', 'Payment', 'Rate', ''].map((h, i) => (
+                  <th key={i} style={{ padding: '10px 12px', textAlign: ['Before Tax', 'Sales Tax', 'Freight/Tip', 'Total', 'Rate'].includes(h) ? 'right' : 'left', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -487,7 +486,6 @@ export default function Expenses() {
                   <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>${(e.total_amount || 0).toFixed(2)}</td>
                   <td style={{ padding: '10px 12px', color: '#94a3b8', fontFamily: 'monospace', fontSize: '12px' }}>{e.reference || '—'}</td>
                   <td style={{ padding: '10px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{e.payment_method || '—'}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', color: '#7c3aed' }}>{e.amount_usd ? `$${e.amount_usd.toFixed(2)}` : '—'}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8' }}>{e.exchange_rate ?? '—'}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                     {e.receipt_url && (
@@ -512,13 +510,8 @@ export default function Expenses() {
                   <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${monthBeforeTax.toFixed(2)}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${monthSalesTax.toFixed(2)}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${monthFreight.toFixed(2)}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '700', color: '#1e293b', whiteSpace: 'nowrap' }}>
-                    ${monthTotal.toFixed(2)}
-                    {monthTotalUSD > 0 && (
-                      <div style={{ fontSize: '11px', color: '#7c3aed', fontWeight: '500' }}>USD ${monthTotalUSD.toFixed(2)}</div>
-                    )}
-                  </td>
-                  <td colSpan={5} />
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '700', color: '#1e293b', whiteSpace: 'nowrap' }}>${monthTotal.toFixed(2)}</td>
+                  <td colSpan={4} />
                 </tr>
               </tfoot>
             )}
