@@ -65,6 +65,8 @@ export default function Purchasing() {
   const [lines, setLines] = useState<LineItem[]>([emptyLine()])
   const [saving, setSaving] = useState(false)
 
+  const [createError, setCreateError] = useState('')
+
   const [showDetail, setShowDetail] = useState(false)
   const [detail, setDetail] = useState<PODetail | null>(null)
   const [receiving, setReceiving] = useState(false)
@@ -114,22 +116,33 @@ export default function Purchasing() {
   }
 
   async function handleCreate() {
-    if (!form.supplier_id || !form.order_date) return
+    setCreateError('')
+    if (!form.supplier_id) { setCreateError('Please select a supplier.'); return }
+    if (!form.order_date) { setCreateError('Please enter an order date.'); return }
     const validLines = lines.filter(l => l.material_id && l.quantity && l.unit_price)
-    if (validLines.length === 0) return
+    if (validLines.length === 0) { setCreateError('Please add at least one line item with material, quantity, and unit price.'); return }
     setSaving(true)
+
     const poNumber = await generatePONumber()
     const totalAmount = validLines.reduce((sum, l) => sum + parseFloat(l.quantity) * parseFloat(l.unit_price), 0)
-    const { data: poData, error } = await supabase.from('purchase_orders').insert([{
+
+    const { data: poData, error: poError } = await supabase.from('purchase_orders').insert([{
       po_number: poNumber,
       supplier_id: form.supplier_id,
       order_date: form.order_date,
       status: 'draft',
-      notes: form.notes,
+      notes: form.notes || null,
       total_amount: totalAmount,
     }]).select().single()
-    if (error || !poData) { setSaving(false); return }
-    await supabase.from('purchase_order_items').insert(
+
+    if (poError || !poData) {
+      console.error('PO insert error:', poError)
+      setCreateError(poError?.message || 'Failed to create purchase order. Check RLS policies or DB connection.')
+      setSaving(false)
+      return
+    }
+
+    const { error: itemsError } = await supabase.from('purchase_order_items').insert(
       validLines.map(l => ({
         po_id: poData.id,
         material_type: l.material_type,
@@ -139,8 +152,18 @@ export default function Purchasing() {
         line_total: parseFloat(l.quantity) * parseFloat(l.unit_price),
       }))
     )
+
+    if (itemsError) {
+      console.error('PO items insert error:', itemsError)
+      setCreateError(`PO created but line items failed: ${itemsError.message}`)
+      setSaving(false)
+      fetchAll()
+      return
+    }
+
     setSaving(false)
     setShowCreate(false)
+    setCreateError('')
     setForm({ supplier_id: '', order_date: new Date().toISOString().slice(0, 10), notes: '' })
     setLines([emptyLine()])
     fetchAll()
@@ -242,7 +265,7 @@ export default function Purchasing() {
           <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
             <Download size={14} /> Export Excel
           </button>
-          <button onClick={() => { setShowCreate(true); setLines([emptyLine()]); setForm({ supplier_id: '', order_date: new Date().toISOString().slice(0, 10), notes: '' }) }}
+          <button onClick={() => { setShowCreate(true); setCreateError(''); setLines([emptyLine()]); setForm({ supplier_id: '', order_date: new Date().toISOString().slice(0, 10), notes: '' }) }}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={16} /> New PO
           </button>
@@ -379,8 +402,13 @@ export default function Purchasing() {
               </div>
             </div>
 
+            {createError && (
+              <div style={{ marginBottom: '14px', padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '13px', color: '#dc2626' }}>
+                {createError}
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button onClick={() => setShowCreate(false)} style={{ padding: '9px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={() => { setShowCreate(false); setCreateError('') }} style={{ padding: '9px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
               <button onClick={handleCreate} disabled={saving} style={{ padding: '9px 20px', background: saving ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: saving ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
                 {saving ? 'Saving...' : 'Create PO'}
               </button>
