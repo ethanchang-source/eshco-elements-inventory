@@ -8,8 +8,8 @@ import { ShoppingCart, Plus, Search, Download, X, Trash2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 interface Supplier { id: string; name: string }
-interface RawMaterial { id: string; item_no: string; name: string; unit: string; cost_per_unit_cad: number; quantity_in_stock: number }
-interface PackagingItem { id: string; item_no: string; name: string; cost_cad: number; quantity_in_stock: number }
+interface RawMaterial { id: string; name: string; unit: string; cost_per_unit_cad: number }
+interface PackagingItem { id: string; name: string; cost_per_unit_cad: number }
 
 interface PO {
   id: string
@@ -150,8 +150,8 @@ export default function Purchasing() {
         .select('*, suppliers(name), raw_materials(item_no, name), packaging(item_no, name)')
         .order('ordered_at', { ascending: false }),
       supabase.from('suppliers').select('id, name').order('name'),
-      supabase.from('raw_materials').select('id, item_no, name, unit, cost_per_unit_cad, quantity_in_stock').order('item_no'),
-      supabase.from('packaging').select('id, item_no, name, cost_cad, quantity_in_stock').order('item_no'),
+      supabase.from('raw_materials').select('id, name, unit, cost_per_unit_cad').order('name'),
+      supabase.from('packaging').select('id, name, cost_per_unit_cad').order('name'),
     ])
     setPOs(posRes.data || [])
     setSuppliers(suppRes.data || [])
@@ -295,14 +295,14 @@ export default function Purchasing() {
       updatePayload.qty_received = detail.qty_ordered
 
       if (detail.item_type === 'raw_material' && detail.raw_material_id) {
-        const { data: mat } = await supabase.from('raw_materials').select('quantity_in_stock').eq('id', detail.raw_material_id).single()
+        const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', detail.raw_material_id).single()
         await supabase.from('raw_materials').update({
-          quantity_in_stock: (mat?.quantity_in_stock || 0) + detail.qty_ordered,
+          current_stock: (mat?.current_stock || 0) + detail.qty_ordered,
         }).eq('id', detail.raw_material_id)
       } else if (detail.item_type === 'packaging' && detail.packaging_id) {
-        const { data: pkg } = await supabase.from('packaging').select('quantity_in_stock').eq('id', detail.packaging_id).single()
+        const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', detail.packaging_id).single()
         await supabase.from('packaging').update({
-          quantity_in_stock: (pkg?.quantity_in_stock || 0) + detail.qty_ordered,
+          current_stock: (pkg?.current_stock || 0) + detail.qty_ordered,
         }).eq('id', detail.packaging_id)
       }
     }
@@ -324,25 +324,25 @@ export default function Purchasing() {
       if (detail.item_type === 'raw_material' && detail.raw_material_id) {
         const { data: mat, error: matErr } = await supabase
           .from('raw_materials')
-          .select('quantity_in_stock')
+          .select('current_stock')
           .eq('id', detail.raw_material_id)
           .single()
         if (matErr) { console.error('raw_materials fetch error:', matErr) }
         const { error: updErr } = await supabase
           .from('raw_materials')
-          .update({ quantity_in_stock: Math.max(0, (mat?.quantity_in_stock || 0) - detail.qty_ordered) })
+          .update({ current_stock: Math.max(0, (mat?.current_stock || 0) - detail.qty_ordered) })
           .eq('id', detail.raw_material_id)
         if (updErr) { console.error('raw_materials update error:', updErr); setDeleting(false); return }
       } else if (detail.item_type === 'packaging' && detail.packaging_id) {
         const { data: pkg, error: pkgErr } = await supabase
           .from('packaging')
-          .select('quantity_in_stock')
+          .select('current_stock')
           .eq('id', detail.packaging_id)
           .single()
         if (pkgErr) { console.error('packaging fetch error:', pkgErr) }
         const { error: updErr } = await supabase
           .from('packaging')
-          .update({ quantity_in_stock: Math.max(0, (pkg?.quantity_in_stock || 0) - detail.qty_ordered) })
+          .update({ current_stock: Math.max(0, (pkg?.current_stock || 0) - detail.qty_ordered) })
           .eq('id', detail.packaging_id)
         if (updErr) { console.error('packaging update error:', updErr); setDeleting(false); return }
       }
@@ -388,16 +388,18 @@ export default function Purchasing() {
     if (!isEdit) {
       if (form.item_type === 'raw_material') {
         const mat = rawMaterials.find(r => r.id === id)
-        setForm(f => ({ ...f, raw_material_id: id, unit: mat?.unit || f.unit }))
+        setForm(f => ({ ...f, raw_material_id: id, unit: mat?.unit || f.unit, cost_total_cad: mat?.cost_per_unit_cad != null ? String(mat.cost_per_unit_cad) : f.cost_total_cad }))
       } else {
-        setForm(f => ({ ...f, packaging_id: id }))
+        const pkg = packaging.find(p => p.id === id)
+        setForm(f => ({ ...f, packaging_id: id, cost_total_cad: pkg?.cost_per_unit_cad != null ? String(pkg.cost_per_unit_cad) : f.cost_total_cad }))
       }
     } else {
       if (editForm.item_type === 'raw_material') {
         const mat = rawMaterials.find(r => r.id === id)
-        setEditForm(f => ({ ...f, raw_material_id: id, unit: mat?.unit || f.unit }))
+        setEditForm(f => ({ ...f, raw_material_id: id, unit: mat?.unit || f.unit, cost_total_cad: mat?.cost_per_unit_cad != null ? String(mat.cost_per_unit_cad) : f.cost_total_cad }))
       } else {
-        setEditForm(f => ({ ...f, packaging_id: id }))
+        const pkg = packaging.find(p => p.id === id)
+        setEditForm(f => ({ ...f, packaging_id: id, cost_total_cad: pkg?.cost_per_unit_cad != null ? String(pkg.cost_per_unit_cad) : f.cost_total_cad }))
       }
     }
   }
@@ -414,11 +416,11 @@ export default function Purchasing() {
   const roInp: React.CSSProperties = { ...inp, background: '#f8fafc', color: '#64748b' }
 
   const createMatOpts = form.item_type === 'raw_material'
-    ? rawMaterials.map(m => ({ id: m.id, label: `${m.item_no} — ${m.name} (${m.unit})` }))
-    : packaging.map(p => ({ id: p.id, label: `${p.item_no} — ${p.name}` }))
+    ? rawMaterials.map(m => ({ id: m.id, label: m.unit ? `${m.name} (${m.unit})` : m.name }))
+    : packaging.map(p => ({ id: p.id, label: p.name }))
   const editMatOpts = editForm.item_type === 'raw_material'
-    ? rawMaterials.map(m => ({ id: m.id, label: `${m.item_no} — ${m.name} (${m.unit})` }))
-    : packaging.map(p => ({ id: p.id, label: `${p.item_no} — ${p.name}` }))
+    ? rawMaterials.map(m => ({ id: m.id, label: m.unit ? `${m.name} (${m.unit})` : m.name }))
+    : packaging.map(p => ({ id: p.id, label: p.name }))
 
   const isReadOnly = detail?.status === 'received'
 
