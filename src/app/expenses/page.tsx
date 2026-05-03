@@ -94,6 +94,7 @@ export default function Expenses() {
   const [pendingImport, setPendingImport] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState('')
+  const [saveError, setSaveError] = useState('')
   const importRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { fetchExpenses() }, [])
@@ -133,6 +134,7 @@ export default function Expenses() {
   function openAdd() {
     setEditExpense(null)
     setReceiptFile(null)
+    setSaveError('')
     const d = `${currentYear}-${String(activeMonth + 1).padStart(2, '0')}-01`
     setForm({ ...emptyForm, expense_date: d })
     setShowModal(true)
@@ -141,6 +143,7 @@ export default function Expenses() {
   function openEdit(e: Expense) {
     setEditExpense(e)
     setReceiptFile(null)
+    setSaveError('')
     setForm({
       expense_date: e.expense_date || '',
       category: e.category || '',
@@ -163,6 +166,7 @@ export default function Expenses() {
   async function handleSubmit() {
     if (!form.expense_date) return
     setSaving(true)
+    setSaveError('')
 
     let receipt_url = editExpense?.receipt_url ?? null
     if (receiptFile) {
@@ -170,12 +174,16 @@ export default function Expenses() {
       const ext = receiptFile.name.split('.').pop() || 'bin'
       const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
       const { data: up, error: upErr } = await supabase.storage.from('receipts').upload(path, receiptFile)
-      if (!upErr && up) {
+      if (upErr) {
+        console.error('Receipt upload error:', upErr)
+      } else if (up) {
         const { data: urlData } = supabase.storage.from('receipts').getPublicUrl(up.path)
         receipt_url = urlData.publicUrl
       }
       setUploadingReceipt(false)
     }
+
+    const total = (parseFloat(form.amount_before_tax) || 0) + (parseFloat(form.sales_tax) || 0) + (parseFloat(form.freight_tip) || 0)
 
     const payload = {
       expense_date: form.expense_date,
@@ -187,7 +195,7 @@ export default function Expenses() {
       amount_before_tax: parseFloat(form.amount_before_tax) || 0,
       sales_tax: parseFloat(form.sales_tax) || 0,
       freight_tip: parseFloat(form.freight_tip) || 0,
-      total_amount: computedTotal,
+      total_amount: total,
       reference: form.reference || null,
       payment_method: form.payment_method || null,
       amount_usd: form.amount_usd ? parseFloat(form.amount_usd) : null,
@@ -196,12 +204,23 @@ export default function Expenses() {
       receipt_url,
     }
 
+    let dbError: any = null
     if (editExpense) {
-      await supabase.from('expenses').update(payload).eq('id', editExpense.id)
+      const { error } = await supabase.from('expenses').update(payload).eq('id', editExpense.id)
+      dbError = error
     } else {
-      await supabase.from('expenses').insert([payload])
+      const { error } = await supabase.from('expenses').insert([payload])
+      dbError = error
     }
+
     setSaving(false)
+
+    if (dbError) {
+      console.error('Expense save error:', dbError)
+      setSaveError(dbError.message || 'Failed to save expense. Please try again.')
+      return
+    }
+
     setShowModal(false)
     setEditExpense(null)
     fetchExpenses()
@@ -588,6 +607,12 @@ export default function Expenses() {
               </div>
             </div>
 
+            {saveError && (
+              <div style={{ marginTop: '14px', padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '13px', color: '#dc2626' }}>
+                {saveError}
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '22px', paddingTop: '18px', borderTop: '1px solid #f1f5f9' }}>
               <div>
                 {editExpense && (
@@ -595,7 +620,7 @@ export default function Expenses() {
                 )}
               </div>
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button onClick={() => { setShowModal(false); setEditExpense(null) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                <button onClick={() => { setShowModal(false); setEditExpense(null); setSaveError('') }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
                 <button onClick={handleSubmit} disabled={saving || uploadingReceipt} style={{ padding: '8px 20px', background: saving || uploadingReceipt ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: saving ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
                   {uploadingReceipt ? 'Uploading...' : saving ? 'Saving...' : editExpense ? 'Save Changes' : 'Add Expense'}
                 </button>
