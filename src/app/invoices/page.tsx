@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
+import { formatCurrency } from '@/lib/utils'
 import { FileText, Plus, Search, Download, Trash2, Upload, TableIcon } from 'lucide-react'
 import { generateInvoicePDF } from '@/lib/generateInvoicePDF'
 import { generateCreditMemoPDF } from '@/lib/generateCreditMemoPDF'
@@ -1022,9 +1023,9 @@ export default function Invoices() {
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{inv.customers?.company_name}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{new Date(inv.issued_at).toLocaleDateString('en-CA')}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${inv.subtotal_cad?.toFixed(2)}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>${inv.tax_amount_cad?.toFixed(2)}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${inv.total_cad?.toFixed(2)} CAD</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${formatCurrency(inv.subtotal_cad)}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>${formatCurrency(inv.tax_amount_cad)}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(inv.total_cad)} CAD</td>
                 <td style={{ padding: '12px 16px' }}>
                   <select value={inv.status} onChange={e => updateStatus(inv.id, e.target.value)} style={{ background: statusColor[inv.status]?.bg, color: statusColor[inv.status]?.color, border: 'none', borderRadius: '20px', padding: '2px 10px', fontSize: '12px', fontWeight: '500', cursor: 'pointer', outline: 'none' }}>
                     <option value='draft'>Draft</option>
@@ -1109,9 +1110,9 @@ export default function Invoices() {
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{cm.customers?.company_name}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{new Date(cm.issued_at).toLocaleDateString('en-CA')}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${cm.subtotal_cad?.toFixed(2)}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>${cm.tax_amount_cad?.toFixed(2)}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${cm.total_cad?.toFixed(2)} CAD</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${formatCurrency(cm.subtotal_cad)}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>${formatCurrency(cm.tax_amount_cad)}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(cm.total_cad)} CAD</td>
                 <td style={{ padding: '12px 16px' }}>
                   <select value={cm.status} onChange={e => updateCmStatus(cm.id, e.target.value)} style={{ background: cmStatusColor[cm.status]?.bg, color: cmStatusColor[cm.status]?.color, border: 'none', borderRadius: '20px', padding: '2px 10px', fontSize: '12px', fontWeight: '500', cursor: 'pointer', outline: 'none' }}>
                     <option value='draft'>Draft</option>
@@ -1367,7 +1368,7 @@ export default function Invoices() {
                           <input type='number' value={item.qty || ''} onChange={e => cmUpdateQty(index, parseInt(e.target.value) || 0)} placeholder='0' style={{ width: '60px', padding: '4px 8px', border: item.qty > 0 ? '1px solid #7c3aed' : '1px solid #e2e8f0', borderRadius: '4px', fontSize: '12px', outline: 'none', background: item.qty > 0 ? '#faf5ff' : '#fff' }} />
                         </td>
                         <td style={{ padding: '8px 12px', fontSize: '12px', fontWeight: '600', color: item.qty > 0 ? '#7c3aed' : '#94a3b8' }}>
-                          {item.qty > 0 ? `$${item.total.toFixed(2)}` : '-'}
+                          {item.qty > 0 ? `$${formatCurrency(item.total)}` : '-'}
                         </td>
                       </tr>
                     ))}
@@ -1389,17 +1390,17 @@ export default function Invoices() {
               </div>
               <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
-                  <span>Subtotal</span><span>${cmSubtotal.toFixed(2)}</span>
+                  <span>Subtotal</span><span>${formatCurrency(cmSubtotal)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
                   <span>HST</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <input value={cmForm.tax_rate} onChange={e => setCmForm({ ...cmForm, tax_rate: e.target.value })} style={{ width: '40px', padding: '2px 6px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '13px', outline: 'none', textAlign: 'right' }} />
-                    <span>% = ${cmTaxAmount.toFixed(2)}</span>
+                    <span>% = ${formatCurrency(cmTaxAmount)}</span>
                   </div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '700', color: '#1e293b', borderTop: '1px solid #e2e8f0', paddingTop: '8px' }}>
-                  <span>TOTAL CREDIT</span><span>${cmTotal.toFixed(2)} CAD</span>
+                  <span>TOTAL CREDIT</span><span>${formatCurrency(cmTotal)} CAD</span>
                 </div>
               </div>
             </div>
@@ -1476,7 +1477,7 @@ export default function Invoices() {
                           <input type='number' value={item.qty || ''} onChange={e => updateQty(index, parseInt(e.target.value) || 0)} placeholder='0' style={{ width: '60px', padding: '4px 8px', border: item.qty > 0 ? '1px solid #16a34a' : '1px solid #e2e8f0', borderRadius: '4px', fontSize: '12px', outline: 'none', background: item.qty > 0 ? '#f0fdf4' : '#fff' }} />
                         </td>
                         <td style={{ padding: '8px 12px', fontSize: '12px', fontWeight: '600', color: item.qty > 0 ? '#16a34a' : '#94a3b8' }}>
-                          {item.qty > 0 ? `$${item.total.toFixed(2)}` : '-'}
+                          {item.qty > 0 ? `$${formatCurrency(item.total)}` : '-'}
                         </td>
                       </tr>
                     ))}
@@ -1498,7 +1499,7 @@ export default function Invoices() {
               </div>
               <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
-                  <span>Subtotal</span><span>${subtotal.toFixed(2)}</span>
+                  <span>Subtotal</span><span>${formatCurrency(subtotal)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
                   <span>S & H</span>
@@ -1508,11 +1509,11 @@ export default function Invoices() {
                   <span>HST</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <input value={form.tax_rate} onChange={e => setForm({ ...form, tax_rate: e.target.value })} style={{ width: '40px', padding: '2px 6px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '13px', outline: 'none', textAlign: 'right' }} />
-                    <span>% = ${taxAmount.toFixed(2)}</span>
+                    <span>% = ${formatCurrency(taxAmount)}</span>
                   </div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '700', color: '#1e293b', borderTop: '1px solid #e2e8f0', paddingTop: '8px' }}>
-                  <span>TOTAL</span><span>${total.toFixed(2)} CAD</span>
+                  <span>TOTAL</span><span>${formatCurrency(total)} CAD</span>
                 </div>
               </div>
             </div>

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
+import { formatCurrency } from '@/lib/utils'
 import { Plus, Download, Upload, X, Paperclip, AlertTriangle, Eye } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
@@ -390,9 +391,9 @@ export default function Expenses() {
       {/* KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
         {[
-          { label: `${MONTHS[currentMonthIdx]} ${activeYear} (CAD)`, value: `$${kpiCAD.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: '#dc2626' },
-          { label: `${MONTHS[currentMonthIdx]} ${activeYear} (USD)`, value: kpiUSD > 0 ? `$${kpiUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—', color: '#7c3aed' },
-          { label: `${activeYear} YTD (CAD)`, value: `$${ytdCAD.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: '#2563eb' },
+          { label: `${MONTHS[currentMonthIdx]} ${activeYear} (CAD)`, value: `$${formatCurrency(kpiCAD)}`, color: '#dc2626' },
+          { label: `${MONTHS[currentMonthIdx]} ${activeYear} (USD)`, value: kpiUSD > 0 ? `$${formatCurrency(kpiUSD)}` : '—', color: '#7c3aed' },
+          { label: `${activeYear} YTD (CAD)`, value: `$${formatCurrency(ytdCAD)}`, color: '#2563eb' },
         ].map(card => (
           <div key={card.label} style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 20px' }}>
             <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '500', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{card.label}</div>
@@ -481,10 +482,10 @@ export default function Expenses() {
                   <td style={{ padding: '10px 12px', color: '#374151', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.payee || '—'}</td>
                   <td style={{ padding: '10px 12px', color: '#64748b' }}>{e.category2 || '—'}</td>
                   <td style={{ padding: '10px 12px', color: '#64748b', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.description || '—'}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', color: '#374151' }}>{e.amount_before_tax ? `$${e.amount_before_tax.toFixed(2)}` : '—'}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', color: '#374151' }}>{e.sales_tax ? `$${e.sales_tax.toFixed(2)}` : '—'}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', color: '#374151' }}>{e.freight_tip ? `$${e.freight_tip.toFixed(2)}` : '—'}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>${(e.total_amount || 0).toFixed(2)}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', color: '#374151' }}>{e.amount_before_tax ? `$${formatCurrency(e.amount_before_tax)}` : '—'}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', color: '#374151' }}>{e.sales_tax ? `$${formatCurrency(e.sales_tax)}` : '—'}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', color: '#374151' }}>{e.freight_tip ? `$${formatCurrency(e.freight_tip)}` : '—'}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>${formatCurrency(e.total_amount || 0)}</td>
                   <td style={{ padding: '10px 12px', color: '#94a3b8', fontFamily: 'monospace', fontSize: '12px' }}>{e.reference || '—'}</td>
                   <td style={{ padding: '10px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{e.payment_method || '—'}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8' }}>{e.exchange_rate ?? '—'}</td>
@@ -508,10 +509,10 @@ export default function Expenses() {
                   <td colSpan={6} style={{ padding: '10px 12px', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>
                     {monthExpenses.length} record{monthExpenses.length !== 1 ? 's' : ''}
                   </td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${monthBeforeTax.toFixed(2)}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${monthSalesTax.toFixed(2)}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${monthFreight.toFixed(2)}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '700', color: '#1e293b', whiteSpace: 'nowrap' }}>${monthTotal.toFixed(2)}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${formatCurrency(monthBeforeTax)}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${formatCurrency(monthSalesTax)}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${formatCurrency(monthFreight)}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '700', color: '#1e293b', whiteSpace: 'nowrap' }}>${formatCurrency(monthTotal)}</td>
                   <td colSpan={4} />
                 </tr>
               </tfoot>
@@ -579,7 +580,7 @@ export default function Expenses() {
               {/* Auto-calculated total */}
               <div style={{ gridColumn: '1 / -1', background: '#f8fafc', borderRadius: '8px', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #e2e8f0' }}>
                 <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Total Amount (auto)</span>
-                <span style={{ fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>${computedTotal.toFixed(2)}</span>
+                <span style={{ fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>${formatCurrency(computedTotal)}</span>
               </div>
 
               {/* Payment */}

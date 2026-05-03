@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
+import { formatCurrency } from '@/lib/utils'
 import { ShoppingCart, Plus, Search, Download, X, Trash2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
@@ -286,7 +287,7 @@ export default function Purchasing() {
                       </span>
                     </td>
                     <td style={{ padding: '14px 16px', color: '#1e293b', fontWeight: '500' }}>
-                      ${(po.total_amount || 0).toFixed(2)}
+                      ${formatCurrency(po.total_amount || 0)}
                     </td>
                   </tr>
                 )
@@ -359,7 +360,7 @@ export default function Purchasing() {
                       <input type='number' min='0' value={line.quantity} onChange={e => updateLine(idx, 'quantity', e.target.value)} placeholder='Qty' style={{ ...inputStyle, padding: '7px 10px' }} />
                       <input type='number' min='0' step='0.0001' value={line.unit_price} onChange={e => updateLine(idx, 'unit_price', e.target.value)} placeholder='0.0000' style={{ ...inputStyle, padding: '7px 10px' }} />
                       <div style={{ fontSize: '14px', color: '#374151', fontWeight: '500', padding: '0 4px' }}>
-                        ${lineTotal.toFixed(2)}
+                        ${formatCurrency(lineTotal)}
                       </div>
                       <button onClick={() => setLines(l => l.filter((_, i) => i !== idx))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '4px', display: 'flex', alignItems: 'center' }}>
                         <Trash2 size={15} />
@@ -372,7 +373,7 @@ export default function Purchasing() {
               {/* Total */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
                 <div style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b' }}>
-                  Total: ${lines.reduce((s, l) => s + (parseFloat(l.quantity) || 0) * (parseFloat(l.unit_price) || 0), 0).toFixed(2)} CAD
+                  Total: ${formatCurrency(lines.reduce((s, l) => s + (parseFloat(l.quantity) || 0) * (parseFloat(l.unit_price) || 0), 0))} CAD
                 </div>
               </div>
             </div>
@@ -447,14 +448,14 @@ export default function Purchasing() {
                         <td style={{ padding: '10px 12px', color: '#374151' }}>{getMaterialLabel(item.material_type, item.material_id)}</td>
                         <td style={{ padding: '10px 12px', color: '#374151' }}>{item.quantity}</td>
                         <td style={{ padding: '10px 12px', color: '#374151' }}>${(item.unit_price || 0).toFixed(4)}</td>
-                        <td style={{ padding: '10px 12px', color: '#1e293b', fontWeight: '500' }}>${(item.line_total || 0).toFixed(2)}</td>
+                        <td style={{ padding: '10px 12px', color: '#1e293b', fontWeight: '500' }}>${formatCurrency(item.line_total || 0)}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
                     <tr style={{ borderTop: '2px solid #e2e8f0' }}>
                       <td colSpan={4} style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#374151', fontSize: '14px' }}>Total</td>
-                      <td style={{ padding: '10px 12px', fontWeight: '700', color: '#1e293b', fontSize: '15px' }}>${(detail.total_amount || 0).toFixed(2)}</td>
+                      <td style={{ padding: '10px 12px', fontWeight: '700', color: '#1e293b', fontSize: '15px' }}>${formatCurrency(detail.total_amount || 0)}</td>
                     </tr>
                   </tfoot>
                 </table>

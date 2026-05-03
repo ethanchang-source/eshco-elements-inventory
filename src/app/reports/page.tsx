@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
+import { formatCurrency } from '@/lib/utils'
 import { BarChart3, TrendingUp, DollarSign, Package, ShoppingCart } from 'lucide-react'
 
 interface MonthlySales {
@@ -105,10 +106,10 @@ export default function Reports() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
         {[
-          { label: 'Total Revenue', value: `$${stats.total_revenue.toFixed(2)}`, sub: 'CAD (excl. tax)', icon: DollarSign, color: '#2563eb', bg: '#eff6ff' },
-          { label: 'Paid', value: `$${stats.paid_revenue.toFixed(2)}`, sub: 'Collected', icon: TrendingUp, color: '#16a34a', bg: '#f0fdf4' },
-          { label: 'Unpaid', value: `$${stats.unpaid_revenue.toFixed(2)}`, sub: 'Outstanding', icon: ShoppingCart, color: '#d97706', bg: '#fffbeb' },
-          { label: 'Invoices', value: stats.total_invoices.toString(), sub: `Avg $${stats.avg_order_value.toFixed(2)}`, icon: BarChart3, color: '#7c3aed', bg: '#f5f3ff' },
+          { label: 'Total Revenue', value: `$${formatCurrency(stats.total_revenue)}`, sub: 'CAD (excl. tax)', icon: DollarSign, color: '#2563eb', bg: '#eff6ff' },
+          { label: 'Paid', value: `$${formatCurrency(stats.paid_revenue)}`, sub: 'Collected', icon: TrendingUp, color: '#16a34a', bg: '#f0fdf4' },
+          { label: 'Unpaid', value: `$${formatCurrency(stats.unpaid_revenue)}`, sub: 'Outstanding', icon: ShoppingCart, color: '#d97706', bg: '#fffbeb' },
+          { label: 'Invoices', value: stats.total_invoices.toString(), sub: `Avg $${formatCurrency(stats.avg_order_value)}`, icon: BarChart3, color: '#7c3aed', bg: '#f5f3ff' },
           { label: 'Units Sold', value: stats.total_units_sold.toLocaleString(), sub: 'Total units', icon: Package, color: '#0891b2', bg: '#ecfeff' },
         ].map(card => {
           const Icon = card.icon
@@ -164,7 +165,7 @@ export default function Reports() {
                     <div style={{ fontSize: '12px', fontWeight: '500', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.sku}</div>
                     <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.total_qty} units</div>
                   </div>
-                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b', flexShrink: 0 }}>${p.total_revenue.toFixed(2)}</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b', flexShrink: 0 }}>${formatCurrency(p.total_revenue)}</div>
                 </div>
               ))}
             </div>
@@ -189,8 +190,8 @@ export default function Reports() {
               <tr key={m.month} style={{ borderBottom: '1px solid #f1f5f9', background: m.revenue > 0 ? '#fff' : '#fafafa' }}>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '500', color: '#1e293b' }}>{m.month} {year}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{m.invoice_count}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: m.revenue > 0 ? '600' : '400', color: m.revenue > 0 ? '#1e293b' : '#94a3b8' }}>{m.revenue > 0 ? `$${m.revenue.toFixed(2)}` : '-'}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{m.invoice_count > 0 ? `$${(m.revenue / m.invoice_count).toFixed(2)}` : '-'}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: m.revenue > 0 ? '600' : '400', color: m.revenue > 0 ? '#1e293b' : '#94a3b8' }}>{m.revenue > 0 ? `$${formatCurrency(m.revenue)}` : '-'}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{m.invoice_count > 0 ? `$${formatCurrency(m.revenue / m.invoice_count)}` : '-'}</td>
               </tr>
             ))}
           </tbody>

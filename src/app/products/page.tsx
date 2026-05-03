@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
+import { formatCurrency } from '@/lib/utils'
 import { Package, Plus, Search, Upload, Download, TableIcon, AlertTriangle } from 'lucide-react'
 import { parseCSV, downloadCSVTemplate } from '@/lib/csvImport'
 import * as XLSX from 'xlsx'
@@ -280,8 +281,8 @@ export default function Products() {
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{p.name}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.size_oz} oz</td>
                 <td style={{ padding: '12px 16px', fontSize: '12px', color: '#64748b', fontFamily: 'monospace' }}>{p.barcode_upc}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.unit_cost_cad?.toFixed(2)}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.price_whs_cad?.toFixed(2)}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${formatCurrency(p.unit_cost_cad)}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${formatCurrency(p.price_whs_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600' }}>
                   {(() => {
                     const whs = p.price_whs_cad || 0
@@ -292,7 +293,7 @@ export default function Products() {
                     return <span style={{ color }}>{m.toFixed(1)}%</span>
                   })()}
                 </td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.msrp_cad?.toFixed(2)}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${formatCurrency(p.msrp_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px' }}>
                   <span style={{ color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a', fontWeight: '600' }}>{p.current_stock}</span>
                 </td>

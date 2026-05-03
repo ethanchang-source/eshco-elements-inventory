@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
+import { formatCurrency } from '@/lib/utils'
 import { Users, Plus, Search, MapPin, Phone, Mail, Upload, Download, TableIcon, AlertTriangle } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
@@ -604,7 +605,7 @@ export default function Customers() {
                           <td style={{ padding: '8px 12px', fontSize: '12px', fontWeight: '600', color: '#2563eb' }}>{item.sku}</td>
                           <td style={{ padding: '8px 12px', fontSize: '12px', color: '#1e293b' }}>{item.name}</td>
                           <td style={{ padding: '8px 12px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{item.size}</td>
-                          <td style={{ padding: '8px 12px', fontSize: '12px', color: '#94a3b8' }}>{item.default_price != null ? `$${item.default_price.toFixed(2)}` : '—'}</td>
+                          <td style={{ padding: '8px 12px', fontSize: '12px', color: '#94a3b8' }}>{item.default_price != null ? `$${formatCurrency(item.default_price)}` : '—'}</td>
                           <td style={{ padding: '8px 12px' }}>
                             <input
                               type='number'

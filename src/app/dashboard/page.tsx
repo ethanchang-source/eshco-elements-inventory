@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
+import { formatCurrency } from '@/lib/utils'
 import { Package, FlaskConical, Factory, FileText, AlertTriangle, TrendingUp } from 'lucide-react'
 
 interface LowStockProduct {
@@ -158,7 +159,7 @@ export default function Dashboard() {
                     <div style={{ fontSize: '11px', color: '#94a3b8' }}>{(inv.customers as any)?.company_name} · {new Date(inv.issued_at).toLocaleDateString('en-CA')}</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${inv.total_cad?.toFixed(2)}</div>
+                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(inv.total_cad)}</div>
                     <div style={{ fontSize: '11px', color: statusColor[inv.status] || '#64748b', fontWeight: '500', textTransform: 'capitalize' }}>{inv.status}</div>
                   </div>
                 </div>
