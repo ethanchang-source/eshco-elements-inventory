@@ -99,7 +99,6 @@ export default function Expenses() {
   const [saveError, setSaveError] = useState('')
   const importRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => { document.title = 'Expenses | I AM PURE' }, [])
   useEffect(() => { fetchExpenses(activeYear) }, [activeYear])
 
   useEffect(() => {

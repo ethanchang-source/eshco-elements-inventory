@@ -1,23 +1,32 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
+import { useEffect } from 'react'
 import { Bell } from 'lucide-react'
 
 const pageTitles: { [key: string]: string } = {
   '/dashboard': 'Dashboard',
   '/products': 'Products',
   '/inventory': 'Inventory',
-  '/bom': 'Bill of Materials',
+  '/bom': 'BOM',
   '/production': 'Production',
   '/invoices': 'Invoices',
   '/customers': 'Customers',
   '/suppliers': 'Suppliers',
+  '/purchasing': 'Purchasing',
+  '/expenses': 'Expenses',
   '/reports': 'Reports',
+  '/scan': 'Scan Stock',
 }
 
 export default function Header() {
   const pathname = usePathname()
-  const title = pageTitles[pathname] || 'I Am Pure'
+  const base = '/' + pathname.split('/')[1]
+  const title = pageTitles[base] || 'I AM PURE'
+
+  useEffect(() => {
+    document.title = title === 'I AM PURE' ? 'I AM PURE' : `${title} | I AM PURE`
+  }, [title])
 
   return (
     <header style={{ height: '64px', background: '#ffffff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', position: 'fixed', top: 0, left: '240px', right: 0, zIndex: 99 }}>
