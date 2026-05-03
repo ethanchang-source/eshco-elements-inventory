@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { Truck, Plus, Search, Globe, Phone, Mail, Upload, Download, TableIcon, AlertTriangle } from 'lucide-react'
+import { Truck, Plus, Search, Globe, Phone, Mail, Upload, Download, TableIcon, AlertTriangle, MapPin } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 interface Supplier {
@@ -19,6 +19,30 @@ interface Supplier {
 const emptyForm = {
   name: '', contact_name: '', contact_email: '',
   contact_phone: '', country: 'Canada', notes: '',
+  address: '', city: '', province: '', postal: '',
+}
+
+function parseAddressFromNotes(raw: string): { address: string; city: string; province: string; postal: string; notes: string } {
+  if (!raw.startsWith('Address:')) return { address: '', city: '', province: '', postal: '', notes: raw }
+  const [addrPart, ...rest] = raw.split(' | ')
+  const addrStr = addrPart.slice('Address: '.length)
+  const parts = addrStr.split(', ')
+  const address = parts[0] || ''
+  const city = parts[1] || ''
+  const provPostalParts = (parts[2] || '').split(' ')
+  const postal = provPostalParts.pop() || ''
+  const province = provPostalParts.join(' ')
+  return { address, city, province, postal, notes: rest.join(' | ') }
+}
+
+function buildNotes(form: typeof emptyForm): string {
+  const hasAddr = form.address || form.city || form.province || form.postal
+  const addrStr = hasAddr
+    ? `Address: ${form.address}, ${form.city}, ${form.province} ${form.postal}`.trimEnd()
+    : ''
+  const notesStr = form.notes.trim()
+  if (addrStr && notesStr) return `${addrStr} | ${notesStr}`
+  return addrStr || notesStr
 }
 
 export default function Suppliers() {
@@ -38,6 +62,16 @@ export default function Suppliers() {
 
   useEffect(() => { fetchSuppliers() }, [])
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (showImportConfirm) { setShowImportConfirm(false); setPendingFile(null); return }
+      if (showModal) { setShowModal(false); setEditSupplier(null) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showModal, showImportConfirm])
+
   async function fetchSuppliers() {
     const { data } = await supabase.from('suppliers').select('*').order('name')
     setSuppliers(data || [])
@@ -52,23 +86,36 @@ export default function Suppliers() {
 
   function openEditModal(s: Supplier) {
     setEditSupplier(s)
+    const parsed = parseAddressFromNotes(s.notes || '')
     setForm({
       name: s.name || '',
       contact_name: s.contact_name || '',
       contact_email: s.contact_email || '',
       contact_phone: s.contact_phone || '',
       country: s.country || 'Canada',
-      notes: s.notes || '',
+      notes: parsed.notes,
+      address: parsed.address,
+      city: parsed.city,
+      province: parsed.province,
+      postal: parsed.postal,
     })
     setShowModal(true)
   }
 
   async function handleSubmit() {
     if (!form.name.trim()) return
+    const payload = {
+      name: form.name,
+      contact_name: form.contact_name,
+      contact_email: form.contact_email,
+      contact_phone: form.contact_phone,
+      country: form.country,
+      notes: buildNotes(form),
+    }
     if (editSupplier) {
-      await supabase.from('suppliers').update(form).eq('id', editSupplier.id)
+      await supabase.from('suppliers').update(payload).eq('id', editSupplier.id)
     } else {
-      await supabase.from('suppliers').insert([form])
+      await supabase.from('suppliers').insert([payload])
     }
     setShowModal(false)
     setEditSupplier(null)
@@ -181,8 +228,18 @@ export default function Suppliers() {
     s.country?.toLowerCase().includes(search.toLowerCase())
   )
 
+  const inp: React.CSSProperties = { width: '100%', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }
+  const lbl: React.CSSProperties = { display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '5px' }
+
   return (
     <MainLayout>
+      <style>{`
+        @media (max-width: 640px) {
+          .modal-overlay { align-items: flex-start !important; padding: 0 !important; }
+          .modal-box { border-radius: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; min-height: 100svh; }
+          .modal-grid-3 { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', width: '300px' }}>
           <Search size={16} color='#94a3b8' />
@@ -258,7 +315,18 @@ export default function Suppliers() {
                     <Phone size={14} /><span>{s.contact_phone}</span>
                   </div>
                 )}
-                {s.notes && <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px', fontStyle: 'italic' }}>{s.notes}</div>}
+                {(() => {
+                  const { address, city, province, postal, notes } = parseAddressFromNotes(s.notes || '')
+                  const addrLine = [address, city, [province, postal].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+                  return <>
+                    {addrLine && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#64748b' }}>
+                        <MapPin size={14} /><span>{addrLine}</span>
+                      </div>
+                    )}
+                    {notes && <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px', fontStyle: 'italic' }}>{notes}</div>}
+                  </>
+                })()}
               </div>
             </div>
           ))}
@@ -266,8 +334,8 @@ export default function Suppliers() {
       )}
 
       {showImportConfirm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '440px', maxWidth: '90vw' }}>
+        <div onClick={() => { setShowImportConfirm(false); setPendingFile(null) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '440px', maxWidth: '90vw' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
               <div style={{ width: '40px', height: '40px', background: '#fef2f2', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <AlertTriangle size={20} color='#dc2626' />
@@ -286,29 +354,57 @@ export default function Suppliers() {
       )}
 
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div className="modal-overlay" onClick={() => { setShowModal(false); setEditSupplier(null) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '20px' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '520px', margin: '0 auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>
               {editSupplier ? 'Edit Supplier' : 'Add New Supplier'}
             </h2>
+
+            {/* Basic fields */}
             {[
               { label: 'Company Name *', key: 'name', placeholder: 'Jedwards International' },
               { label: 'Contact Name', key: 'contact_name', placeholder: 'Jane Doe' },
               { label: 'Contact Email', key: 'contact_email', placeholder: 'jane@supplier.com' },
               { label: 'Contact Phone', key: 'contact_phone', placeholder: '+1-800-000-0000' },
               { label: 'Country', key: 'country', placeholder: 'USA' },
-              { label: 'Notes', key: 'notes', placeholder: 'e.g. Main oil supplier' },
             ].map(field => (
               <div key={field.key} style={{ marginBottom: '14px' }}>
-                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>{field.label}</label>
+                <label style={lbl}>{field.label}</label>
                 <input
                   value={form[field.key as keyof typeof form]}
                   onChange={e => setForm({ ...form, [field.key]: e.target.value })}
                   placeholder={field.placeholder}
-                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}
+                  style={inp}
                 />
               </div>
             ))}
+
+            {/* Address fields */}
+            <div style={{ marginBottom: '14px' }}>
+              <label style={lbl}>Address</label>
+              <input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder='123 Main St' style={inp} />
+            </div>
+            <div className="modal-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '14px' }}>
+              <div>
+                <label style={lbl}>City</label>
+                <input value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} placeholder='Toronto' style={inp} />
+              </div>
+              <div>
+                <label style={lbl}>Province / State</label>
+                <input value={form.province} onChange={e => setForm({ ...form, province: e.target.value })} placeholder='ON' style={inp} />
+              </div>
+              <div>
+                <label style={lbl}>Postal Code</label>
+                <input value={form.postal} onChange={e => setForm({ ...form, postal: e.target.value })} placeholder='M5V 3A8' style={inp} />
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div style={{ marginBottom: '14px' }}>
+              <label style={lbl}>Notes</label>
+              <input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder='e.g. Main oil supplier' style={inp} />
+            </div>
+
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'space-between', marginTop: '8px', alignItems: 'center' }}>
               <div>
                 {editSupplier && (
