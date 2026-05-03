@@ -8,8 +8,8 @@ import { ShoppingCart, Plus, Search, Download, X, Trash2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 interface Supplier { id: string; name: string }
-interface RawMaterial { id: string; name: string; unit: string; cost_per_unit_cad: number }
-interface PackagingItem { id: string; name: string; cost_per_unit_cad: number }
+interface RawMaterial { id: string; item_no: string; name: string; unit: string; cost_per_unit_cad: number }
+interface PackagingItem { id: string; item_no: string; name: string; type: string | null; cost_cad: number }
 
 interface PO {
   id: string
@@ -150,8 +150,8 @@ export default function Purchasing() {
         .select('*, suppliers(name), raw_materials(item_no, name), packaging(item_no, name)')
         .order('ordered_at', { ascending: false }),
       supabase.from('suppliers').select('id, name').order('name'),
-      supabase.from('raw_materials').select('id, name, unit, cost_per_unit_cad').order('name'),
-      supabase.from('packaging').select('id, name, cost_per_unit_cad').order('name'),
+      supabase.from('raw_materials').select('id, item_no, name, unit, cost_per_unit_cad').order('item_no'),
+      supabase.from('packaging').select('id, item_no, name, type, cost_cad').order('item_no'),
     ])
     setPOs(posRes.data || [])
     setSuppliers(suppRes.data || [])
@@ -391,7 +391,7 @@ export default function Purchasing() {
         setForm(f => ({ ...f, raw_material_id: id, unit: mat?.unit || f.unit, cost_total_cad: mat?.cost_per_unit_cad != null ? String(mat.cost_per_unit_cad) : f.cost_total_cad }))
       } else {
         const pkg = packaging.find(p => p.id === id)
-        setForm(f => ({ ...f, packaging_id: id, cost_total_cad: pkg?.cost_per_unit_cad != null ? String(pkg.cost_per_unit_cad) : f.cost_total_cad }))
+        setForm(f => ({ ...f, packaging_id: id, cost_total_cad: pkg?.cost_cad != null ? String(pkg.cost_cad) : f.cost_total_cad }))
       }
     } else {
       if (editForm.item_type === 'raw_material') {
@@ -399,7 +399,7 @@ export default function Purchasing() {
         setEditForm(f => ({ ...f, raw_material_id: id, unit: mat?.unit || f.unit, cost_total_cad: mat?.cost_per_unit_cad != null ? String(mat.cost_per_unit_cad) : f.cost_total_cad }))
       } else {
         const pkg = packaging.find(p => p.id === id)
-        setEditForm(f => ({ ...f, packaging_id: id, cost_total_cad: pkg?.cost_per_unit_cad != null ? String(pkg.cost_per_unit_cad) : f.cost_total_cad }))
+        setEditForm(f => ({ ...f, packaging_id: id, cost_total_cad: pkg?.cost_cad != null ? String(pkg.cost_cad) : f.cost_total_cad }))
       }
     }
   }
@@ -416,11 +416,11 @@ export default function Purchasing() {
   const roInp: React.CSSProperties = { ...inp, background: '#f8fafc', color: '#64748b' }
 
   const createMatOpts = form.item_type === 'raw_material'
-    ? rawMaterials.map(m => ({ id: m.id, label: m.unit ? `${m.name} (${m.unit})` : m.name }))
-    : packaging.map(p => ({ id: p.id, label: p.name }))
+    ? rawMaterials.map(m => ({ id: m.id, label: `${m.item_no} — ${m.name}${m.unit ? ` (${m.unit})` : ''}` }))
+    : packaging.map(p => ({ id: p.id, label: `${p.item_no} — ${p.name}${p.type ? ` [${p.type}]` : ''}` }))
   const editMatOpts = editForm.item_type === 'raw_material'
-    ? rawMaterials.map(m => ({ id: m.id, label: m.unit ? `${m.name} (${m.unit})` : m.name }))
-    : packaging.map(p => ({ id: p.id, label: p.name }))
+    ? rawMaterials.map(m => ({ id: m.id, label: `${m.item_no} — ${m.name}${m.unit ? ` (${m.unit})` : ''}` }))
+    : packaging.map(p => ({ id: p.id, label: `${p.item_no} — ${p.name}${p.type ? ` [${p.type}]` : ''}` }))
 
   const isReadOnly = detail?.status === 'received'
 
