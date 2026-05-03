@@ -94,6 +94,8 @@ export default function Invoices() {
   const [showDeliveryModal, setShowDeliveryModal] = useState(false)
   const [deliveryInfo, setDeliveryInfo] = useState({ invoiceId: '', date: new Date().toISOString().split('T')[0] })
   const [search, setSearch] = useState('')
+  const [filterCustomer, setFilterCustomer] = useState('')
+  const [filterStatus, setFilterStatus] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [activeTab, setActiveTab] = useState<'invoices' | 'credit_memos'>('invoices')
 
@@ -921,10 +923,14 @@ export default function Invoices() {
     fetchAll()
   }
 
-  const filtered = invoices.filter(inv =>
-    inv.invoice_no?.toLowerCase().includes(search.toLowerCase()) ||
-    inv.customers?.company_name?.toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = invoices.filter(inv => {
+    const matchSearch = !search ||
+      inv.invoice_no?.toLowerCase().includes(search.toLowerCase()) ||
+      inv.customers?.company_name?.toLowerCase().includes(search.toLowerCase())
+    const matchCustomer = !filterCustomer || inv.customer_id === filterCustomer
+    const matchStatus = !filterStatus || inv.status === filterStatus
+    return matchSearch && matchCustomer && matchStatus
+  })
 
   const statusColor: { [key: string]: { bg: string; color: string } } = {
     draft: { bg: '#f8fafc', color: '#64748b' },
@@ -946,9 +952,21 @@ export default function Invoices() {
       {/* ── INVOICES TAB ── */}
       {activeTab === 'invoices' && <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', width: '300px' }}>
-          <Search size={16} color='#94a3b8' />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search invoices...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', width: '260px' }}>
+            <Search size={16} color='#94a3b8' />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search invoices...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
+          </div>
+          <select value={filterCustomer} onChange={e => setFilterCustomer(e.target.value)} style={{ height: '40px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0 12px', fontSize: '14px', color: filterCustomer ? '#1e293b' : '#94a3b8', cursor: 'pointer', outline: 'none' }}>
+            <option value=''>All Customers</option>
+            {customers.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+          </select>
+          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ height: '40px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0 12px', fontSize: '14px', color: filterStatus ? '#1e293b' : '#94a3b8', cursor: 'pointer', outline: 'none' }}>
+            <option value=''>All Statuses</option>
+            <option value='draft'>Draft</option>
+            <option value='sent'>Sent</option>
+            <option value='paid'>Paid</option>
+          </select>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
           <button onClick={() => { setShowImportModal(true); setImportRows([]); setImportStatus('') }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
