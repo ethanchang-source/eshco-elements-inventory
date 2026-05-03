@@ -69,6 +69,7 @@ export default function Purchasing() {
   const [detail, setDetail] = useState<PODetail | null>(null)
   const [receiving, setReceiving] = useState(false)
 
+  useEffect(() => { document.title = 'Purchasing | I AM PURE' }, [])
   useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
