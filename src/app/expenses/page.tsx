@@ -82,6 +82,7 @@ export default function Expenses() {
 
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [loading, setLoading] = useState(true)
+  const [activeYear, setActiveYear] = useState(currentYear)
   const [activeMonth, setActiveMonth] = useState(currentMonthIdx)
   const [showModal, setShowModal] = useState(false)
   const [editExpense, setEditExpense] = useState<Expense | null>(null)
@@ -97,7 +98,7 @@ export default function Expenses() {
   const [saveError, setSaveError] = useState('')
   const importRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => { fetchExpenses() }, [])
+  useEffect(() => { fetchExpenses(activeYear) }, [activeYear])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -109,13 +110,13 @@ export default function Expenses() {
     return () => window.removeEventListener('keydown', onKey)
   }, [showModal, showImportConfirm])
 
-  async function fetchExpenses() {
+  async function fetchExpenses(year: number) {
     setLoading(true)
     const { data } = await supabase
       .from('expenses')
       .select('*')
-      .gte('expense_date', `${currentYear}-01-01`)
-      .lte('expense_date', `${currentYear}-12-31`)
+      .gte('expense_date', `${year}-01-01`)
+      .lte('expense_date', `${year}-12-31`)
       .order('expense_date', { ascending: true })
     setExpenses(data || [])
     setLoading(false)
@@ -127,7 +128,7 @@ export default function Expenses() {
   })
 
   // KPI
-  const kpiMonthStr = `${currentYear}-${String(currentMonthIdx + 1).padStart(2, '0')}`
+  const kpiMonthStr = `${activeYear}-${String(currentMonthIdx + 1).padStart(2, '0')}`
   const thisMonth = expenses.filter(e => e.expense_date?.startsWith(kpiMonthStr))
   const kpiCAD = thisMonth.reduce((s, e) => s + (e.total_amount || 0), 0)
   const kpiUSD = thisMonth.reduce((s, e) => s + (e.amount_usd || 0), 0)
@@ -148,7 +149,7 @@ export default function Expenses() {
     setEditExpense(null)
     setReceiptFile(null)
     setSaveError('')
-    const d = `${currentYear}-${String(activeMonth + 1).padStart(2, '0')}-01`
+    const d = `${activeYear}-${String(activeMonth + 1).padStart(2, '0')}-01`
     setForm({ ...emptyForm, expense_date: d })
     setShowModal(true)
   }
@@ -291,7 +292,7 @@ export default function Expenses() {
     ws['!cols'] = [10, 22, 12, 24, 16, 28, 14, 10, 10, 10, 14, 16, 10, 12].map(w => ({ wch: w }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, MONTHS[activeMonth])
-    XLSX.writeFile(wb, `expenses_${currentYear}_${MONTHS[activeMonth]}.xlsx`)
+    XLSX.writeFile(wb, `expenses_${activeYear}_${MONTHS[activeMonth]}.xlsx`)
   }
 
   function handleImportSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -383,15 +384,30 @@ export default function Expenses() {
       {/* KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
         {[
-          { label: `${MONTHS[currentMonthIdx]} ${currentYear} (CAD)`, value: `$${kpiCAD.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: '#dc2626' },
-          { label: `${MONTHS[currentMonthIdx]} ${currentYear} (USD)`, value: kpiUSD > 0 ? `$${kpiUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—', color: '#7c3aed' },
-          { label: `${currentYear} YTD (CAD)`, value: `$${ytdCAD.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: '#2563eb' },
+          { label: `${MONTHS[currentMonthIdx]} ${activeYear} (CAD)`, value: `$${kpiCAD.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: '#dc2626' },
+          { label: `${MONTHS[currentMonthIdx]} ${activeYear} (USD)`, value: kpiUSD > 0 ? `$${kpiUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—', color: '#7c3aed' },
+          { label: `${activeYear} YTD (CAD)`, value: `$${ytdCAD.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, color: '#2563eb' },
         ].map(card => (
           <div key={card.label} style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 20px' }}>
             <div style={{ fontSize: '12px', color: '#64748b', fontWeight: '500', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{card.label}</div>
             <div style={{ fontSize: '24px', fontWeight: '700', color: card.color }}>{card.value}</div>
           </div>
         ))}
+      </div>
+
+      {/* Year Tabs */}
+      <div style={{ overflowX: 'auto', marginBottom: '10px', paddingBottom: '2px' }}>
+        <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: '10px', padding: '3px', gap: '1px', width: 'max-content' }}>
+          {Array.from({ length: 21 }, (_, i) => 2020 + i).map(yr => (
+            <button
+              key={yr}
+              onClick={() => setActiveYear(yr)}
+              style={{ padding: '6px 14px', borderRadius: '7px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: activeYear === yr ? '600' : '400', background: activeYear === yr ? '#fff' : 'transparent', color: activeYear === yr ? '#1e293b' : '#64748b', boxShadow: activeYear === yr ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s', whiteSpace: 'nowrap' }}
+            >
+              {yr}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Month Tabs */}
@@ -417,7 +433,7 @@ export default function Expenses() {
             <input ref={importRef} type='file' accept='.xlsx,.xls' onChange={handleImportSelect} style={{ display: 'none' }} />
           </label>
           <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer' }}>
-            <Download size={14} /> Export {MONTHS[activeMonth]}
+            <Download size={14} /> Export {MONTHS[activeMonth]} {activeYear}
           </button>
           <button onClick={openAdd} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={15} /> Add Expense
@@ -448,7 +464,7 @@ export default function Expenses() {
               {monthExpenses.length === 0 ? (
                 <tr>
                   <td colSpan={15} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>
-                    No expenses for {MONTHS[activeMonth]} {currentYear}
+                    No expenses for {MONTHS[activeMonth]} {activeYear}
                   </td>
                 </tr>
               ) : monthExpenses.map((e, i) => (
