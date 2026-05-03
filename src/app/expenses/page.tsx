@@ -99,6 +99,16 @@ export default function Expenses() {
 
   useEffect(() => { fetchExpenses() }, [])
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (showImportConfirm) { setShowImportConfirm(false); setPendingImport(null); return }
+      if (showModal) { setShowModal(false); setEditExpense(null); setSaveError('') }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showModal, showImportConfirm])
+
   async function fetchExpenses() {
     setLoading(true)
     const { data } = await supabase
