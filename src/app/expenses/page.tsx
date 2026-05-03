@@ -394,19 +394,13 @@ export default function Expenses() {
         ))}
       </div>
 
-      {/* Year Tabs */}
-      <div style={{ overflowX: 'auto', marginBottom: '10px', paddingBottom: '2px' }}>
-        <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: '10px', padding: '3px', gap: '1px', width: 'max-content' }}>
+      {/* Year Dropdown */}
+      <div style={{ marginBottom: '12px' }}>
+        <select value={activeYear} onChange={e => setActiveYear(Number(e.target.value))} style={{ height: '36px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0 12px', fontSize: '14px', fontWeight: '500', color: '#1e293b', cursor: 'pointer', outline: 'none' }}>
           {Array.from({ length: 21 }, (_, i) => 2020 + i).map(yr => (
-            <button
-              key={yr}
-              onClick={() => setActiveYear(yr)}
-              style={{ padding: '6px 14px', borderRadius: '7px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: activeYear === yr ? '600' : '400', background: activeYear === yr ? '#fff' : 'transparent', color: activeYear === yr ? '#1e293b' : '#64748b', boxShadow: activeYear === yr ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s', whiteSpace: 'nowrap' }}
-            >
-              {yr}
-            </button>
+            <option key={yr} value={yr}>{yr}</option>
           ))}
-        </div>
+        </select>
       </div>
 
       {/* Month Tabs */}
