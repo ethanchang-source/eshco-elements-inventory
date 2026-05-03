@@ -223,6 +223,13 @@ export default function Purchasing() {
 
   return (
     <MainLayout>
+      <style>{`
+        @media (max-width: 640px) {
+          .modal-overlay { align-items: flex-start !important; padding: 0 !important; }
+          .modal-box { border-radius: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; min-height: 100svh; }
+          .modal-grid-2, .modal-grid-3 { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
       {/* Header row */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', width: '300px' }}>
@@ -291,14 +298,14 @@ export default function Purchasing() {
 
       {/* Create PO Modal */}
       {showCreate && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '40px 16px' }}>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '700px', maxWidth: '100%' }}>
+        <div className="modal-overlay" onClick={() => setShowCreate(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '40px 16px' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '700px', margin: '20px auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>New Purchase Order</h2>
               <button onClick={() => setShowCreate(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+            <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
               <div>
                 <label style={labelStyle}>Supplier *</label>
                 <select value={form.supplier_id} onChange={e => setForm({ ...form, supplier_id: e.target.value })} style={inputStyle}>
@@ -382,8 +389,8 @@ export default function Purchasing() {
 
       {/* Detail Modal */}
       {showDetail && detail && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '40px 16px' }}>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '660px', maxWidth: '100%' }}>
+        <div className="modal-overlay" onClick={() => setShowDetail(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '40px 16px' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '660px', margin: '20px auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
               <div>
                 <h2 style={{ fontSize: '18px', fontWeight: '600', margin: '0 0 4px' }}>{detail.po_number}</h2>
@@ -398,7 +405,7 @@ export default function Purchasing() {
             </div>
 
             {/* PO Info */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px', padding: '16px', background: '#f8fafc', borderRadius: '8px' }}>
+            <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px', padding: '16px', background: '#f8fafc', borderRadius: '8px' }}>
               <div>
                 <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>Order Date</div>
                 <div style={{ fontSize: '14px', color: '#374151' }}>{detail.order_date}</div>

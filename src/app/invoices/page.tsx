@@ -946,6 +946,13 @@ export default function Invoices() {
 
   return (
     <MainLayout>
+      <style>{`
+        @media (max-width: 640px) {
+          .modal-overlay { align-items: flex-start !important; padding: 0 !important; }
+          .modal-box { border-radius: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; min-height: 100svh; }
+          .modal-grid-2, .modal-grid-3 { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
       {/* 탭 */}
       <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', background: '#f1f5f9', borderRadius: '10px', padding: '4px', width: 'fit-content' }}>
         {(['invoices', 'credit_memos'] as const).map(tab => (
@@ -1135,20 +1142,20 @@ export default function Invoices() {
       </> /* end credit memos tab */}
 
       {showImportModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '540px', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div className="modal-overlay" onClick={() => setShowImportModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, overflowY: 'auto' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '540px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '6px' }}>Import Invoices from Excel</h2>
             <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Import historical invoice data. Existing invoice numbers will be skipped.</p>
 
             <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '14px 16px', marginBottom: '20px', border: '1px solid #e2e8f0' }}>
               <div style={{ fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '8px' }}>Required columns in your Excel file:</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
+              <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
                 {['Invoice #', 'Customer Name', 'Date (YYYY-MM-DD)', 'SKU', 'Qty', 'Unit Price CAD'].map(col => (
                   <div key={col} style={{ fontSize: '12px', color: '#2563eb', fontFamily: 'monospace' }}>• {col}</div>
                 ))}
               </div>
               <div style={{ fontSize: '13px', fontWeight: '500', color: '#374151', marginTop: '10px', marginBottom: '4px' }}>Optional columns:</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
+              <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
                 {['PO #', 'Status (draft/sent/paid)', 'Delivery Date', 'Payment Date', 'Notes', 'Tax Rate % (default 13)'].map(col => (
                   <div key={col} style={{ fontSize: '12px', color: '#64748b', fontFamily: 'monospace' }}>• {col}</div>
                 ))}
@@ -1194,20 +1201,20 @@ export default function Invoices() {
       )}
 
       {showCmImportModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '540px', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div className="modal-overlay" onClick={() => setShowCmImportModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, overflowY: 'auto' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '540px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '6px' }}>Import Credit Memos from Excel</h2>
             <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Import historical credit memo data. Existing memo numbers will be skipped.</p>
 
             <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '14px 16px', marginBottom: '20px', border: '1px solid #e2e8f0' }}>
               <div style={{ fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '8px' }}>Required columns in your Excel file:</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
+              <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
                 {['Credit Memo #', 'Customer Name', 'Date (YYYY-MM-DD)', 'SKU', 'Qty', 'Unit Price CAD'].map(col => (
                   <div key={col} style={{ fontSize: '12px', color: '#7c3aed', fontFamily: 'monospace' }}>• {col}</div>
                 ))}
               </div>
               <div style={{ fontSize: '13px', fontWeight: '500', color: '#374151', marginTop: '10px', marginBottom: '4px' }}>Optional columns:</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
+              <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
                 {['Reference #', 'Status (draft/sent/applied)', 'Applied Date', 'Notes', 'Tax Rate % (default 13)'].map(col => (
                   <div key={col} style={{ fontSize: '12px', color: '#64748b', fontFamily: 'monospace' }}>• {col}</div>
                 ))}
@@ -1253,8 +1260,8 @@ export default function Invoices() {
       )}
 
       {showDeliveryModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '360px' }}>
+        <div className="modal-overlay" onClick={() => setShowDeliveryModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, overflowY: 'auto' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '360px', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Delivery Date</h2>
             <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Select the date this order was delivered</p>
             <div style={{ marginBottom: '20px' }}>
@@ -1270,8 +1277,8 @@ export default function Invoices() {
       )}
 
       {showAppliedModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '360px' }}>
+        <div className="modal-overlay" onClick={() => { setShowAppliedModal(false); setAppliedError('') }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, overflowY: 'auto' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '360px', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Applied Date</h2>
             <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Select the date this credit memo was applied</p>
             <div style={{ marginBottom: '20px' }}>
@@ -1292,8 +1299,8 @@ export default function Invoices() {
       )}
 
       {showPaymentModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '360px' }}>
+        <div className="modal-overlay" onClick={() => setShowPaymentModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, overflowY: 'auto' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '360px', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Payment Received</h2>
             <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Select the date payment was received</p>
             <div style={{ marginBottom: '20px' }}>
@@ -1310,12 +1317,12 @@ export default function Invoices() {
 
       {/* Credit Memo 생성/수정 모달 */}
       {showCmModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '780px', maxHeight: '92vh', overflowY: 'auto' }}>
+        <div className="modal-overlay" onClick={() => { setShowCmModal(false); setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null); setCmError('') }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '780px', maxHeight: '92vh', overflowY: 'auto', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>
               {editCm ? `Edit Credit Memo ${editCm.memo_no}` : 'New Credit Memo'}
             </h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+            <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Bill To / Ship To *</label>
                 <select value={cmForm.customer_id} onChange={e => cmHandleCustomerChange(e.target.value)} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}>
@@ -1375,7 +1382,7 @@ export default function Invoices() {
               </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+            <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Notes</label>
                 <textarea value={cmForm.notes} onChange={e => setCmForm({ ...cmForm, notes: e.target.value })} placeholder='Additional notes...' rows={3} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} />
@@ -1413,13 +1420,13 @@ export default function Invoices() {
       )}
 
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '780px', maxHeight: '92vh', overflowY: 'auto' }}>
+        <div className="modal-overlay" onClick={() => { setShowModal(false); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '780px', maxHeight: '92vh', overflowY: 'auto', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>
               {editInvoice ? `Edit Invoice ${editInvoice.invoice_no}` : 'New Invoice'}
             </h2>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+            <div className="modal-grid-3" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Bill To / Ship To *</label>
                 <select value={form.customer_id} onChange={e => handleCustomerChange(e.target.value)} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}>
@@ -1484,7 +1491,7 @@ export default function Invoices() {
               </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+            <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Notes</label>
                 <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder='Additional notes...' rows={3} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} />
