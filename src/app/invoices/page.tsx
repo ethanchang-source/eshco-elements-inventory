@@ -102,6 +102,8 @@ export default function Invoices() {
   // ── Credit Memo state ──
   const [creditMemos, setCreditMemos] = useState<CreditMemo[]>([])
   const [cmSearch, setCmSearch] = useState('')
+  const [cmFilterCustomer, setCmFilterCustomer] = useState('')
+  const [cmFilterStatus, setCmFilterStatus] = useState('')
   const [showAppliedModal, setShowAppliedModal] = useState(false)
   const [appliedInfo, setAppliedInfo] = useState({ memoId: '', date: new Date().toISOString().split('T')[0] })
   const [showCmModal, setShowCmModal] = useState(false)
@@ -890,10 +892,14 @@ export default function Invoices() {
     fetchAll()
   }
 
-  const filteredCm = creditMemos.filter(cm =>
-    cm.memo_no?.toLowerCase().includes(cmSearch.toLowerCase()) ||
-    cm.customers?.company_name?.toLowerCase().includes(cmSearch.toLowerCase())
-  )
+  const filteredCm = creditMemos.filter(cm => {
+    const matchSearch = !cmSearch ||
+      cm.memo_no?.toLowerCase().includes(cmSearch.toLowerCase()) ||
+      cm.customers?.company_name?.toLowerCase().includes(cmSearch.toLowerCase())
+    const matchCustomer = !cmFilterCustomer || cm.customer_id === cmFilterCustomer
+    const matchStatus = !cmFilterStatus || cm.status === cmFilterStatus
+    return matchSearch && matchCustomer && matchStatus
+  })
 
   const cmStatusColor: { [key: string]: { bg: string; color: string } } = {
     draft:   { bg: '#f8fafc', color: '#64748b' },
@@ -1041,9 +1047,21 @@ export default function Invoices() {
       {/* ── CREDIT MEMOS TAB ── */}
       {activeTab === 'credit_memos' && <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', width: '300px' }}>
-          <Search size={16} color='#94a3b8' />
-          <input value={cmSearch} onChange={e => setCmSearch(e.target.value)} placeholder='Search credit memos...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', width: '260px' }}>
+            <Search size={16} color='#94a3b8' />
+            <input value={cmSearch} onChange={e => setCmSearch(e.target.value)} placeholder='Search credit memos...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
+          </div>
+          <select value={cmFilterCustomer} onChange={e => setCmFilterCustomer(e.target.value)} style={{ height: '40px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0 12px', fontSize: '14px', color: cmFilterCustomer ? '#1e293b' : '#94a3b8', cursor: 'pointer', outline: 'none' }}>
+            <option value=''>All Customers</option>
+            {customers.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+          </select>
+          <select value={cmFilterStatus} onChange={e => setCmFilterStatus(e.target.value)} style={{ height: '40px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0 12px', fontSize: '14px', color: cmFilterStatus ? '#1e293b' : '#94a3b8', cursor: 'pointer', outline: 'none' }}>
+            <option value=''>All Statuses</option>
+            <option value='draft'>Draft</option>
+            <option value='sent'>Sent</option>
+            <option value='applied'>Applied</option>
+          </select>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
           <button onClick={() => { setShowCmImportModal(true); setCmImportRows([]); setCmImportStatus('') }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
