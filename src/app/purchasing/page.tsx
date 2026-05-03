@@ -128,13 +128,14 @@ export default function Purchasing() {
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
   useEffect(() => { fetchAll() }, [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      if (showDeleteConfirm) { setShowDeleteConfirm(false); return }
+      if (showDeleteConfirm) { setShowDeleteConfirm(false); setDeleteError(''); return }
       if (showStatusModal) { setShowStatusModal(false); return }
       if (showCreate) { setShowCreate(false); setCreateError(''); return }
       if (showDetail) { setShowDetail(false); setUpdateError(''); return }
@@ -319,6 +320,9 @@ export default function Purchasing() {
   async function handleDelete() {
     if (!detail) return
     setDeleting(true)
+    setDeleteError('')
+
+    console.log('[handleDelete] starting delete for PO id:', detail.id, 'status:', detail.status)
 
     if (detail.status === 'received') {
       if (detail.item_type === 'raw_material' && detail.raw_material_id) {
@@ -327,30 +331,51 @@ export default function Purchasing() {
           .select('current_stock')
           .eq('id', detail.raw_material_id)
           .single()
-        if (matErr) { console.error('raw_materials fetch error:', matErr) }
+        if (matErr) { console.error('[handleDelete] raw_materials fetch error:', matErr) }
+        const newStock = Math.max(0, (mat?.current_stock || 0) - detail.qty_ordered)
+        console.log('[handleDelete] updating raw_material current_stock to:', newStock)
         const { error: updErr } = await supabase
           .from('raw_materials')
-          .update({ current_stock: Math.max(0, (mat?.current_stock || 0) - detail.qty_ordered) })
+          .update({ current_stock: newStock })
           .eq('id', detail.raw_material_id)
-        if (updErr) { console.error('raw_materials update error:', updErr); setDeleting(false); return }
+        if (updErr) {
+          console.error('[handleDelete] raw_materials update error:', updErr)
+          setDeleteError(updErr.message || 'Failed to update raw material stock.')
+          setDeleting(false)
+          return
+        }
       } else if (detail.item_type === 'packaging' && detail.packaging_id) {
         const { data: pkg, error: pkgErr } = await supabase
           .from('packaging')
           .select('current_stock')
           .eq('id', detail.packaging_id)
           .single()
-        if (pkgErr) { console.error('packaging fetch error:', pkgErr) }
+        if (pkgErr) { console.error('[handleDelete] packaging fetch error:', pkgErr) }
+        const newStock = Math.max(0, (pkg?.current_stock || 0) - detail.qty_ordered)
+        console.log('[handleDelete] updating packaging current_stock to:', newStock)
         const { error: updErr } = await supabase
           .from('packaging')
-          .update({ current_stock: Math.max(0, (pkg?.current_stock || 0) - detail.qty_ordered) })
+          .update({ current_stock: newStock })
           .eq('id', detail.packaging_id)
-        if (updErr) { console.error('packaging update error:', updErr); setDeleting(false); return }
+        if (updErr) {
+          console.error('[handleDelete] packaging update error:', updErr)
+          setDeleteError(updErr.message || 'Failed to update packaging stock.')
+          setDeleting(false)
+          return
+        }
       }
     }
 
+    console.log('[handleDelete] deleting purchase_orders row id:', detail.id)
     const { error } = await supabase.from('purchase_orders').delete().eq('id', detail.id)
-    if (error) { console.error('PO delete error:', error); setDeleting(false); return }
+    if (error) {
+      console.error('[handleDelete] PO delete error:', error)
+      setDeleteError(error.message || 'Failed to delete purchase order.')
+      setDeleting(false)
+      return
+    }
 
+    console.log('[handleDelete] delete successful')
     setDeleting(false)
     setShowDeleteConfirm(false)
     setShowDetail(false)
@@ -826,7 +851,7 @@ export default function Purchasing() {
 
       {/* ── Delete Confirm Modal ── */}
       {showDeleteConfirm && detail && (
-        <div className="modal-overlay" onClick={() => setShowDeleteConfirm(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '20px' }}>
+        <div className="modal-overlay" onClick={() => { setShowDeleteConfirm(false); setDeleteError('') }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '20px' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '380px' }}>
             <h3 style={{ fontSize: '16px', fontWeight: '600', margin: '0 0 12px', color: '#dc2626' }}>Delete Purchase Order</h3>
             <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 12px' }}>
@@ -840,8 +865,13 @@ export default function Purchasing() {
                 </div>
               )}
             </div>
+            {deleteError && (
+              <div style={{ marginBottom: '14px', padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '13px', color: '#dc2626' }}>
+                {deleteError}
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
-              <button onClick={() => setShowDeleteConfirm(false)} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={() => { setShowDeleteConfirm(false); setDeleteError('') }} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
               <button onClick={handleDelete} disabled={deleting} style={{ padding: '8px 16px', background: deleting ? '#fca5a5' : '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: deleting ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
                 {deleting ? 'Deleting...' : 'Delete'}
               </button>
