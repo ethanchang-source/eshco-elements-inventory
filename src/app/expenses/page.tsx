@@ -135,6 +135,9 @@ export default function Expenses() {
 
   const monthTotal = monthExpenses.reduce((s, e) => s + (e.total_amount || 0), 0)
   const monthTotalUSD = monthExpenses.reduce((s, e) => s + (e.amount_usd || 0), 0)
+  const monthBeforeTax = monthExpenses.reduce((s, e) => s + (e.amount_before_tax || 0), 0)
+  const monthSalesTax = monthExpenses.reduce((s, e) => s + (e.sales_tax || 0), 0)
+  const monthFreight = monthExpenses.reduce((s, e) => s + (e.freight_tip || 0), 0)
 
   const computedTotal =
     (parseFloat(form.amount_before_tax) || 0) +
@@ -487,9 +490,12 @@ export default function Expenses() {
             {monthExpenses.length > 0 && (
               <tfoot>
                 <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
-                  <td colSpan={9} style={{ padding: '10px 12px', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>
+                  <td colSpan={6} style={{ padding: '10px 12px', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>
                     {monthExpenses.length} record{monthExpenses.length !== 1 ? 's' : ''}
                   </td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${monthBeforeTax.toFixed(2)}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${monthSalesTax.toFixed(2)}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${monthFreight.toFixed(2)}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '700', color: '#1e293b', whiteSpace: 'nowrap' }}>
                     ${monthTotal.toFixed(2)}
                     {monthTotalUSD > 0 && (
