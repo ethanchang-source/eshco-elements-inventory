@@ -322,15 +322,29 @@ export default function Purchasing() {
 
     if (detail.status === 'received') {
       if (detail.item_type === 'raw_material' && detail.raw_material_id) {
-        const { data: mat } = await supabase.from('raw_materials').select('quantity_in_stock').eq('id', detail.raw_material_id).single()
-        await supabase.from('raw_materials').update({
-          quantity_in_stock: Math.max(0, (mat?.quantity_in_stock || 0) - detail.qty_ordered),
-        }).eq('id', detail.raw_material_id)
+        const { data: mat, error: matErr } = await supabase
+          .from('raw_materials')
+          .select('quantity_in_stock')
+          .eq('id', detail.raw_material_id)
+          .single()
+        if (matErr) { console.error('raw_materials fetch error:', matErr) }
+        const { error: updErr } = await supabase
+          .from('raw_materials')
+          .update({ quantity_in_stock: Math.max(0, (mat?.quantity_in_stock || 0) - detail.qty_ordered) })
+          .eq('id', detail.raw_material_id)
+        if (updErr) { console.error('raw_materials update error:', updErr); setDeleting(false); return }
       } else if (detail.item_type === 'packaging' && detail.packaging_id) {
-        const { data: pkg } = await supabase.from('packaging').select('quantity_in_stock').eq('id', detail.packaging_id).single()
-        await supabase.from('packaging').update({
-          quantity_in_stock: Math.max(0, (pkg?.quantity_in_stock || 0) - detail.qty_ordered),
-        }).eq('id', detail.packaging_id)
+        const { data: pkg, error: pkgErr } = await supabase
+          .from('packaging')
+          .select('quantity_in_stock')
+          .eq('id', detail.packaging_id)
+          .single()
+        if (pkgErr) { console.error('packaging fetch error:', pkgErr) }
+        const { error: updErr } = await supabase
+          .from('packaging')
+          .update({ quantity_in_stock: Math.max(0, (pkg?.quantity_in_stock || 0) - detail.qty_ordered) })
+          .eq('id', detail.packaging_id)
+        if (updErr) { console.error('packaging update error:', updErr); setDeleting(false); return }
       }
     }
 
@@ -816,11 +830,14 @@ export default function Purchasing() {
             <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 12px' }}>
               Delete this PO for {getMaterialLabel(detail)} ({detail.qty_ordered}{detail.unit ? ' ' + detail.unit : ''})?
             </p>
-            {detail.status === 'received' && (
-              <div style={{ padding: '10px 14px', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '6px', fontSize: '13px', color: '#92400e', marginBottom: '16px' }}>
-                Warning: This PO is received. Deleting will deduct {detail.qty_ordered}{detail.unit ? ' ' + detail.unit : ''} from inventory.
-              </div>
-            )}
+            <div style={{ padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>
+              If status is <strong>Received</strong>, inventory will be reduced accordingly.
+              {detail.status === 'received' && (
+                <div style={{ marginTop: '6px', color: '#92400e', fontWeight: '500' }}>
+                  This PO is Received — {detail.qty_ordered}{detail.unit ? ' ' + detail.unit : ''} will be deducted from inventory.
+                </div>
+              )}
+            </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
               <button onClick={() => setShowDeleteConfirm(false)} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
               <button onClick={handleDelete} disabled={deleting} style={{ padding: '8px 16px', background: deleting ? '#fca5a5' : '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: deleting ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
