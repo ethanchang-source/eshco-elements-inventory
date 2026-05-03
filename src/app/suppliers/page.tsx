@@ -14,35 +14,22 @@ interface Supplier {
   contact_phone: string
   country: string
   notes: string
+  ship_to_address: string
+  ship_to_city: string
+  ship_to_province: string
+  ship_to_postal_code: string
+  address: string
+  city: string
+  province: string
+  postal_code: string
+  bill_to_same_as_ship_to: boolean
 }
 
 const emptyForm = {
   name: '', contact_name: '', contact_email: '',
   contact_phone: '', country: 'Canada', notes: '',
-  address: '', city: '', province: '', postal: '',
-}
-
-function parseAddressFromNotes(raw: string): { address: string; city: string; province: string; postal: string; notes: string } {
-  if (!raw.startsWith('Address:')) return { address: '', city: '', province: '', postal: '', notes: raw }
-  const [addrPart, ...rest] = raw.split(' | ')
-  const addrStr = addrPart.slice('Address: '.length)
-  const parts = addrStr.split(', ')
-  const address = parts[0] || ''
-  const city = parts[1] || ''
-  const provPostalParts = (parts[2] || '').split(' ')
-  const postal = provPostalParts.pop() || ''
-  const province = provPostalParts.join(' ')
-  return { address, city, province, postal, notes: rest.join(' | ') }
-}
-
-function buildNotes(form: typeof emptyForm): string {
-  const hasAddr = form.address || form.city || form.province || form.postal
-  const addrStr = hasAddr
-    ? `Address: ${form.address}, ${form.city}, ${form.province} ${form.postal}`.trimEnd()
-    : ''
-  const notesStr = form.notes.trim()
-  if (addrStr && notesStr) return `${addrStr} | ${notesStr}`
-  return addrStr || notesStr
+  ship_to_address: '', ship_to_city: '', ship_to_province: '', ship_to_postal_code: '',
+  address: '', city: '', province: '', postal_code: '',
 }
 
 export default function Suppliers() {
@@ -55,6 +42,7 @@ export default function Suppliers() {
   const [importResult, setImportResult] = useState('')
   const importFileRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState({ ...emptyForm })
+  const [billToSameAsShipTo, setBillToSameAsShipTo] = useState(false)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [showImportConfirm, setShowImportConfirm] = useState(false)
   const [snapshot, setSnapshot] = useState<Supplier[] | null>(null)
@@ -81,24 +69,29 @@ export default function Suppliers() {
   function openAddModal() {
     setEditSupplier(null)
     setForm({ ...emptyForm })
+    setBillToSameAsShipTo(false)
     setShowModal(true)
   }
 
   function openEditModal(s: Supplier) {
     setEditSupplier(s)
-    const parsed = parseAddressFromNotes(s.notes || '')
     setForm({
       name: s.name || '',
       contact_name: s.contact_name || '',
       contact_email: s.contact_email || '',
       contact_phone: s.contact_phone || '',
       country: s.country || 'Canada',
-      notes: parsed.notes,
-      address: parsed.address,
-      city: parsed.city,
-      province: parsed.province,
-      postal: parsed.postal,
+      notes: s.notes || '',
+      ship_to_address: s.ship_to_address || '',
+      ship_to_city: s.ship_to_city || '',
+      ship_to_province: s.ship_to_province || '',
+      ship_to_postal_code: s.ship_to_postal_code || '',
+      address: s.address || '',
+      city: s.city || '',
+      province: s.province || '',
+      postal_code: s.postal_code || '',
     })
+    setBillToSameAsShipTo(s.bill_to_same_as_ship_to || false)
     setShowModal(true)
   }
 
@@ -110,7 +103,16 @@ export default function Suppliers() {
       contact_email: form.contact_email,
       contact_phone: form.contact_phone,
       country: form.country,
-      notes: buildNotes(form),
+      notes: form.notes,
+      ship_to_address: form.ship_to_address,
+      ship_to_city: form.ship_to_city,
+      ship_to_province: form.ship_to_province,
+      ship_to_postal_code: form.ship_to_postal_code,
+      bill_to_same_as_ship_to: billToSameAsShipTo,
+      address: billToSameAsShipTo ? form.ship_to_address : form.address,
+      city: billToSameAsShipTo ? form.ship_to_city : form.city,
+      province: billToSameAsShipTo ? form.ship_to_province : form.province,
+      postal_code: billToSameAsShipTo ? form.ship_to_postal_code : form.postal_code,
     }
     if (editSupplier) {
       await supabase.from('suppliers').update(payload).eq('id', editSupplier.id)
@@ -120,6 +122,7 @@ export default function Suppliers() {
     setShowModal(false)
     setEditSupplier(null)
     setForm({ ...emptyForm })
+    setBillToSameAsShipTo(false)
     fetchSuppliers()
   }
 
@@ -160,6 +163,7 @@ export default function Suppliers() {
       for (const row of rows) {
         const name = String(row['Company Name'] || row['name'] || '').trim()
         if (!name) { failed++; continue }
+        const sameAs = Boolean(row['Bill To Same As Ship To'] || false)
         const payload = {
           name,
           contact_name: String(row['Contact Name'] || row['contact_name'] || ''),
@@ -167,6 +171,15 @@ export default function Suppliers() {
           contact_phone: String(row['Contact Phone'] || row['contact_phone'] || ''),
           country: String(row['Country'] || row['country'] || 'Canada'),
           notes: String(row['Notes'] || row['notes'] || ''),
+          ship_to_address: String(row['Ship To Address'] || ''),
+          ship_to_city: String(row['Ship To City'] || ''),
+          ship_to_province: String(row['Ship To Province'] || ''),
+          ship_to_postal_code: String(row['Ship To Postal Code'] || ''),
+          bill_to_same_as_ship_to: sameAs,
+          address: String(row['Bill To Address'] || ''),
+          city: String(row['Bill To City'] || ''),
+          province: String(row['Bill To Province'] || ''),
+          postal_code: String(row['Bill To Postal Code'] || ''),
         }
         const { data: existing } = await supabase.from('suppliers').select('id').eq('name', name).maybeSingle()
         let error
@@ -202,6 +215,15 @@ export default function Suppliers() {
       'Contact Email': s.contact_email || '',
       'Contact Phone': s.contact_phone || '',
       'Country': s.country || '',
+      'Ship To Address': s.ship_to_address || '',
+      'Ship To City': s.ship_to_city || '',
+      'Ship To Province': s.ship_to_province || '',
+      'Ship To Postal Code': s.ship_to_postal_code || '',
+      'Bill To Same As Ship To': s.bill_to_same_as_ship_to || false,
+      'Bill To Address': s.address || '',
+      'Bill To City': s.city || '',
+      'Bill To Province': s.province || '',
+      'Bill To Postal Code': s.postal_code || '',
       'Notes': s.notes || '',
     }))
     const wb = XLSX.utils.book_new()
@@ -216,6 +238,15 @@ export default function Suppliers() {
       'Contact Email': 'jane@supplier.com',
       'Contact Phone': '+1-800-000-0000',
       'Country': 'USA',
+      'Ship To Address': '123 Warehouse St',
+      'Ship To City': 'Boston',
+      'Ship To Province': 'MA',
+      'Ship To Postal Code': '02101',
+      'Bill To Same As Ship To': true,
+      'Bill To Address': '',
+      'Bill To City': '',
+      'Bill To Province': '',
+      'Bill To Postal Code': '',
       'Notes': 'Main oil supplier',
     }]
     const wb = XLSX.utils.book_new()
@@ -225,10 +256,11 @@ export default function Suppliers() {
 
   const filtered = suppliers.filter(s =>
     s.name?.toLowerCase().includes(search.toLowerCase()) ||
-    s.country?.toLowerCase().includes(search.toLowerCase())
+    s.country?.toLowerCase().includes(search.toLowerCase()) ||
+    s.ship_to_city?.toLowerCase().includes(search.toLowerCase())
   )
 
-  const inp: React.CSSProperties = { width: '100%', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }
+  const inp: React.CSSProperties = { width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }
   const lbl: React.CSSProperties = { display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '5px' }
 
   return (
@@ -237,9 +269,10 @@ export default function Suppliers() {
         @media (max-width: 640px) {
           .modal-overlay { align-items: flex-start !important; padding: 0 !important; }
           .modal-box { border-radius: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; min-height: 100svh; }
-          .modal-grid-3 { grid-template-columns: 1fr !important; }
+          .modal-grid-2, .modal-grid-3 { grid-template-columns: 1fr !important; }
         }
       `}</style>
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', width: '300px' }}>
           <Search size={16} color='#94a3b8' />
@@ -315,24 +348,32 @@ export default function Suppliers() {
                     <Phone size={14} /><span>{s.contact_phone}</span>
                   </div>
                 )}
-                {(() => {
-                  const { address, city, province, postal, notes } = parseAddressFromNotes(s.notes || '')
-                  const addrLine = [address, city, [province, postal].filter(Boolean).join(' ')].filter(Boolean).join(', ')
-                  return <>
-                    {addrLine && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#64748b' }}>
-                        <MapPin size={14} /><span>{addrLine}</span>
-                      </div>
-                    )}
-                    {notes && <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px', fontStyle: 'italic' }}>{notes}</div>}
-                  </>
-                })()}
+                {(s.ship_to_address || s.ship_to_city) && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '13px', color: '#64748b' }}>
+                    <MapPin size={14} style={{ marginTop: '2px', flexShrink: 0, color: '#16a34a' }} />
+                    <span>
+                      <span style={{ fontSize: '10px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginRight: '4px' }}>Ship To</span>
+                      {[s.ship_to_address, s.ship_to_city, s.ship_to_province, s.ship_to_postal_code].filter(Boolean).join(', ')}
+                    </span>
+                  </div>
+                )}
+                {!s.bill_to_same_as_ship_to && (s.address || s.city) && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '13px', color: '#64748b' }}>
+                    <MapPin size={14} style={{ marginTop: '2px', flexShrink: 0, color: '#f97316' }} />
+                    <span>
+                      <span style={{ fontSize: '10px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginRight: '4px' }}>Bill To</span>
+                      {[s.address, s.city, s.province, s.postal_code].filter(Boolean).join(', ')}
+                    </span>
+                  </div>
+                )}
+                {s.notes && <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px', fontStyle: 'italic' }}>{s.notes}</div>}
               </div>
             </div>
           ))}
         </div>
       )}
 
+      {/* Import Confirm Modal */}
       {showImportConfirm && (
         <div onClick={() => { setShowImportConfirm(false); setPendingFile(null) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '440px', maxWidth: '90vw' }}>
@@ -353,6 +394,7 @@ export default function Suppliers() {
         </div>
       )}
 
+      {/* Add / Edit Modal */}
       {showModal && (
         <div className="modal-overlay" onClick={() => { setShowModal(false); setEditSupplier(null) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '20px' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '520px', margin: '0 auto' }}>
@@ -360,7 +402,7 @@ export default function Suppliers() {
               {editSupplier ? 'Edit Supplier' : 'Add New Supplier'}
             </h2>
 
-            {/* Basic fields */}
+            {/* Basic Info */}
             {[
               { label: 'Company Name *', key: 'name', placeholder: 'Jedwards International' },
               { label: 'Contact Name', key: 'contact_name', placeholder: 'Jane Doe' },
@@ -368,39 +410,54 @@ export default function Suppliers() {
               { label: 'Contact Phone', key: 'contact_phone', placeholder: '+1-800-000-0000' },
               { label: 'Country', key: 'country', placeholder: 'USA' },
             ].map(field => (
-              <div key={field.key} style={{ marginBottom: '14px' }}>
+              <div key={field.key} style={{ marginBottom: '12px' }}>
                 <label style={lbl}>{field.label}</label>
-                <input
-                  value={form[field.key as keyof typeof form]}
-                  onChange={e => setForm({ ...form, [field.key]: e.target.value })}
-                  placeholder={field.placeholder}
-                  style={inp}
-                />
+                <input value={form[field.key as keyof typeof form]} onChange={e => setForm({ ...form, [field.key]: e.target.value })} placeholder={field.placeholder} style={inp} />
               </div>
             ))}
 
-            {/* Address fields */}
-            <div style={{ marginBottom: '14px' }}>
-              <label style={lbl}>Address</label>
-              <input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder='123 Main St' style={inp} />
+            {/* Ship To */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', marginTop: '4px' }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#16a34a', display: 'inline-block', flexShrink: 0 }} />
+              <div style={{ fontSize: '11px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Ship To</div>
             </div>
-            <div className="modal-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '14px' }}>
-              <div>
-                <label style={lbl}>City</label>
-                <input value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} placeholder='Toronto' style={inp} />
+            {[
+              { label: 'Address', key: 'ship_to_address', placeholder: '123 Warehouse St' },
+              { label: 'City', key: 'ship_to_city', placeholder: 'Toronto' },
+              { label: 'Province / State', key: 'ship_to_province', placeholder: 'ON' },
+              { label: 'Postal Code', key: 'ship_to_postal_code', placeholder: 'M1M 1M1' },
+            ].map(field => (
+              <div key={field.key} style={{ marginBottom: '10px' }}>
+                <label style={lbl}>{field.label}</label>
+                <input value={form[field.key as keyof typeof form]} onChange={e => setForm({ ...form, [field.key]: e.target.value })} placeholder={field.placeholder} style={inp} />
               </div>
-              <div>
-                <label style={lbl}>Province / State</label>
-                <input value={form.province} onChange={e => setForm({ ...form, province: e.target.value })} placeholder='ON' style={inp} />
+            ))}
+
+            {/* Bill To */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', marginTop: '4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f97316', display: 'inline-block', flexShrink: 0 }} />
+                <div style={{ fontSize: '11px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Bill To</div>
               </div>
-              <div>
-                <label style={lbl}>Postal Code</label>
-                <input value={form.postal} onChange={e => setForm({ ...form, postal: e.target.value })} placeholder='M5V 3A8' style={inp} />
-              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
+                <input type='checkbox' checked={billToSameAsShipTo} onChange={e => setBillToSameAsShipTo(e.target.checked)} style={{ cursor: 'pointer' }} />
+                Same as Ship To
+              </label>
             </div>
+            {!billToSameAsShipTo && [
+              { label: 'Address', key: 'address', placeholder: '123 Main St' },
+              { label: 'City', key: 'city', placeholder: 'Toronto' },
+              { label: 'Province / State', key: 'province', placeholder: 'ON' },
+              { label: 'Postal Code', key: 'postal_code', placeholder: 'M1M 1M1' },
+            ].map(field => (
+              <div key={field.key} style={{ marginBottom: '10px' }}>
+                <label style={lbl}>{field.label}</label>
+                <input value={form[field.key as keyof typeof form]} onChange={e => setForm({ ...form, [field.key]: e.target.value })} placeholder={field.placeholder} style={inp} />
+              </div>
+            ))}
 
             {/* Notes */}
-            <div style={{ marginBottom: '14px' }}>
+            <div style={{ marginBottom: '14px', marginTop: '4px' }}>
               <label style={lbl}>Notes</label>
               <input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder='e.g. Main oil supplier' style={inp} />
             </div>
@@ -408,9 +465,7 @@ export default function Suppliers() {
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'space-between', marginTop: '8px', alignItems: 'center' }}>
               <div>
                 {editSupplier && (
-                  <button onClick={handleDelete} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>
-                    Delete
-                  </button>
+                  <button onClick={handleDelete} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>Delete</button>
                 )}
               </div>
               <div style={{ display: 'flex', gap: '12px' }}>
