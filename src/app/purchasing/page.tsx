@@ -370,7 +370,41 @@ export default function Purchasing() {
               </div>
               <div>
                 <label style={lbl}>Unit</label>
-                <input value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} placeholder='kg, L, pcs...' style={inp} />
+                <select value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} style={inp}>
+                  <option value=''>—</option>
+                  <optgroup label='Volume'>
+                    <option value='mL'>mL</option>
+                    <option value='L'>L</option>
+                    <option value='fl oz'>fl oz</option>
+                    <option value='gal'>gal</option>
+                  </optgroup>
+                  <optgroup label='Weight'>
+                    <option value='g'>g</option>
+                    <option value='kg'>kg</option>
+                    <option value='lb'>lb</option>
+                    <option value='oz'>oz</option>
+                  </optgroup>
+                  <optgroup label='Count'>
+                    <option value='ea'>ea</option>
+                    <option value='box'>box</option>
+                    <option value='case'>case</option>
+                    <option value='pack'>pack</option>
+                    <option value='roll'>roll</option>
+                    <option value='sheet'>sheet</option>
+                    <option value='bag'>bag</option>
+                    <option value='bottle'>bottle</option>
+                    <option value='jar'>jar</option>
+                    <option value='tube'>tube</option>
+                    <option value='pallet'>pallet</option>
+                  </optgroup>
+                  <optgroup label='Length'>
+                    <option value='mm'>mm</option>
+                    <option value='cm'>cm</option>
+                    <option value='m'>m</option>
+                    <option value='inch'>inch</option>
+                    <option value='ft'>ft</option>
+                  </optgroup>
+                </select>
               </div>
             </div>
 
