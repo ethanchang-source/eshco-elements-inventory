@@ -350,48 +350,46 @@ export default function Purchasing() {
     if (!detail) return
     setStatusTransitioning(true)
 
-    console.log('[confirmStatusTransition] detail.status:', detail.status, '→ pendingStatus:', pendingStatus)
-
     const updatePayload: Record<string, unknown> = { status: pendingStatus }
 
     if (pendingStatus === 'shipped') {
       updatePayload.shipped_at = statusDate
     } else if (pendingStatus === 'received') {
-      // Guard: skip inventory update if already received (prevents double-count)
-      if (detail.status === 'received') {
-        console.warn('[confirmStatusTransition] already received — skipping inventory update')
-      } else {
-        updatePayload.received_at = statusDate
-        updatePayload.qty_received = detail.qty_ordered
+      // Fetch live DB status to guard against double inventory update
+      // (React state can be stale if the PO was already marked received elsewhere)
+      const { data: currentPO } = await supabase
+        .from('purchase_orders').select('status').eq('id', detail.id).single()
+      if (currentPO?.status === 'received') {
+        setStatusTransitioning(false)
+        setShowStatusModal(false)
+        setShowDetail(false)
+        fetchAll()
+        return
+      }
 
-        console.log('[confirmStatusTransition] updating inventory, qty_ordered:', detail.qty_ordered)
+      updatePayload.received_at = statusDate
+      updatePayload.qty_received = detail.qty_ordered
 
-        if (detail.item_type === 'raw_material' && detail.raw_material_id) {
-          const { data: mat, error: matFetchErr } = await supabase
-            .from('raw_materials').select('current_stock').eq('id', detail.raw_material_id).single()
-          if (matFetchErr) console.error('[confirmStatusTransition] raw_materials fetch error:', matFetchErr)
-          const newStock = (mat?.current_stock || 0) + detail.qty_ordered
-          console.log('inventory updated:', detail.qty_ordered, '| raw_material current_stock:', mat?.current_stock, '→', newStock)
-          const { error: matUpdErr } = await supabase
-            .from('raw_materials').update({ current_stock: newStock }).eq('id', detail.raw_material_id)
-          if (matUpdErr) { console.error('[confirmStatusTransition] raw_materials update error:', matUpdErr); setStatusTransitioning(false); return }
-        } else if (detail.item_type === 'packaging' && detail.packaging_id) {
-          const { data: pkg, error: pkgFetchErr } = await supabase
-            .from('packaging').select('current_stock').eq('id', detail.packaging_id).single()
-          if (pkgFetchErr) console.error('[confirmStatusTransition] packaging fetch error:', pkgFetchErr)
-          const newStock = (pkg?.current_stock || 0) + detail.qty_ordered
-          console.log('inventory updated:', detail.qty_ordered, '| packaging current_stock:', pkg?.current_stock, '→', newStock)
-          const { error: pkgUpdErr } = await supabase
-            .from('packaging').update({ current_stock: newStock }).eq('id', detail.packaging_id)
-          if (pkgUpdErr) { console.error('[confirmStatusTransition] packaging update error:', pkgUpdErr); setStatusTransitioning(false); return }
-        }
+      if (detail.item_type === 'raw_material' && detail.raw_material_id) {
+        const { data: mat, error: matFetchErr } = await supabase
+          .from('raw_materials').select('current_stock').eq('id', detail.raw_material_id).single()
+        if (matFetchErr) { console.error('raw_materials fetch error:', matFetchErr); setStatusTransitioning(false); return }
+        const { error: matUpdErr } = await supabase
+          .from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + detail.qty_ordered }).eq('id', detail.raw_material_id)
+        if (matUpdErr) { console.error('raw_materials update error:', matUpdErr); setStatusTransitioning(false); return }
+      } else if (detail.item_type === 'packaging' && detail.packaging_id) {
+        const { data: pkg, error: pkgFetchErr } = await supabase
+          .from('packaging').select('current_stock').eq('id', detail.packaging_id).single()
+        if (pkgFetchErr) { console.error('packaging fetch error:', pkgFetchErr); setStatusTransitioning(false); return }
+        const { error: pkgUpdErr } = await supabase
+          .from('packaging').update({ current_stock: (pkg?.current_stock || 0) + detail.qty_ordered }).eq('id', detail.packaging_id)
+        if (pkgUpdErr) { console.error('packaging update error:', pkgUpdErr); setStatusTransitioning(false); return }
       }
     }
 
     const { error } = await supabase.from('purchase_orders').update(updatePayload).eq('id', detail.id)
-    if (error) { console.error('[confirmStatusTransition] PO status update error:', error); setStatusTransitioning(false); return }
+    if (error) { console.error('PO status update error:', error); setStatusTransitioning(false); return }
 
-    console.log('[confirmStatusTransition] done')
     setStatusTransitioning(false)
     setShowStatusModal(false)
     setShowDetail(false)
