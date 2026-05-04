@@ -35,7 +35,7 @@ const CATEGORIES = [
   'OFFICE SUPPLIES', 'SHIPPING', 'PROFESSIONAL FEES', 'OTHER',
 ]
 
-const PAYMENT_METHODS = ['Credit Card', 'Debit Card', 'Cash', 'Bank Transfer', 'Cheque', 'AMEX', 'VISA', 'Other']
+const PAYMENT_METHODS = ['Direct Deposit', 'Cheque', 'Credit Card (AMEX)', 'Credit Card (VISA)', 'Cash', 'E-Transfer', 'Wire Transfer', 'Other']
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -237,7 +237,7 @@ export default function Expenses() {
 
     setShowModal(false)
     setEditExpense(null)
-    fetchExpenses()
+    fetchExpenses(activeYear)
   }
 
   async function handleDelete() {
@@ -250,7 +250,7 @@ export default function Expenses() {
     await supabase.from('expenses').delete().eq('id', editExpense.id)
     setShowModal(false)
     setEditExpense(null)
-    fetchExpenses()
+    fetchExpenses(activeYear)
   }
 
   function openReceiptViewer(url: string) {
@@ -367,7 +367,7 @@ export default function Expenses() {
         }
       }
       setImportResult(`✅ ${inserted} rows imported.${failed > 0 ? ` ❌ ${failed} failed.` : ''}`)
-      fetchExpenses()
+      fetchExpenses(activeYear)
     } catch {
       setImportResult('❌ Error reading file. Please check the format.')
     }
@@ -589,6 +589,14 @@ export default function Expenses() {
                 <input value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} placeholder='INV-001' style={inp} />
               </div>
               <div>
+                <label style={lbl}>Exchange Rate</label>
+                <input type='number' step='0.0001' min='0' value={form.exchange_rate} onChange={e => setForm({ ...form, exchange_rate: e.target.value })} placeholder='1.3500' style={numInp} />
+              </div>
+              <div>
+                <label style={lbl}>Amount (USD)</label>
+                <input type='number' step='0.01' min='0' value={form.amount_usd} onChange={e => setForm({ ...form, amount_usd: e.target.value })} placeholder='0.00' style={numInp} />
+              </div>
+              <div>
                 <label style={lbl}>Payment Method</label>
                 <select value={form.payment_method} onChange={e => setForm({ ...form, payment_method: e.target.value })} style={inp}>
                   <option value=''>Select...</option>
@@ -603,18 +611,6 @@ export default function Expenses() {
                   ))}
                 </div>
               </div>
-
-              {/* USD fields */}
-              <div>
-                <label style={lbl}>Amount (USD)</label>
-                <input type='number' step='0.01' min='0' value={form.amount_usd} onChange={e => setForm({ ...form, amount_usd: e.target.value })} placeholder='0.00' style={numInp} />
-              </div>
-              {form.amount_usd !== '' && parseFloat(form.amount_usd) > 0 && (
-                <div>
-                  <label style={lbl}>Exchange Rate</label>
-                  <input type='number' step='0.0001' min='0' value={form.exchange_rate} onChange={e => setForm({ ...form, exchange_rate: e.target.value })} placeholder='1.3500' style={numInp} />
-                </div>
-              )}
 
               {/* Receipt Upload */}
               <div style={{ gridColumn: '1 / -1' }}>

@@ -136,7 +136,6 @@ export default function Purchasing() {
   const [pendingStatus, setPendingStatus] = useState<'shipped' | 'received' | 'cancelled' | 'ordered'>('shipped')
   const [statusDate, setStatusDate] = useState(new Date().toISOString().slice(0, 10))
   const [statusTransitioning, setStatusTransitioning] = useState(false)
-  const statusTransitionInProgress = useRef(false)
 
   // Delete confirm modal
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -349,74 +348,62 @@ export default function Purchasing() {
   }
 
   async function confirmStatusTransition() {
-    console.log('confirmStatusTransition called', detail?.id, pendingStatus)
-    // Ref-based mutex: prevents double execution regardless of React render timing
-    if (statusTransitionInProgress.current) {
-      console.warn('confirmStatusTransition: already in progress, skipping')
-      return
-    }
-    statusTransitionInProgress.current = true
-
-    if (!detail) { statusTransitionInProgress.current = false; return }
+    if (!detail) return
     setStatusTransitioning(true)
 
-    const finish = () => {
-      statusTransitionInProgress.current = false
+    // 1. DB에서 현재 PO의 status를 직접 조회
+    const { data: currentPO, error: fetchErr } = await supabase
+      .from('purchase_orders').select('status').eq('id', detail.id).single()
+    if (fetchErr) { console.error('PO fetch error:', fetchErr); setStatusTransitioning(false); return }
+
+    // 2. 현재 status가 이미 'received'이면 inventory 업데이트 완전 스킵하고 return
+    if (currentPO?.status === 'received') {
       setStatusTransitioning(false)
       setShowStatusModal(false)
       setShowDetail(false)
       fetchAll()
+      return
     }
-    const abort = () => {
-      statusTransitionInProgress.current = false
-      setStatusTransitioning(false)
-    }
+
+    const updatePayload: Record<string, unknown> = { status: pendingStatus }
 
     if (pendingStatus === 'shipped') {
-      const { error } = await supabase
-        .from('purchase_orders').update({ status: 'shipped', shipped_at: statusDate }).eq('id', detail.id)
-      if (error) { console.error('PO status update error:', error); abort(); return }
+      updatePayload.shipped_at = statusDate
     } else if (pendingStatus === 'received') {
-      // Atomically update PO to 'received' only if it is NOT already received.
-      // Using .neq() makes this a single atomic DB operation — eliminates the TOCTOU
-      // race condition where two concurrent calls could both read 'ordered', both pass
-      // the guard, and both increment inventory.
-      const { data: updated, error: poUpdErr } = await supabase
-        .from('purchase_orders')
-        .update({ status: 'received', received_at: statusDate, qty_received: detail.qty_ordered })
-        .eq('id', detail.id)
-        .neq('status', 'received')
-        .select('id')
-      if (poUpdErr) { console.error('PO status update error:', poUpdErr); abort(); return }
+      updatePayload.received_at = statusDate
+      updatePayload.qty_received = detail.qty_ordered
 
-      if (!updated || updated.length === 0) {
-        // PO was already received — skip inventory update
-        finish(); return
-      }
-
-      // PO successfully transitioned — now update inventory (qty_ordered only, item_type branch)
+      // 3. newStatus가 'received'일 때만 inventory 업데이트 실행
+      // 4. item_type이 'raw_material'이면 raw_materials만, 'packaging'이면 packaging만 업데이트
       if (detail.item_type === 'raw_material' && detail.raw_material_id) {
         const { data: mat, error: matFetchErr } = await supabase
           .from('raw_materials').select('current_stock').eq('id', detail.raw_material_id).single()
-        if (matFetchErr) { console.error('raw_materials fetch error:', matFetchErr); abort(); return }
+        if (matFetchErr) { console.error('raw_materials fetch error:', matFetchErr); setStatusTransitioning(false); return }
+        const newStock = (mat?.current_stock || 0) + detail.qty_ordered
         const { error: matUpdErr } = await supabase
-          .from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + detail.qty_ordered }).eq('id', detail.raw_material_id)
-        if (matUpdErr) { console.error('raw_materials update error:', matUpdErr); abort(); return }
+          .from('raw_materials').update({ current_stock: newStock }).eq('id', detail.raw_material_id)
+        if (matUpdErr) { console.error('raw_materials update error:', matUpdErr); setStatusTransitioning(false); return }
       } else if (detail.item_type === 'packaging' && detail.packaging_id) {
         const { data: pkg, error: pkgFetchErr } = await supabase
           .from('packaging').select('current_stock').eq('id', detail.packaging_id).single()
-        if (pkgFetchErr) { console.error('packaging fetch error:', pkgFetchErr); abort(); return }
+        if (pkgFetchErr) { console.error('packaging fetch error:', pkgFetchErr); setStatusTransitioning(false); return }
+        const newStock = (pkg?.current_stock || 0) + detail.qty_ordered
         const { error: pkgUpdErr } = await supabase
-          .from('packaging').update({ current_stock: (pkg?.current_stock || 0) + detail.qty_ordered }).eq('id', detail.packaging_id)
-        if (pkgUpdErr) { console.error('packaging update error:', pkgUpdErr); abort(); return }
+          .from('packaging').update({ current_stock: newStock }).eq('id', detail.packaging_id)
+        if (pkgUpdErr) { console.error('packaging update error:', pkgUpdErr); setStatusTransitioning(false); return }
       }
-    } else {
-      const { error } = await supabase
-        .from('purchase_orders').update({ status: pendingStatus }).eq('id', detail.id)
-      if (error) { console.error('PO status update error:', error); abort(); return }
     }
 
-    finish()
+    // 5. inventory 업데이트 후 즉시 PO의 status를 업데이트
+    const { error } = await supabase.from('purchase_orders').update(updatePayload).eq('id', detail.id)
+    if (error) { console.error('PO status update error:', error); setStatusTransitioning(false); return }
+
+    // 6. 결과 출력
+    console.log('confirmStatusTransition done', detail.id, pendingStatus)
+    setStatusTransitioning(false)
+    setShowStatusModal(false)
+    setShowDetail(false)
+    fetchAll()
   }
 
   async function handleDelete() {
