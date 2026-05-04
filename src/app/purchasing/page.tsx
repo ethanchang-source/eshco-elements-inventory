@@ -372,26 +372,8 @@ export default function Purchasing() {
     } else if (pendingStatus === 'received') {
       updatePayload.received_at = statusDate
       updatePayload.qty_received = detail.qty_ordered
-
-      // 3. newStatus가 'received'일 때만 inventory 업데이트 실행
-      // 4. item_type이 'raw_material'이면 raw_materials만, 'packaging'이면 packaging만 업데이트
-      if (detail.item_type === 'raw_material' && detail.raw_material_id) {
-        const { data: mat, error: matFetchErr } = await supabase
-          .from('raw_materials').select('current_stock').eq('id', detail.raw_material_id).single()
-        if (matFetchErr) { console.error('raw_materials fetch error:', matFetchErr); setStatusTransitioning(false); return }
-        const newStock = (mat?.current_stock || 0) + detail.qty_ordered
-        const { error: matUpdErr } = await supabase
-          .from('raw_materials').update({ current_stock: newStock }).eq('id', detail.raw_material_id)
-        if (matUpdErr) { console.error('raw_materials update error:', matUpdErr); setStatusTransitioning(false); return }
-      } else if (detail.item_type === 'packaging' && detail.packaging_id) {
-        const { data: pkg, error: pkgFetchErr } = await supabase
-          .from('packaging').select('current_stock').eq('id', detail.packaging_id).single()
-        if (pkgFetchErr) { console.error('packaging fetch error:', pkgFetchErr); setStatusTransitioning(false); return }
-        const newStock = (pkg?.current_stock || 0) + detail.qty_ordered
-        const { error: pkgUpdErr } = await supabase
-          .from('packaging').update({ current_stock: newStock }).eq('id', detail.packaging_id)
-        if (pkgUpdErr) { console.error('packaging update error:', pkgUpdErr); setStatusTransitioning(false); return }
-      }
+      // Inventory is automatically updated by Supabase trigger 'trigger_purchase_received'
+      // when qty_received changes. Do NOT update inventory here to avoid double counting.
     }
 
     // 5. inventory 업데이트 후 즉시 PO의 status를 업데이트
