@@ -484,6 +484,15 @@ export default function Purchasing() {
     }
   }
 
+  function handleTableStatusChange(po: PO, newStatus: string) {
+    if (newStatus === po.status) return
+    if (po.status === 'received' || po.status === 'cancelled') return
+    setDetail(po)
+    setPendingStatus(newStatus as 'shipped' | 'received' | 'ordered')
+    setStatusDate(new Date().toISOString().slice(0, 10))
+    setShowStatusModal(true)
+  }
+
   const filtered = pos.filter(po =>
     po.suppliers?.name?.toLowerCase().includes(search.toLowerCase()) ||
     getMaterialLabel(po).toLowerCase().includes(search.toLowerCase()) ||
@@ -502,7 +511,7 @@ export default function Purchasing() {
     ? rawMaterials.map(m => ({ id: m.id, label: `${m.item_no} — ${m.name}${m.unit ? ` (${m.unit})` : ''}` }))
     : packaging.map(p => ({ id: p.id, label: `${p.item_no} — ${p.name}${p.type ? ` [${p.type}]` : ''}` }))
 
-  const isReadOnly = detail?.status === 'received'
+  const isReadOnly = detail?.status !== 'ordered' && detail?.status !== 'shipped'
 
   // USD/CAD exchange rate calculation (live)
   const createExchangeRate = form.amount_usd && form.amount_cad && parseFloat(form.amount_usd) > 0
@@ -531,8 +540,6 @@ export default function Purchasing() {
           .modal-box { border-radius: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; min-height: 100svh; }
           .modal-grid-2, .modal-grid-3, .modal-grid-4 { grid-template-columns: 1fr !important; }
         }
-        .po-row-del { opacity: 0; transition: opacity 0.15s; }
-        .po-row:hover .po-row-del { opacity: 1; }
       `}</style>
 
       {/* Header row */}
@@ -606,7 +613,19 @@ export default function Purchasing() {
                     <td style={{ padding: '12px 16px', color: '#374151', whiteSpace: 'nowrap' }}>{po.qty_ordered} {po.unit || ''}</td>
                     <td style={{ padding: '12px 16px', color: '#1e293b', fontWeight: '500' }}>${formatCurrency(po.cost_total_cad || 0)}</td>
                     <td style={{ padding: '12px 16px' }}>
-                      <span style={{ display: 'inline-block', background: st.bg, color: st.color, borderRadius: '20px', padding: '3px 10px', fontSize: '12px', fontWeight: '500' }}>{st.label}</span>
+                      <select
+                        value={po.status}
+                        onClick={e => e.stopPropagation()}
+                        onChange={e => handleTableStatusChange(po, e.target.value)}
+                        disabled={po.status === 'received' || po.status === 'cancelled'}
+                        style={{ background: st.bg, color: st.color, border: `1px solid ${st.color}30`, borderRadius: '20px', padding: '3px 8px', fontSize: '12px', fontWeight: '500', cursor: po.status === 'received' || po.status === 'cancelled' ? 'default' : 'pointer' }}
+                      >
+                        {po.status === 'draft' && <option value='draft'>Draft</option>}
+                        {po.status === 'cancelled' && <option value='cancelled'>Cancelled</option>}
+                        <option value='ordered'>Ordered</option>
+                        <option value='shipped'>Shipped</option>
+                        <option value='received'>Received</option>
+                      </select>
                     </td>
                     <td style={{ padding: '12px 16px', color: '#64748b', whiteSpace: 'nowrap', fontSize: '13px' }}>{po.ordered_at}</td>
                     <td style={{ padding: '12px 16px', color: po.shipped_at ? '#d97706' : '#cbd5e1', whiteSpace: 'nowrap', fontSize: '13px' }}>{po.shipped_at || '—'}</td>
@@ -619,7 +638,6 @@ export default function Purchasing() {
                     </td>
                     <td style={{ padding: '12px 16px' }}>
                       <button
-                        className='po-row-del'
                         onClick={e => { e.stopPropagation(); setDetail(po); setShowDeleteConfirm(true) }}
                         title='Delete PO'
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '4px', display: 'flex', alignItems: 'center' }}
