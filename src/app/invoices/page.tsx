@@ -153,10 +153,10 @@ export default function Invoices() {
 
   async function fetchAll() {
     const [inv, cust, prod, cm] = await Promise.all([
-      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').order('issued_at', { ascending: false }),
+      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').order('invoice_no', { ascending: false }),
       supabase.from('customers').select('*').order('company_name'),
       supabase.from('products').select('*').eq('is_active', true).order('sku'),
-      supabase.from('credit_memos').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').order('issued_at', { ascending: false }),
+      supabase.from('credit_memos').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').order('memo_no', { ascending: false }),
     ])
     setInvoices(inv.data || [])
     setCustomers(cust.data || [])
