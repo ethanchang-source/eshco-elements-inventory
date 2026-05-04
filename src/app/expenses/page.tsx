@@ -118,7 +118,7 @@ export default function Expenses() {
       .select('*')
       .gte('expense_date', `${year}-01-01`)
       .lte('expense_date', `${year}-12-31`)
-      .order('expense_date', { ascending: true })
+      .order('expense_date', { ascending: false })
     setExpenses(data || [])
     setLoading(false)
   }
