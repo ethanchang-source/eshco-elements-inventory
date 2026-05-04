@@ -145,6 +145,14 @@ export default function Expenses() {
     (parseFloat(form.sales_tax) || 0) +
     (parseFloat(form.freight_tip) || 0)
 
+  function withAutoRate(patch: Partial<typeof form>): typeof form {
+    const next = { ...form, ...patch }
+    const usd = parseFloat(next.amount_usd)
+    const cad = (parseFloat(next.amount_before_tax) || 0) + (parseFloat(next.sales_tax) || 0) + (parseFloat(next.freight_tip) || 0)
+    if (usd > 0 && cad > 0) next.exchange_rate = (cad / usd).toFixed(4)
+    return next
+  }
+
   function openAdd() {
     setEditExpense(null)
     setReceiptFile(null)
@@ -566,15 +574,15 @@ export default function Expenses() {
               {/* Amounts */}
               <div>
                 <label style={lbl}>Before Tax ($)</label>
-                <input type='number' step='0.01' min='0' value={form.amount_before_tax} onChange={e => setForm({ ...form, amount_before_tax: e.target.value })} placeholder='0.00' style={numInp} />
+                <input type='number' step='0.01' min='0' value={form.amount_before_tax} onChange={e => setForm(withAutoRate({ amount_before_tax: e.target.value }))} placeholder='0.00' style={numInp} />
               </div>
               <div>
                 <label style={lbl}>Sales Tax ($)</label>
-                <input type='number' step='0.01' min='0' value={form.sales_tax} onChange={e => setForm({ ...form, sales_tax: e.target.value })} placeholder='0.00' style={numInp} />
+                <input type='number' step='0.01' min='0' value={form.sales_tax} onChange={e => setForm(withAutoRate({ sales_tax: e.target.value }))} placeholder='0.00' style={numInp} />
               </div>
               <div>
                 <label style={lbl}>Freight / Tip ($)</label>
-                <input type='number' step='0.01' min='0' value={form.freight_tip} onChange={e => setForm({ ...form, freight_tip: e.target.value })} placeholder='0.00' style={numInp} />
+                <input type='number' step='0.01' min='0' value={form.freight_tip} onChange={e => setForm(withAutoRate({ freight_tip: e.target.value }))} placeholder='0.00' style={numInp} />
               </div>
 
               {/* Auto-calculated total */}
@@ -589,12 +597,12 @@ export default function Expenses() {
                 <input value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} placeholder='INV-001' style={inp} />
               </div>
               <div>
-                <label style={lbl}>Exchange Rate</label>
-                <input type='number' step='0.0001' min='0' value={form.exchange_rate} onChange={e => setForm({ ...form, exchange_rate: e.target.value })} placeholder='1.3500' style={numInp} />
+                <label style={lbl}>Exchange Rate <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '400' }}>(auto)</span></label>
+                <input type='number' step='0.0001' min='0' value={form.exchange_rate} onChange={e => setForm({ ...form, exchange_rate: e.target.value })} placeholder='1.3500' style={{ ...numInp, background: '#f0fdf4', borderColor: '#86efac' }} />
               </div>
               <div>
                 <label style={lbl}>Amount (USD)</label>
-                <input type='number' step='0.01' min='0' value={form.amount_usd} onChange={e => setForm({ ...form, amount_usd: e.target.value })} placeholder='0.00' style={numInp} />
+                <input type='number' step='0.01' min='0' value={form.amount_usd} onChange={e => setForm(withAutoRate({ amount_usd: e.target.value }))} placeholder='0.00' style={numInp} />
               </div>
               <div>
                 <label style={lbl}>Payment Method</label>
