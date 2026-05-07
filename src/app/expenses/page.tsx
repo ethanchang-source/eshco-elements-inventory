@@ -260,8 +260,9 @@ export default function Expenses() {
     }
 
     // Handle receipt_urls (multi-receipt)
-    const existingUrls = editExpense?.receipt_urls ?? []
-    const filteredUrls = existingUrls.filter(u => !removedReceiptUrls.includes(u))
+    // Use getReceiptUrls so receipt_url (singular) is also tracked for removal
+    const allExistingUrls = editExpense ? getReceiptUrls(editExpense) : []
+    const filteredUrls = allExistingUrls.filter(u => !removedReceiptUrls.includes(u))
     const newUrls: string[] = []
 
     if (receiptFiles.length > 0 && expenseId) {
@@ -283,7 +284,10 @@ export default function Expenses() {
 
     if (expenseId && (receiptFiles.length > 0 || removedReceiptUrls.length > 0)) {
       const finalUrls = [...filteredUrls, ...newUrls]
-      const { error: urlErr } = await supabase.from('expenses').update({ receipt_urls: finalUrls }).eq('id', expenseId)
+      const { error: urlErr } = await supabase.from('expenses').update({
+        receipt_urls: finalUrls,
+        receipt_url: finalUrls[0] ?? null,
+      }).eq('id', expenseId)
       if (urlErr) console.error('[receipt:modal] receipt_urls update error:', urlErr)
     }
 
