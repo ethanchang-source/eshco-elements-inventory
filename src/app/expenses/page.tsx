@@ -97,6 +97,7 @@ export default function Expenses() {
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState('')
   const [saveError, setSaveError] = useState('')
+  const [inlineUploadError, setInlineUploadError] = useState<string | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
   const inlineUploadRef = useRef<HTMLInputElement>(null)
   const [inlineUploadTarget, setInlineUploadTarget] = useState<Expense | null>(null)
@@ -235,14 +236,22 @@ export default function Expenses() {
 
     if (receiptFile && expenseId) {
       setUploadingReceipt(true)
-      const ext = receiptFile.name.split('.').pop() || 'bin'
-      const path = `${expenseId}/${Date.now()}.${ext}`
+      const safeFilename = receiptFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const path = `${expenseId}/${Date.now()}_${safeFilename}`
+      console.log('[receipt:modal] Uploading to path:', path)
       const { data: up, error: upErr } = await supabase.storage.from('receipts').upload(path, receiptFile)
       if (upErr) {
-        console.error('Receipt upload error:', upErr)
+        console.error('[receipt:modal] Storage upload error:', upErr)
+        setSaveError(`Receipt upload failed: ${upErr.message}`)
       } else if (up) {
+        console.log('[receipt:modal] Upload success:', up.path)
         const { data: urlData } = supabase.storage.from('receipts').getPublicUrl(up.path)
-        await supabase.from('expenses').update({ receipt_url: urlData.publicUrl }).eq('id', expenseId)
+        const { error: dbErr } = await supabase.from('expenses').update({ receipt_url: urlData.publicUrl }).eq('id', expenseId)
+        if (dbErr) {
+          console.error('[receipt:modal] DB receipt_url update error:', dbErr)
+        } else {
+          console.log('[receipt:modal] receipt_url saved:', urlData.publicUrl)
+        }
       }
       setUploadingReceipt(false)
     }
@@ -255,6 +264,7 @@ export default function Expenses() {
 
   function triggerInlineUpload(ev: React.MouseEvent, expense: Expense) {
     ev.stopPropagation()
+    setInlineUploadError(null)
     setInlineUploadTarget(expense)
     inlineUploadRef.current?.click()
   }
@@ -262,19 +272,42 @@ export default function Expenses() {
   async function handleInlineReceiptChange(ev: React.ChangeEvent<HTMLInputElement>) {
     const file = ev.target.files?.[0]
     ev.target.value = ''
-    if (!file || !inlineUploadTarget) return
+    if (!file) return
+    if (!inlineUploadTarget) {
+      console.error('[receipt:inline] No upload target set')
+      return
+    }
     const expense = inlineUploadTarget
     setInlineUploadTarget(null)
+    setInlineUploadError(null)
     setInlineUploadingId(expense.id)
-    const ext = file.name.split('.').pop() || 'bin'
-    const path = `${expense.id}/${Date.now()}.${ext}`
+
+    const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const path = `${expense.id}/${Date.now()}_${safeFilename}`
+    console.log('[receipt:inline] Uploading to path:', path, '| file size:', file.size)
+
     const { data: up, error: upErr } = await supabase.storage.from('receipts').upload(path, file)
-    if (!upErr && up) {
-      const { data: urlData } = supabase.storage.from('receipts').getPublicUrl(up.path)
-      const receipt_url = urlData.publicUrl
-      await supabase.from('expenses').update({ receipt_url }).eq('id', expense.id)
-      setExpenses(prev => prev.map(ex => ex.id === expense.id ? { ...ex, receipt_url } : ex))
+    if (upErr) {
+      console.error('[receipt:inline] Storage upload error:', upErr)
+      setInlineUploadError(`Upload failed: ${upErr.message}`)
+      setInlineUploadingId(null)
+      return
     }
+    console.log('[receipt:inline] Upload success:', up.path)
+
+    const { data: urlData } = supabase.storage.from('receipts').getPublicUrl(up.path)
+    const receipt_url = urlData.publicUrl
+    console.log('[receipt:inline] Public URL:', receipt_url)
+
+    const { error: dbErr } = await supabase.from('expenses').update({ receipt_url }).eq('id', expense.id)
+    if (dbErr) {
+      console.error('[receipt:inline] DB receipt_url update error:', dbErr)
+      setInlineUploadError(`DB update failed: ${dbErr.message}`)
+      setInlineUploadingId(null)
+      return
+    }
+    console.log('[receipt:inline] receipt_url saved to DB')
+    setExpenses(prev => prev.map(ex => ex.id === expense.id ? { ...ex, receipt_url } : ex))
     setInlineUploadingId(null)
   }
 
@@ -483,6 +516,12 @@ export default function Expenses() {
       {importResult && (
         <div style={{ background: importResult.includes('✅') ? '#f0fdf4' : '#fef2f2', border: `1px solid ${importResult.includes('✅') ? '#bbf7d0' : '#fecaca'}`, borderRadius: '8px', padding: '10px 16px', marginBottom: '12px', fontSize: '13px', color: importResult.includes('✅') ? '#16a34a' : '#dc2626' }}>
           {importResult}
+        </div>
+      )}
+      {inlineUploadError && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 16px', marginBottom: '12px', fontSize: '13px', color: '#dc2626', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>Receipt upload failed: {inlineUploadError}</span>
+          <button onClick={() => setInlineUploadError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: '16px', padding: '0 4px' }}>×</button>
         </div>
       )}
 
