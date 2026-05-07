@@ -59,10 +59,11 @@ export default function Inventory() {
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState('')
   const [pendingFile, setPendingFile] = useState<File | null>(null)
-  const [pendingTab, setPendingTab] = useState<'raw' | 'packaging' | null>(null)
+  const [pendingTab, setPendingTab] = useState<'raw' | 'packaging' | 'finished' | null>(null)
   const [showImportConfirm, setShowImportConfirm] = useState(false)
   const [snapshotRaw, setSnapshotRaw] = useState<RawMaterial[] | null>(null)
   const [snapshotPack, setSnapshotPack] = useState<Packaging[] | null>(null)
+  const [snapshotFinished, setSnapshotFinished] = useState<Product[] | null>(null)
   const [undoRestoring, setUndoRestoring] = useState(false)
   const [rawForm, setRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '' })
   const [packForm, setPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '' })
@@ -221,38 +222,76 @@ export default function Inventory() {
     setShowImportConfirm(false)
     if (!pendingFile || !pendingTab) return
     if (pendingTab === 'raw') setSnapshotRaw([...rawMaterials])
-    else setSnapshotPack([...packaging])
+    else if (pendingTab === 'packaging') setSnapshotPack([...packaging])
+    else setSnapshotFinished([...products])
     await runImport(pendingFile, pendingTab)
     setPendingFile(null)
     setPendingTab(null)
   }
 
-  async function runImport(file: File, importTab: 'raw' | 'packaging') {
+  async function parseFileRows(file: File): Promise<Record<string, string>[]> {
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    if (ext === 'xlsx' || ext === 'xls') {
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf)
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' })
+      return data.map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [String(k).trim(), String(v)])))
+    }
+    return parseCSV(await file.text())
+  }
+
+  async function runImport(file: File, importTab: 'raw' | 'packaging' | 'finished') {
     setImporting(true)
     setImportResult('')
     try {
-      const text = await file.text()
-      const rows = parseCSV(text)
+      const rows = await parseFileRows(file)
       let success = 0, failed = 0
       for (const row of rows) {
-        if (!row.item_no || !row.name) { failed++; continue }
-        if (importTab === 'raw') {
-          const { error } = await supabase.from('raw_materials').upsert([{
-            item_no: row.item_no, name: row.name, unit: row.unit || 'ml',
-            cost_per_unit_cad: parseFloat(row.cost_per_unit_cad) || 0,
-            current_stock: parseFloat(row.current_stock) || 0,
-            reorder_threshold: parseFloat(row.reorder_threshold) || 0,
-          }], { onConflict: 'item_no' })
+        if (importTab === 'finished') {
+          if (!row.sku) { failed++; continue }
+          const existing = products.find(p => p.sku === row.sku.trim())
+          const upsertData: Record<string, unknown> = { sku: row.sku.trim(), is_active: true }
+          if (row.name) upsertData.name = row.name.trim()
+          else if (existing) upsertData.name = existing.name
+          if (row.size_oz) upsertData.size_oz = parseFloat(row.size_oz)
+          else if (existing) upsertData.size_oz = existing.size_oz
+          if (row.barcode_upc) upsertData.barcode_upc = row.barcode_upc.trim()
+          else if (existing?.barcode_upc) upsertData.barcode_upc = existing.barcode_upc
+          if (row.barcode_itf14) upsertData.barcode_itf14 = row.barcode_itf14.trim()
+          else if (existing?.barcode_itf14) upsertData.barcode_itf14 = existing.barcode_itf14
+          if (row.unit_cost_cad) upsertData.unit_cost_cad = parseFloat(row.unit_cost_cad)
+          else if (existing) upsertData.unit_cost_cad = existing.unit_cost_cad
+          if (row.price_whs_cad) upsertData.whs_price_cad = parseFloat(row.price_whs_cad)
+          else if (existing?.whs_price_cad != null) upsertData.whs_price_cad = existing.whs_price_cad
+          if (row.msrp_cad) upsertData.msrp_cad = parseFloat(row.msrp_cad)
+          else if (existing?.msrp_cad != null) upsertData.msrp_cad = existing.msrp_cad
+          if (row.current_stock) upsertData.current_stock = parseInt(row.current_stock)
+          else if (existing) upsertData.current_stock = existing.current_stock
+          if (row.reorder_threshold) upsertData.reorder_threshold = parseInt(row.reorder_threshold)
+          else if (existing) upsertData.reorder_threshold = existing.reorder_threshold
+          const { error } = await supabase.from('products').upsert([upsertData], { onConflict: 'sku' })
           if (error) failed++; else success++
         } else {
-          const { error } = await supabase.from('packaging').upsert([{
-            item_no: row.item_no, name: row.name, type: row.type || 'bottle',
-            size_oz: parseFloat(row.size_oz) || 0,
-            cost_cad: parseFloat(row.cost_cad) || 0,
-            current_stock: parseInt(row.current_stock) || 0,
-            reorder_threshold: parseInt(row.reorder_threshold) || 0,
-          }], { onConflict: 'item_no' })
-          if (error) failed++; else success++
+          if (!row.item_no || !row.name) { failed++; continue }
+          if (importTab === 'raw') {
+            const { error } = await supabase.from('raw_materials').upsert([{
+              item_no: row.item_no, name: row.name, unit: row.unit || 'ml',
+              cost_per_unit_cad: parseFloat(row.cost_per_unit_cad) || 0,
+              current_stock: parseFloat(row.current_stock) || 0,
+              reorder_threshold: parseFloat(row.reorder_threshold) || 0,
+            }], { onConflict: 'item_no' })
+            if (error) failed++; else success++
+          } else {
+            const { error } = await supabase.from('packaging').upsert([{
+              item_no: row.item_no, name: row.name, type: row.type || 'bottle',
+              size_oz: parseFloat(row.size_oz) || 0,
+              cost_cad: parseFloat(row.cost_cad) || 0,
+              current_stock: parseInt(row.current_stock) || 0,
+              reorder_threshold: parseInt(row.reorder_threshold) || 0,
+            }], { onConflict: 'item_no' })
+            if (error) failed++; else success++
+          }
         }
       }
       setImportResult(`✅ ${success} items imported. ${failed > 0 ? `❌ ${failed} failed.` : ''}`)
@@ -271,6 +310,9 @@ export default function Inventory() {
     } else if (tab === 'packaging' && snapshotPack) {
       await supabase.from('packaging').upsert(snapshotPack, { onConflict: 'id' })
       setSnapshotPack(null)
+    } else if (tab === 'finished' && snapshotFinished) {
+      await supabase.from('products').upsert(snapshotFinished, { onConflict: 'id' })
+      setSnapshotFinished(null)
     }
     setImportResult('')
     fetchAll()
@@ -282,6 +324,11 @@ export default function Inventory() {
       downloadCSVTemplate(['item_no', 'name', 'unit', 'cost_per_unit_cad', 'current_stock', 'reorder_threshold'], 'raw_materials_template.csv')
     } else if (tab === 'packaging') {
       downloadCSVTemplate(['item_no', 'name', 'type', 'size_oz', 'cost_cad', 'current_stock', 'reorder_threshold'], 'packaging_template.csv')
+    } else if (tab === 'finished') {
+      const ws = XLSX.utils.aoa_to_sheet([['sku', 'name', 'size_oz', 'barcode_upc', 'barcode_itf14', 'unit_cost_cad', 'price_whs_cad', 'msrp_cad', 'current_stock', 'reorder_threshold']])
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Finished Goods')
+      XLSX.writeFile(wb, 'finished_goods_template.xlsx')
     }
   }
 
@@ -381,24 +428,22 @@ export default function Inventory() {
           >
             <Download size={14} /> Export Excel
           </button>
+          <button onClick={handleDownloadTemplate} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer' }}>
+            <Download size={14} /> Template
+          </button>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}>
+            <Upload size={14} /> {importing ? 'Importing...' : 'Import'}
+            <input type='file' accept='.csv,.xlsx,.xls' onChange={handleFileSelect} style={{ display: 'none' }} />
+          </label>
           {tab !== 'finished' && (
-            <>
-              <button onClick={handleDownloadTemplate} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer' }}>
-                <Download size={14} /> Template
-              </button>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}>
-                <Upload size={14} /> {importing ? 'Importing...' : 'Import CSV'}
-                <input type='file' accept='.csv' onChange={handleFileSelect} style={{ display: 'none' }} />
-              </label>
-              <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
-                <Plus size={14} /> Add
-              </button>
-            </>
+            <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
+              <Plus size={14} /> Add
+            </button>
           )}
         </div>
       </div>
 
-      {((tab === 'raw' && snapshotRaw) || (tab === 'packaging' && snapshotPack)) && (
+      {((tab === 'raw' && snapshotRaw) || (tab === 'packaging' && snapshotPack) || (tab === 'finished' && snapshotFinished)) && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: '8px', padding: '10px 16px', marginBottom: '12px' }}>
           <div style={{ fontSize: '13px', color: '#92400e', fontWeight: '500' }}>Import applied. You can restore the previous data.</div>
           <button onClick={handleUndo} disabled={undoRestoring} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#92400e', border: '1px solid #fcd34d', borderRadius: '6px', padding: '6px 14px', fontSize: '13px', fontWeight: '500', cursor: undoRestoring ? 'not-allowed' : 'pointer' }}>
