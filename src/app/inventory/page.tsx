@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
@@ -49,7 +49,7 @@ interface Product {
   msrp_cad?: number | null
 }
 
-export default function Inventory() {
+function InventoryContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
 
@@ -715,5 +715,13 @@ export default function Inventory() {
         </div>
       )}
     </MainLayout>
+  )
+}
+
+export default function Inventory() {
+  return (
+    <Suspense fallback={<div style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>Loading...</div>}>
+      <InventoryContent />
+    </Suspense>
   )
 }
