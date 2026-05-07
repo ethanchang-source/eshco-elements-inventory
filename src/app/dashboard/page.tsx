@@ -23,6 +23,8 @@ interface RecentInvoice {
   status: string
 }
 
+const COLLAPSE_LIMIT = 5
+
 export default function Dashboard() {
   const [stats, setStats] = useState({ products: 0, rawMaterials: 0, production: 0, invoices: 0 })
   const [lowStock, setLowStock] = useState<LowStockProduct[]>([])
@@ -30,6 +32,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [showAllLowStock, setShowAllLowStock] = useState(false)
+  const [showAllInvoices, setShowAllInvoices] = useState(false)
 
   const fetchDashboardData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -51,7 +55,7 @@ export default function Dashboard() {
       supabase.from('production_orders').select('qty_produced').gte('produced_at', monthStart),
       supabase.from('invoices').select('id').gte('issued_at', monthStart),
       supabase.from('products').select('id, sku, name, current_stock, reorder_threshold').eq('is_active', true).order('current_stock'),
-      supabase.from('invoices').select('id, invoice_no, issued_at, total_cad, status, customers(company_name)').order('created_at', { ascending: false }).limit(5),
+      supabase.from('invoices').select('id, invoice_no, issued_at, total_cad, status, customers(company_name)').order('invoice_no', { ascending: false }).limit(50),
     ])
 
     const productionQty = (productionData || []).reduce((sum, o) => sum + (o.qty_produced || 0), 0)
@@ -160,7 +164,7 @@ export default function Dashboard() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {lowStock.map(p => (
+              {(showAllLowStock ? lowStock : lowStock.slice(0, COLLAPSE_LIMIT)).map(p => (
                 <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#fff7ed', borderRadius: '8px', border: '1px solid #fed7aa' }}>
                   <div>
                     <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>{p.name}</div>
@@ -172,6 +176,14 @@ export default function Dashboard() {
                   </div>
                 </div>
               ))}
+              {lowStock.length > COLLAPSE_LIMIT && (
+                <button
+                  onClick={() => setShowAllLowStock(v => !v)}
+                  style={{ marginTop: '4px', background: 'none', border: 'none', color: '#2563eb', fontSize: '13px', fontWeight: '500', cursor: 'pointer', textAlign: 'left', padding: '4px 0' }}
+                >
+                  {showAllLowStock ? 'Show less' : `Show all (${lowStock.length - COLLAPSE_LIMIT} more)`}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -180,6 +192,9 @@ export default function Dashboard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
             <TrendingUp size={18} color='#2563eb' />
             <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>Recent Invoices</h2>
+            {recentInvoices.length > 0 && (
+              <span style={{ background: '#eff6ff', color: '#2563eb', borderRadius: '20px', padding: '2px 8px', fontSize: '12px', fontWeight: '600' }}>{recentInvoices.length}</span>
+            )}
           </div>
           {loading ? (
             <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
@@ -190,7 +205,7 @@ export default function Dashboard() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {recentInvoices.map(inv => (
+              {(showAllInvoices ? recentInvoices : recentInvoices.slice(0, COLLAPSE_LIMIT)).map(inv => (
                 <div key={inv.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#f8fafc', borderRadius: '8px' }}>
                   <div>
                     <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>{inv.invoice_no}</div>
@@ -202,6 +217,14 @@ export default function Dashboard() {
                   </div>
                 </div>
               ))}
+              {recentInvoices.length > COLLAPSE_LIMIT && (
+                <button
+                  onClick={() => setShowAllInvoices(v => !v)}
+                  style={{ marginTop: '4px', background: 'none', border: 'none', color: '#2563eb', fontSize: '13px', fontWeight: '500', cursor: 'pointer', textAlign: 'left', padding: '4px 0' }}
+                >
+                  {showAllInvoices ? 'Show less' : `Show all (${recentInvoices.length - COLLAPSE_LIMIT} more)`}
+                </button>
+              )}
             </div>
           )}
         </div>
