@@ -142,6 +142,11 @@ export default function Purchasing() {
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
 
+  // Rollback from received modal
+  const [showRollbackConfirm, setShowRollbackConfirm] = useState(false)
+  const [pendingRollbackStatus, setPendingRollbackStatus] = useState<'ordered' | 'shipped'>('ordered')
+  const [rollbackTransitioning, setRollbackTransitioning] = useState(false)
+
   // Material history modal
   const [showHistory, setShowHistory] = useState(false)
   const [historyLabel, setHistoryLabel] = useState('')
@@ -154,6 +159,7 @@ export default function Purchasing() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       if (showHistory) { setShowHistory(false); return }
+      if (showRollbackConfirm) { setShowRollbackConfirm(false); return }
       if (showDeleteConfirm) { setShowDeleteConfirm(false); setDeleteError(''); return }
       if (showStatusModal) { setShowStatusModal(false); return }
       if (showCreate) { setShowCreate(false); setCreateError(''); return }
@@ -161,7 +167,7 @@ export default function Purchasing() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [showCreate, showDetail, showStatusModal, showDeleteConfirm, showHistory])
+  }, [showCreate, showDetail, showStatusModal, showDeleteConfirm, showHistory, showRollbackConfirm])
 
   async function fetchAll() {
     const [posRes, suppRes, rawRes, pkgRes] = await Promise.all([
@@ -333,6 +339,11 @@ export default function Purchasing() {
 
   function initiateStatusChange(next: 'shipped' | 'received' | 'cancelled' | 'ordered') {
     if (next === detail?.status) return
+    if (detail?.status === 'received' && (next === 'ordered' || next === 'shipped')) {
+      setPendingRollbackStatus(next)
+      setShowRollbackConfirm(true)
+      return
+    }
     if (next === 'ordered') { confirmDirectStatus('ordered'); return }
     setPendingStatus(next)
     setStatusDate(new Date().toISOString().slice(0, 10))
@@ -384,6 +395,35 @@ export default function Purchasing() {
     console.log('confirmStatusTransition done', detail.id, pendingStatus)
     setStatusTransitioning(false)
     setShowStatusModal(false)
+    setShowDetail(false)
+    fetchAll()
+  }
+
+  async function handleRollback() {
+    if (!detail) return
+    setRollbackTransitioning(true)
+
+    if (detail.item_type === 'raw_material' && detail.raw_material_id) {
+      const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', detail.raw_material_id).single()
+      const newStock = Math.max(0, (mat?.current_stock || 0) - detail.qty_ordered)
+      await supabase.from('raw_materials').update({ current_stock: newStock }).eq('id', detail.raw_material_id)
+    } else if (detail.item_type === 'packaging' && detail.packaging_id) {
+      const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', detail.packaging_id).single()
+      const newStock = Math.max(0, (pkg?.current_stock || 0) - detail.qty_ordered)
+      await supabase.from('packaging').update({ current_stock: newStock }).eq('id', detail.packaging_id)
+    }
+
+    const updatePayload: Record<string, unknown> = {
+      status: pendingRollbackStatus,
+      qty_received: null,
+      received_at: null,
+    }
+    if (pendingRollbackStatus === 'ordered') updatePayload.shipped_at = null
+
+    await supabase.from('purchase_orders').update(updatePayload).eq('id', detail.id)
+
+    setRollbackTransitioning(false)
+    setShowRollbackConfirm(false)
     setShowDetail(false)
     fetchAll()
   }
@@ -476,8 +516,13 @@ export default function Purchasing() {
 
   function handleTableStatusChange(po: PO, newStatus: string) {
     if (newStatus === po.status) return
-    if (po.status === 'received' || po.status === 'cancelled') return
+    if (po.status === 'cancelled') return
     setDetail(po)
+    if (po.status === 'received' && (newStatus === 'ordered' || newStatus === 'shipped')) {
+      setPendingRollbackStatus(newStatus as 'ordered' | 'shipped')
+      setShowRollbackConfirm(true)
+      return
+    }
     setPendingStatus(newStatus as 'shipped' | 'received' | 'ordered')
     setStatusDate(new Date().toISOString().slice(0, 10))
     setShowStatusModal(true)
@@ -607,8 +652,8 @@ export default function Purchasing() {
                         value={po.status}
                         onClick={e => e.stopPropagation()}
                         onChange={e => handleTableStatusChange(po, e.target.value)}
-                        disabled={po.status === 'received' || po.status === 'cancelled'}
-                        style={{ background: st.bg, color: st.color, border: `1px solid ${st.color}30`, borderRadius: '20px', padding: '3px 8px', fontSize: '12px', fontWeight: '500', cursor: po.status === 'received' || po.status === 'cancelled' ? 'default' : 'pointer' }}
+                        disabled={po.status === 'cancelled'}
+                        style={{ background: st.bg, color: st.color, border: `1px solid ${st.color}30`, borderRadius: '20px', padding: '3px 8px', fontSize: '12px', fontWeight: '500', cursor: po.status === 'cancelled' ? 'default' : 'pointer' }}
                       >
                         {po.status === 'draft' && <option value='draft'>Draft</option>}
                         {po.status === 'cancelled' && <option value='cancelled'>Cancelled</option>}
@@ -853,7 +898,21 @@ export default function Purchasing() {
                     </div>
                   )}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  {detail.status === 'received' ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <label style={{ ...lbl, marginBottom: 0, whiteSpace: 'nowrap', fontSize: '13px' }}>Change Status:</label>
+                      <select
+                        defaultValue=""
+                        onChange={e => { if (e.target.value) initiateStatusChange(e.target.value as 'ordered' | 'shipped') }}
+                        style={{ ...inp, width: 'auto', paddingRight: '28px' }}
+                      >
+                        <option value="">— Rollback to —</option>
+                        <option value="shipped">Shipped</option>
+                        <option value="ordered">Ordered</option>
+                      </select>
+                    </div>
+                  ) : <div />}
                   <button onClick={() => setShowDetail(false)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Close</button>
                 </div>
               </>
@@ -965,7 +1024,7 @@ export default function Purchasing() {
                     <select
                       value={detail.status}
                       onChange={e => initiateStatusChange(e.target.value as 'shipped' | 'received' | 'cancelled' | 'ordered')}
-                      disabled={detail.status === 'received' || detail.status === 'cancelled'}
+                      disabled={detail.status === 'cancelled'}
                       style={{ ...inp, width: 'auto', paddingRight: '28px' }}
                     >
                       <option value='draft'>Draft</option>
@@ -1021,6 +1080,32 @@ export default function Purchasing() {
                 style={{ padding: '8px 16px', background: pendingStatus === 'cancelled' ? '#dc2626' : pendingStatus === 'received' ? '#16a34a' : '#d97706', color: '#fff', border: 'none', borderRadius: '6px', cursor: statusTransitioning ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500', opacity: statusTransitioning ? 0.7 : 1 }}
               >
                 {statusTransitioning ? 'Processing...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Rollback Confirm Modal ── */}
+      {showRollbackConfirm && detail && (
+        <div className="modal-overlay" onClick={() => setShowRollbackConfirm(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400, padding: '20px' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '400px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: '600', margin: '0 0 12px', color: '#92400e' }}>Rollback from Received</h3>
+            <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 16px' }}>
+              Changing status back from <strong>Received</strong> will deduct inventory.
+            </p>
+            <div style={{ padding: '10px 14px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '6px', fontSize: '13px', color: '#92400e', marginBottom: '20px' }}>
+              <strong>{detail.qty_ordered}{detail.unit ? ' ' + detail.unit : ''}</strong> of {getMaterialLabel(detail)} will be deducted from inventory.
+              <div style={{ marginTop: '4px', color: '#78350f' }}>New status: <strong>{pendingRollbackStatus === 'shipped' ? 'Shipped' : 'Ordered'}</strong></div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button onClick={() => setShowRollbackConfirm(false)} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button
+                onClick={handleRollback}
+                disabled={rollbackTransitioning}
+                style={{ padding: '8px 16px', background: rollbackTransitioning ? '#fdba74' : '#d97706', color: '#fff', border: 'none', borderRadius: '6px', cursor: rollbackTransitioning ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500', opacity: rollbackTransitioning ? 0.7 : 1 }}
+              >
+                {rollbackTransitioning ? 'Processing...' : 'Yes, Rollback'}
               </button>
             </div>
           </div>
