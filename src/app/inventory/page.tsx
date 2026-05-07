@@ -13,6 +13,7 @@ interface RawMaterial {
   name: string
   unit: string
   cost_per_unit_cad: number
+  avg_cost_cad: number | null
   current_stock: number
   reorder_threshold: number
 }
@@ -24,6 +25,7 @@ interface Packaging {
   type: string
   size_oz: number
   cost_cad: number
+  avg_cost_cad: number | null
   current_stock: number
   reorder_threshold: number
 }
@@ -348,10 +350,10 @@ export default function Inventory() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {tab === 'raw' && ['Item #', 'Name', 'Unit', 'Cost/Unit (CAD)', 'Current Stock', 'Reorder At', 'Status'].map(h => (
+              {tab === 'raw' && ['Item #', 'Name', 'Unit', 'Cost (CAD)', 'Cost (Avg)', 'Current Stock', 'Reorder At', 'Status'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
-              {tab === 'packaging' && ['Item #', 'Name', 'Type', 'Size', 'Cost (CAD)', 'Current Stock', 'Reorder At', 'Status'].map(h => (
+              {tab === 'packaging' && ['Item #', 'Name', 'Type', 'Size', 'Cost (CAD)', 'Cost (Avg)', 'Current Stock', 'Reorder At', 'Status'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
               {tab === 'finished' && ['SKU', 'Name', 'Size', 'Unit Cost (CAD)', 'Current Stock', 'Reorder At', 'Status'].map(h => (
@@ -374,6 +376,7 @@ export default function Inventory() {
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{r.name}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.unit}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${r.cost_per_unit_cad?.toFixed(4)}</td>
+                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.avg_cost_cad != null ? `$${r.avg_cost_cad.toFixed(4)}` : '—'}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: r.current_stock <= r.reorder_threshold ? '#dc2626' : '#16a34a' }}>{r.current_stock?.toLocaleString()} {r.unit}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.reorder_threshold?.toLocaleString()} {r.unit}</td>
                   <td style={{ padding: '12px 16px' }}>
@@ -396,6 +399,7 @@ export default function Inventory() {
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.type}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.size_oz} oz</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.cost_cad?.toFixed(4)}</td>
+                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.avg_cost_cad != null ? `$${p.avg_cost_cad.toFixed(4)}` : '—'}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a' }}>{p.current_stock?.toLocaleString()}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.reorder_threshold?.toLocaleString()}</td>
                   <td style={{ padding: '12px 16px' }}>
@@ -503,12 +507,16 @@ export default function Inventory() {
         <div className="modal-overlay" onClick={() => { setShowModal(false); setEditRaw(null) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Edit Raw Material</h2>
-            {([['Item #', 'item_no'], ['Name', 'name'], ['Cost per unit (CAD)', 'cost_per_unit_cad'], ['Current Stock', 'current_stock'], ['Reorder Threshold', 'reorder_threshold']] as [string, string][]).map(([label, key]) => (
+            {([['Item #', 'item_no'], ['Name', 'name'], ['Cost (CAD)', 'cost_per_unit_cad'], ['Current Stock', 'current_stock'], ['Reorder Threshold', 'reorder_threshold']] as [string, string][]).map(([label, key]) => (
               <div key={key} style={{ marginBottom: '16px' }}>
                 <label style={lbl}>{label}</label>
                 <input value={editRawForm[key as keyof typeof editRawForm]} onChange={e => setEditRawForm({ ...editRawForm, [key]: e.target.value })} style={inp} />
               </div>
             ))}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={lbl}>Cost (Avg) <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '400' }}>(auto-calculated from purchases)</span></label>
+              <input readOnly value={editRaw?.avg_cost_cad != null ? editRaw.avg_cost_cad.toFixed(4) : ''} placeholder='—' style={{ ...inp, background: '#f8fafc', color: '#64748b', cursor: 'default' }} />
+            </div>
             <div style={{ marginBottom: '16px' }}>
               <label style={lbl}>Unit</label>
               <select value={editRawForm.unit} onChange={e => setEditRawForm({ ...editRawForm, unit: e.target.value })} style={inp}>
@@ -537,6 +545,10 @@ export default function Inventory() {
                 <input value={editPackForm[key as keyof typeof editPackForm]} onChange={e => setEditPackForm({ ...editPackForm, [key]: e.target.value })} style={inp} />
               </div>
             ))}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={lbl}>Cost (Avg) <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '400' }}>(auto-calculated from purchases)</span></label>
+              <input readOnly value={editPack?.avg_cost_cad != null ? editPack.avg_cost_cad.toFixed(4) : ''} placeholder='—' style={{ ...inp, background: '#f8fafc', color: '#64748b', cursor: 'default' }} />
+            </div>
             <div style={{ marginBottom: '16px' }}>
               <label style={lbl}>Type</label>
               <select value={editPackForm.type} onChange={e => setEditPackForm({ ...editPackForm, type: e.target.value })} style={inp}>
