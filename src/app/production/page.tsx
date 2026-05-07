@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { Factory, Plus, AlertTriangle } from 'lucide-react'
+import { Factory, Plus, AlertTriangle, Trash2 } from 'lucide-react'
 
 interface Product {
   id: string
@@ -30,6 +30,8 @@ export default function Production() {
   const [form, setForm] = useState({ product_id: '', qty_produced: '', produced_at: new Date().toISOString().split('T')[0], notes: '' })
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [bomPreview, setBomPreview] = useState<any[]>([])
+  const [deleteOrder, setDeleteOrder] = useState<ProductionOrder | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => { fetchAll() }, [])
 
@@ -96,6 +98,39 @@ export default function Production() {
     fetchAll()
   }
 
+  async function handleDelete() {
+    if (!deleteOrder) return
+    setDeleting(true)
+    try {
+      const { data: bomItems } = await supabase
+        .from('bom')
+        .select('component_type, raw_material_id, packaging_id, qty_per_unit')
+        .eq('product_id', deleteOrder.product_id)
+
+      if (bomItems) {
+        for (const item of bomItems) {
+          const delta = item.qty_per_unit * deleteOrder.qty_produced
+          if (item.component_type === 'raw_material' && item.raw_material_id) {
+            const { data: rm } = await supabase.from('raw_materials').select('current_stock').eq('id', item.raw_material_id).single()
+            if (rm) await supabase.from('raw_materials').update({ current_stock: rm.current_stock + delta }).eq('id', item.raw_material_id)
+          } else if (item.component_type === 'packaging' && item.packaging_id) {
+            const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', item.packaging_id).single()
+            if (pkg) await supabase.from('packaging').update({ current_stock: pkg.current_stock + delta }).eq('id', item.packaging_id)
+          }
+        }
+      }
+
+      const { data: prod } = await supabase.from('products').select('current_stock').eq('id', deleteOrder.product_id).single()
+      if (prod) await supabase.from('products').update({ current_stock: prod.current_stock - deleteOrder.qty_produced }).eq('id', deleteOrder.product_id)
+
+      await supabase.from('production_orders').delete().eq('id', deleteOrder.id)
+      setDeleteOrder(null)
+      fetchAll()
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <MainLayout>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '24px' }}>
@@ -108,16 +143,16 @@ export default function Production() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {['Date', 'SKU', 'Product', 'Size', 'Qty Produced', 'Notes'].map(h => (
-                <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
+              {['Date', 'SKU', 'Product', 'Size', 'Qty Produced', 'Notes', ''].map((h, i) => (
+                <th key={i} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>Loading...</td></tr>
+              <tr><td colSpan={7} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>Loading...</td></tr>
             ) : orders.length === 0 ? (
-              <tr><td colSpan={6} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
+              <tr><td colSpan={7} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
                 <Factory size={32} color='#e2e8f0' style={{ display: 'block', margin: '0 auto 8px' }} />
                 No production orders yet
               </td></tr>
@@ -129,11 +164,45 @@ export default function Production() {
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{o.products?.size_oz} oz</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#16a34a' }}>{o.qty_produced?.toLocaleString()}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#94a3b8' }}>{o.notes}</td>
+                <td style={{ padding: '12px 16px' }}>
+                  <button
+                    onClick={() => setDeleteOrder(o)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: '1px solid #fca5a5', color: '#dc2626', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', cursor: 'pointer' }}
+                  >
+                    <Trash2 size={12} /> Delete
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {deleteOrder && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+          <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '440px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ background: '#fef2f2', borderRadius: '8px', padding: '8px' }}>
+                <AlertTriangle size={20} color='#dc2626' />
+              </div>
+              <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>Delete Production Order</h2>
+            </div>
+            <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '20px', lineHeight: '1.5' }}>
+              Deleting this production order will reverse inventory changes. Continue?
+            </p>
+            <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '12px', marginBottom: '20px', fontSize: '13px', color: '#374151' }}>
+              <div><strong>{deleteOrder.products?.sku}</strong> — {deleteOrder.products?.name}</div>
+              <div style={{ color: '#64748b', marginTop: '4px' }}>Qty: {deleteOrder.qty_produced?.toLocaleString()} units · {new Date(deleteOrder.produced_at).toLocaleDateString('en-CA')}</div>
+            </div>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setDeleteOrder(null)} disabled={deleting} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={handleDelete} disabled={deleting} style={{ padding: '8px 20px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500', opacity: deleting ? 0.6 : 1 }}>
+                {deleting ? 'Deleting...' : 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
