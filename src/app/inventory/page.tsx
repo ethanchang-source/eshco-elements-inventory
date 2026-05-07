@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
@@ -49,7 +50,16 @@ interface Product {
 }
 
 export default function Inventory() {
-  const [tab, setTab] = useState<'raw' | 'packaging' | 'finished'>('finished')
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
+  function resolveTab(params: ReturnType<typeof useSearchParams>): 'raw' | 'packaging' | 'finished' {
+    const t = params.get('tab')
+    if (t === 'raw' || t === 'packaging' || t === 'finished') return t
+    return 'finished'
+  }
+
+  const [tab, setTab] = useState<'raw' | 'packaging' | 'finished'>(() => resolveTab(searchParams))
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([])
   const [packaging, setPackaging] = useState<Packaging[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -412,7 +422,7 @@ export default function Inventory() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ display: 'flex', gap: '0' }}>
           {tabs.map((t, i) => (
-            <button key={t.key} onClick={() => { setTab(t.key); setImportResult('') }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', background: tab === t.key ? '#2563eb' : '#fff', color: tab === t.key ? '#fff' : '#64748b', cursor: 'pointer', fontSize: '14px', fontWeight: '500', borderRadius: i === 0 ? '8px 0 0 8px' : i === tabs.length - 1 ? '0 8px 8px 0' : '0', borderLeft: i > 0 ? 'none' : '1px solid #e2e8f0' }}>
+            <button key={t.key} onClick={() => { setTab(t.key); router.replace(`?tab=${t.key}`, { scroll: false }); setImportResult('') }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', background: tab === t.key ? '#2563eb' : '#fff', color: tab === t.key ? '#fff' : '#64748b', cursor: 'pointer', fontSize: '14px', fontWeight: '500', borderRadius: i === 0 ? '8px 0 0 8px' : i === tabs.length - 1 ? '0 8px 8px 0' : '0', borderLeft: i > 0 ? 'none' : '1px solid #e2e8f0' }}>
               {t.label}
             </button>
           ))}
