@@ -123,6 +123,12 @@ export default function Expenses() {
   const modalReceiptRef = useRef<HTMLInputElement>(null)
   const [inlineUploadTarget, setInlineUploadTarget] = useState<Expense | null>(null)
   const [inlineUploadingId, setInlineUploadingId] = useState<string | null>(null)
+  const [rangeFromYear, setRangeFromYear] = useState(currentYear)
+  const [rangeFromMonth, setRangeFromMonth] = useState(0)
+  const [rangeToYear, setRangeToYear] = useState(currentYear)
+  const [rangeToMonth, setRangeToMonth] = useState(currentMonthIdx)
+  const [rangeError, setRangeError] = useState('')
+  const [exportingRange, setExportingRange] = useState(false)
 
   useEffect(() => { fetchExpenses(activeYear) }, [activeYear])
 
@@ -402,6 +408,49 @@ export default function Expenses() {
     XLSX.writeFile(wb, `expenses_${activeYear}_${MONTHS[activeMonth]}.xlsx`)
   }
 
+  async function handleRangeExport() {
+    const fromDate = new Date(rangeFromYear, rangeFromMonth, 1)
+    const toDate = new Date(rangeToYear, rangeToMonth, 1)
+    if (fromDate > toDate) {
+      setRangeError('From date must be before To date')
+      return
+    }
+    setRangeError('')
+    setExportingRange(true)
+    const lastDay = new Date(rangeToYear, rangeToMonth + 1, 0).getDate()
+    const fromStr = `${rangeFromYear}-${String(rangeFromMonth + 1).padStart(2, '0')}-01`
+    const toStr = `${rangeToYear}-${String(rangeToMonth + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+    const { data: rangeData } = await supabase
+      .from('expenses')
+      .select('*')
+      .gte('expense_date', fromStr)
+      .lte('expense_date', toStr)
+      .order('expense_date', { ascending: true })
+    const dataRows = (rangeData || []).map(e => [
+      e.expense_date, e.category || '', e.type || '', e.payee || '',
+      e.category2 || '', e.description || '',
+      e.amount_before_tax || 0, e.sales_tax || 0, e.freight_tip || 0,
+      e.total_amount || 0, e.reference || '', e.payment_method || '',
+      e.amount_usd ?? '', e.exchange_rate ?? '',
+    ])
+    const ws = XLSX.utils.aoa_to_sheet([
+      [`Corporation Name: ${COMPANY.name}`],
+      [`Business Number(BN): ${COMPANY.bn}`],
+      [`Industry: ${COMPANY.industry}`],
+      [`Company Email: ${COMPANY.email}`],
+      [`Website: ${COMPANY.website}`],
+      COL_HEADERS,
+      ...dataRows,
+    ])
+    ws['!cols'] = [10, 22, 12, 24, 16, 28, 14, 10, 10, 10, 14, 16, 10, 12].map(w => ({ wch: w }))
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Expenses')
+    const fmStr = String(rangeFromMonth + 1).padStart(2, '0')
+    const tmStr = String(rangeToMonth + 1).padStart(2, '0')
+    XLSX.writeFile(wb, `expenses_${rangeFromYear}${fmStr}_${rangeToYear}${tmStr}.xlsx`)
+    setExportingRange(false)
+  }
+
   function handleImportSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -520,6 +569,29 @@ export default function Expenses() {
             <option key={yr} value={yr}>{yr}</option>
           ))}
         </select>
+      </div>
+
+      {/* Date Range Export */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', flexWrap: 'wrap', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px 14px' }}>
+        <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151', marginRight: '4px' }}>Export by Date Range</span>
+        <span style={{ fontSize: '13px', color: '#64748b' }}>From:</span>
+        <select value={rangeFromYear} onChange={e => { setRangeFromYear(Number(e.target.value)); setRangeError('') }} style={{ height: '32px', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0 8px', fontSize: '13px', color: '#1e293b', background: '#fff', cursor: 'pointer', outline: 'none' }}>
+          {Array.from({ length: 21 }, (_, i) => 2020 + i).map(yr => <option key={yr} value={yr}>{yr}</option>)}
+        </select>
+        <select value={rangeFromMonth} onChange={e => { setRangeFromMonth(Number(e.target.value)); setRangeError('') }} style={{ height: '32px', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0 8px', fontSize: '13px', color: '#1e293b', background: '#fff', cursor: 'pointer', outline: 'none' }}>
+          {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
+        </select>
+        <span style={{ fontSize: '13px', color: '#64748b' }}>To:</span>
+        <select value={rangeToYear} onChange={e => { setRangeToYear(Number(e.target.value)); setRangeError('') }} style={{ height: '32px', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0 8px', fontSize: '13px', color: '#1e293b', background: '#fff', cursor: 'pointer', outline: 'none' }}>
+          {Array.from({ length: 21 }, (_, i) => 2020 + i).map(yr => <option key={yr} value={yr}>{yr}</option>)}
+        </select>
+        <select value={rangeToMonth} onChange={e => { setRangeToMonth(Number(e.target.value)); setRangeError('') }} style={{ height: '32px', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0 8px', fontSize: '13px', color: '#1e293b', background: '#fff', cursor: 'pointer', outline: 'none' }}>
+          {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
+        </select>
+        <button onClick={handleRangeExport} disabled={exportingRange} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: exportingRange ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 14px', fontSize: '13px', fontWeight: '500', cursor: exportingRange ? 'not-allowed' : 'pointer' }}>
+          <Download size={13} /> {exportingRange ? 'Exporting...' : 'Export Range'}
+        </button>
+        {rangeError && <span style={{ fontSize: '12px', color: '#dc2626' }}>{rangeError}</span>}
       </div>
 
       {/* Month Tabs */}
