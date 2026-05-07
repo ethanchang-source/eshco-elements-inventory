@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
 import { FlaskConical, Plus, Search, Package, Upload, Download, AlertTriangle } from 'lucide-react'
 import { parseCSV, downloadCSVTemplate } from '@/lib/csvImport'
+import * as XLSX from 'xlsx'
 
 interface RawMaterial {
   id: string
@@ -16,6 +17,7 @@ interface RawMaterial {
   avg_cost_cad: number | null
   current_stock: number
   reorder_threshold: number
+  notes?: string | null
 }
 
 interface Packaging {
@@ -28,6 +30,7 @@ interface Packaging {
   avg_cost_cad: number | null
   current_stock: number
   reorder_threshold: number
+  notes?: string | null
 }
 
 interface Product {
@@ -39,6 +42,10 @@ interface Product {
   current_stock: number
   reorder_threshold: number
   is_active: boolean
+  barcode_upc?: string | null
+  barcode_itf14?: string | null
+  whs_price_cad?: number | null
+  msrp_cad?: number | null
 }
 
 export default function Inventory() {
@@ -278,6 +285,60 @@ export default function Inventory() {
     }
   }
 
+  function handleExportFinished() {
+    const rows = products.map(p => ({
+      'SKU': p.sku,
+      'Name': p.name,
+      'Size (oz)': p.size_oz,
+      'Barcode UPC': p.barcode_upc ?? '',
+      'Barcode ITF14': p.barcode_itf14 ?? '',
+      'Unit Cost CAD': p.unit_cost_cad,
+      'WHS Price CAD': p.whs_price_cad ?? '',
+      'MSRP CAD': p.msrp_cad ?? '',
+      'Current Stock': p.current_stock,
+      'Reorder Threshold': p.reorder_threshold,
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Finished Goods')
+    XLSX.writeFile(wb, 'finished_goods_export.xlsx')
+  }
+
+  function handleExportRaw() {
+    const rows = rawMaterials.map(r => ({
+      'Item No': r.item_no,
+      'Name': r.name,
+      'Unit': r.unit,
+      'Cost per Unit CAD': r.cost_per_unit_cad,
+      'Avg Cost CAD': r.avg_cost_cad ?? '',
+      'Current Stock': r.current_stock,
+      'Reorder Threshold': r.reorder_threshold,
+      'Notes': r.notes ?? '',
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Raw Materials')
+    XLSX.writeFile(wb, 'raw_materials_export.xlsx')
+  }
+
+  function handleExportPack() {
+    const rows = packaging.map(p => ({
+      'Item No': p.item_no,
+      'Name': p.name,
+      'Type': p.type,
+      'Size (oz)': p.size_oz,
+      'Cost CAD': p.cost_cad,
+      'Avg Cost CAD': p.avg_cost_cad ?? '',
+      'Current Stock': p.current_stock,
+      'Reorder Threshold': p.reorder_threshold,
+      'Notes': p.notes ?? '',
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Packaging')
+    XLSX.writeFile(wb, 'packaging_export.xlsx')
+  }
+
   const filteredRaw = rawMaterials.filter(r => r.name?.toLowerCase().includes(search.toLowerCase()) || r.item_no?.toLowerCase().includes(search.toLowerCase()))
   const filteredPack = packaging.filter(p => p.name?.toLowerCase().includes(search.toLowerCase()) || p.item_no?.toLowerCase().includes(search.toLowerCase()))
   const filteredProducts = products.filter(p => p.name?.toLowerCase().includes(search.toLowerCase()) || p.sku?.toLowerCase().includes(search.toLowerCase()))
@@ -314,6 +375,12 @@ export default function Inventory() {
             <Search size={16} color='#94a3b8' />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '160px' }} />
           </div>
+          <button
+            onClick={tab === 'finished' ? handleExportFinished : tab === 'raw' ? handleExportRaw : handleExportPack}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer' }}
+          >
+            <Download size={14} /> Export Excel
+          </button>
           {tab !== 'finished' && (
             <>
               <button onClick={handleDownloadTemplate} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer' }}>
