@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
-import { Package, FlaskConical, Factory, FileText, AlertTriangle, TrendingUp } from 'lucide-react'
+import { Package, FlaskConical, Factory, FileText, AlertTriangle, TrendingUp, RefreshCw } from 'lucide-react'
 
 interface LowStockProduct {
   id: string
@@ -28,25 +28,28 @@ export default function Dashboard() {
   const [lowStock, setLowStock] = useState<LowStockProduct[]>([])
   const [recentInvoices, setRecentInvoices] = useState<RecentInvoice[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
-  useEffect(() => { fetchDashboardData() }, [])
+  const fetchDashboardData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
+    else setRefreshing(true)
 
-  async function fetchDashboardData() {
     const now = new Date()
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
 
     const [
-      { count: productCount },
-      { count: rawMaterialCount },
+      { data: products },
+      { data: rawMaterials },
       { data: productionData },
-      { count: invoiceCount },
+      { data: invoicesThisMonth },
       { data: allActiveProducts },
       { data: recentInvData },
     ] = await Promise.all([
-      supabase.from('products').select('*', { count: 'exact', head: true }).eq('is_active', true),
-      supabase.from('raw_materials').select('*', { count: 'exact', head: true }),
+      supabase.from('products').select('id').eq('is_active', true),
+      supabase.from('raw_materials').select('id'),
       supabase.from('production_orders').select('qty_produced').gte('produced_at', monthStart),
-      supabase.from('invoices').select('*', { count: 'exact', head: true }).gte('issued_at', monthStart),
+      supabase.from('invoices').select('id').gte('issued_at', monthStart),
       supabase.from('products').select('id, sku, name, current_stock, reorder_threshold').eq('is_active', true).order('current_stock'),
       supabase.from('invoices').select('id, invoice_no, issued_at, total_cad, status, customers(company_name)').order('created_at', { ascending: false }).limit(5),
     ])
@@ -55,15 +58,31 @@ export default function Dashboard() {
     const lowStockItems = (allActiveProducts || []).filter(p => p.current_stock <= p.reorder_threshold)
 
     setStats({
-      products: productCount || 0,
-      rawMaterials: rawMaterialCount || 0,
+      products: products?.length ?? 0,
+      rawMaterials: rawMaterials?.length ?? 0,
       production: productionQty,
-      invoices: invoiceCount || 0,
+      invoices: invoicesThisMonth?.length ?? 0,
     })
     setLowStock(lowStockItems)
     setRecentInvoices(recentInvData || [])
+    setLastUpdated(new Date())
     setLoading(false)
-  }
+    setRefreshing(false)
+  }, [])
+
+  useEffect(() => {
+    fetchDashboardData()
+
+    const channel = supabase
+      .channel('dashboard-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' }, () => fetchDashboardData(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => fetchDashboardData(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_orders' }, () => fetchDashboardData(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'raw_materials' }, () => fetchDashboardData(true))
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [fetchDashboardData])
 
   const statCards = [
     { title: 'Total Products', value: stats.products, subtitle: 'Active SKUs', icon: Package, color: '#2563eb', bg: '#eff6ff' },
@@ -85,7 +104,26 @@ export default function Dashboard() {
           .dash-two-col { grid-template-columns: 1fr !important; }
           .dash-stat-cards { grid-template-columns: 1fr 1fr !important; }
         }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h1 style={{ fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>Dashboard</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {lastUpdated && (
+            <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+              Updated {lastUpdated.toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+          )}
+          <button
+            onClick={() => fetchDashboardData(true)}
+            disabled={refreshing}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', cursor: refreshing ? 'not-allowed' : 'pointer', fontSize: '13px', color: '#64748b' }}
+          >
+            <RefreshCw size={14} style={{ animation: refreshing ? 'spin 0.8s linear infinite' : 'none' }} />
+            Refresh
+          </button>
+        </div>
+      </div>
       <div className="dash-stat-cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
         {statCards.map((card) => {
           const Icon = card.icon
