@@ -901,6 +901,9 @@ export default function Invoices() {
     const matchStatus = !cmFilterStatus || cm.status === cmFilterStatus
     return matchSearch && matchCustomer && matchStatus
   })
+  const filteredCmSubtotal = filteredCm.reduce((s, cm) => s + (cm.subtotal_cad || 0), 0)
+  const filteredCmHST = filteredCm.reduce((s, cm) => s + (cm.tax_amount_cad || 0), 0)
+  const filteredCmTotal = filteredCm.reduce((s, cm) => s + (cm.total_cad || 0), 0)
 
   const cmStatusColor: { [key: string]: { bg: string; color: string } } = {
     draft:   { bg: '#f8fafc', color: '#64748b' },
@@ -938,6 +941,9 @@ export default function Invoices() {
     const matchStatus = !filterStatus || inv.status === filterStatus
     return matchSearch && matchCustomer && matchStatus
   })
+  const filteredSubtotal = filtered.reduce((s, inv) => s + (inv.subtotal_cad || 0), 0)
+  const filteredHST = filtered.reduce((s, inv) => s + (inv.tax_amount_cad || 0), 0)
+  const filteredTotal = filtered.reduce((s, inv) => s + (inv.total_cad || 0), 0)
 
   const statusColor: { [key: string]: { bg: string; color: string } } = {
     draft: { bg: '#f8fafc', color: '#64748b' },
@@ -1048,6 +1054,19 @@ export default function Invoices() {
               </tr>
             ))}
           </tbody>
+          {filtered.length > 0 && (
+            <tfoot>
+              <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
+                <td colSpan={3} style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>
+                  {filtered.length} record{filtered.length !== 1 ? 's' : ''}
+                </td>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${formatCurrency(filteredSubtotal)}</td>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${formatCurrency(filteredHST)}</td>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '700', color: '#1e293b', whiteSpace: 'nowrap' }}>${formatCurrency(filteredTotal)} CAD</td>
+                <td colSpan={4} />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
       </> /* end invoices tab */}
@@ -1138,6 +1157,19 @@ export default function Invoices() {
               </tr>
             ))}
           </tbody>
+          {filteredCm.length > 0 && (
+            <tfoot>
+              <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
+                <td colSpan={3} style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>
+                  {filteredCm.length} record{filteredCm.length !== 1 ? 's' : ''}
+                </td>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${formatCurrency(filteredCmSubtotal)}</td>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${formatCurrency(filteredCmHST)}</td>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '700', color: '#1e293b', whiteSpace: 'nowrap' }}>${formatCurrency(filteredCmTotal)} CAD</td>
+                <td colSpan={3} />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
       </> /* end credit memos tab */}
