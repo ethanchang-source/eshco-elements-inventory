@@ -98,6 +98,9 @@ export default function Expenses() {
   const [importResult, setImportResult] = useState('')
   const [saveError, setSaveError] = useState('')
   const importRef = useRef<HTMLInputElement>(null)
+  const inlineUploadRef = useRef<HTMLInputElement>(null)
+  const [inlineUploadTarget, setInlineUploadTarget] = useState<Expense | null>(null)
+  const [inlineUploadingId, setInlineUploadingId] = useState<string | null>(null)
 
   useEffect(() => { fetchExpenses(activeYear) }, [activeYear])
 
@@ -190,24 +193,9 @@ export default function Expenses() {
     setSaving(true)
     setSaveError('')
 
-    let receipt_url = editExpense?.receipt_url ?? null
-    if (receiptFile) {
-      setUploadingReceipt(true)
-      const ext = receiptFile.name.split('.').pop() || 'bin'
-      const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-      const { data: up, error: upErr } = await supabase.storage.from('receipts').upload(path, receiptFile)
-      if (upErr) {
-        console.error('Receipt upload error:', upErr)
-      } else if (up) {
-        const { data: urlData } = supabase.storage.from('receipts').getPublicUrl(up.path)
-        receipt_url = urlData.publicUrl
-      }
-      setUploadingReceipt(false)
-    }
-
     const total = (parseFloat(form.amount_before_tax) || 0) + (parseFloat(form.sales_tax) || 0) + (parseFloat(form.freight_tip) || 0)
 
-    const payload = {
+    const basePayload = {
       expense_date: form.expense_date,
       category: form.category || null,
       type: form.type || null,
@@ -223,29 +211,71 @@ export default function Expenses() {
       amount_usd: form.amount_usd ? parseFloat(form.amount_usd) : null,
       exchange_rate: form.exchange_rate ? parseFloat(form.exchange_rate) : null,
       currency: form.currency || 'CAD',
-      receipt_url,
     }
 
+    let expenseId: string | null = null
     let dbError: any = null
-    if (editExpense) {
-      const { error } = await supabase.from('expenses').update(payload).eq('id', editExpense.id)
-      dbError = error
-    } else {
-      const { error } = await supabase.from('expenses').insert([payload])
-      dbError = error
-    }
 
-    setSaving(false)
+    if (editExpense) {
+      const { error } = await supabase.from('expenses').update({ ...basePayload, receipt_url: editExpense.receipt_url }).eq('id', editExpense.id)
+      dbError = error
+      expenseId = editExpense.id
+    } else {
+      const { data: inserted, error } = await supabase.from('expenses').insert([{ ...basePayload, receipt_url: null }]).select('id').single()
+      dbError = error
+      expenseId = inserted?.id ?? null
+    }
 
     if (dbError) {
       console.error('Expense save error:', dbError)
       setSaveError(dbError.message || 'Failed to save expense. Please try again.')
+      setSaving(false)
       return
     }
 
+    if (receiptFile && expenseId) {
+      setUploadingReceipt(true)
+      const ext = receiptFile.name.split('.').pop() || 'bin'
+      const path = `${expenseId}/${Date.now()}.${ext}`
+      const { data: up, error: upErr } = await supabase.storage.from('receipts').upload(path, receiptFile)
+      if (upErr) {
+        console.error('Receipt upload error:', upErr)
+      } else if (up) {
+        const { data: urlData } = supabase.storage.from('receipts').getPublicUrl(up.path)
+        await supabase.from('expenses').update({ receipt_url: urlData.publicUrl }).eq('id', expenseId)
+      }
+      setUploadingReceipt(false)
+    }
+
+    setSaving(false)
     setShowModal(false)
     setEditExpense(null)
     fetchExpenses(activeYear)
+  }
+
+  function triggerInlineUpload(ev: React.MouseEvent, expense: Expense) {
+    ev.stopPropagation()
+    setInlineUploadTarget(expense)
+    inlineUploadRef.current?.click()
+  }
+
+  async function handleInlineReceiptChange(ev: React.ChangeEvent<HTMLInputElement>) {
+    const file = ev.target.files?.[0]
+    ev.target.value = ''
+    if (!file || !inlineUploadTarget) return
+    const expense = inlineUploadTarget
+    setInlineUploadTarget(null)
+    setInlineUploadingId(expense.id)
+    const ext = file.name.split('.').pop() || 'bin'
+    const path = `${expense.id}/${Date.now()}.${ext}`
+    const { data: up, error: upErr } = await supabase.storage.from('receipts').upload(path, file)
+    if (!upErr && up) {
+      const { data: urlData } = supabase.storage.from('receipts').getPublicUrl(up.path)
+      const receipt_url = urlData.publicUrl
+      await supabase.from('expenses').update({ receipt_url }).eq('id', expense.id)
+      setExpenses(prev => prev.map(ex => ex.id === expense.id ? { ...ex, receipt_url } : ex))
+    }
+    setInlineUploadingId(null)
   }
 
   async function handleDelete() {
@@ -498,11 +528,21 @@ export default function Expenses() {
                   <td style={{ padding: '10px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{e.payment_method || '—'}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8' }}>{e.exchange_rate ?? '—'}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                    {e.receipt_url && (
+                    {inlineUploadingId === e.id ? (
+                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>...</span>
+                    ) : e.receipt_url ? (
                       <button
                         onClick={ev => { ev.stopPropagation(); openReceiptViewer(e.receipt_url!) }}
                         title='View receipt'
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb', padding: '2px', display: 'inline-flex' }}
+                      >
+                        <Paperclip size={14} />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={ev => triggerInlineUpload(ev, e)}
+                        title='Upload receipt'
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '2px', display: 'inline-flex' }}
                       >
                         <Paperclip size={14} />
                       </button>
@@ -684,6 +724,9 @@ export default function Expenses() {
           </div>
         </div>
       )}
+
+      {/* Hidden inline receipt upload input */}
+      <input ref={inlineUploadRef} type='file' accept='image/*,application/pdf' style={{ display: 'none' }} onChange={handleInlineReceiptChange} />
 
       {/* Receipt Image Viewer */}
       {viewerUrl && (
