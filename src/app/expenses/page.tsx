@@ -25,6 +25,7 @@ interface Expense {
   exchange_rate: number | null
   currency: string
   receipt_url: string | null
+  receipt_urls: string[] | null
   created_at: string
 }
 
@@ -76,6 +77,23 @@ function excelSerialToDate(serial: number): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
 }
 
+function getReceiptUrls(e: Expense): string[] {
+  const urls = e.receipt_urls ?? []
+  if (e.receipt_url && !urls.includes(e.receipt_url)) return [e.receipt_url, ...urls]
+  return urls
+}
+
+function getReceiptFilename(url: string): string {
+  try {
+    const parts = decodeURIComponent(new URL(url).pathname).split('/')
+    const last = parts[parts.length - 1]
+    // Strip timestamp prefix like "1234567890_filename.pdf"
+    return last.replace(/^\d+_/, '')
+  } catch {
+    return url
+  }
+}
+
 export default function Expenses() {
   const now = new Date()
   const currentYear = now.getFullYear()
@@ -90,8 +108,10 @@ export default function Expenses() {
   const [form, setForm] = useState({ ...emptyForm })
   const [saving, setSaving] = useState(false)
   const [uploadingReceipt, setUploadingReceipt] = useState(false)
-  const [receiptFile, setReceiptFile] = useState<File | null>(null)
+  const [receiptFiles, setReceiptFiles] = useState<File[]>([])
+  const [removedReceiptUrls, setRemovedReceiptUrls] = useState<string[]>([])
   const [viewerUrl, setViewerUrl] = useState<string | null>(null)
+  const [receiptViewUrls, setReceiptViewUrls] = useState<string[] | null>(null)
   const [showImportConfirm, setShowImportConfirm] = useState(false)
   const [pendingImport, setPendingImport] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
@@ -100,6 +120,7 @@ export default function Expenses() {
   const [inlineUploadError, setInlineUploadError] = useState<string | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
   const inlineUploadRef = useRef<HTMLInputElement>(null)
+  const modalReceiptRef = useRef<HTMLInputElement>(null)
   const [inlineUploadTarget, setInlineUploadTarget] = useState<Expense | null>(null)
   const [inlineUploadingId, setInlineUploadingId] = useState<string | null>(null)
 
@@ -108,12 +129,14 @@ export default function Expenses() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
+      if (receiptViewUrls) { setReceiptViewUrls(null); return }
+      if (viewerUrl) { setViewerUrl(null); return }
       if (showImportConfirm) { setShowImportConfirm(false); setPendingImport(null); return }
       if (showModal) { setShowModal(false); setEditExpense(null); setSaveError('') }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [showModal, showImportConfirm])
+  }, [showModal, showImportConfirm, receiptViewUrls, viewerUrl])
 
   async function fetchExpenses(year: number) {
     setLoading(true)
@@ -159,7 +182,8 @@ export default function Expenses() {
 
   function openAdd() {
     setEditExpense(null)
-    setReceiptFile(null)
+    setReceiptFiles([])
+    setRemovedReceiptUrls([])
     setSaveError('')
     const d = `${activeYear}-${String(activeMonth + 1).padStart(2, '0')}-01`
     setForm({ ...emptyForm, expense_date: d })
@@ -168,7 +192,8 @@ export default function Expenses() {
 
   function openEdit(e: Expense) {
     setEditExpense(e)
-    setReceiptFile(null)
+    setReceiptFiles([])
+    setRemovedReceiptUrls([])
     setSaveError('')
     setForm({
       expense_date: e.expense_date || '',
@@ -234,26 +259,32 @@ export default function Expenses() {
       return
     }
 
-    if (receiptFile && expenseId) {
+    // Handle receipt_urls (multi-receipt)
+    const existingUrls = editExpense?.receipt_urls ?? []
+    const filteredUrls = existingUrls.filter(u => !removedReceiptUrls.includes(u))
+    const newUrls: string[] = []
+
+    if (receiptFiles.length > 0 && expenseId) {
       setUploadingReceipt(true)
-      const safeFilename = receiptFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-      const path = `${expenseId}/${Date.now()}_${safeFilename}`
-      console.log('[receipt:modal] Uploading to path:', path)
-      const { data: up, error: upErr } = await supabase.storage.from('receipts').upload(path, receiptFile)
-      if (upErr) {
-        console.error('[receipt:modal] Storage upload error:', upErr)
-        setSaveError(`Receipt upload failed: ${upErr.message}`)
-      } else if (up) {
-        console.log('[receipt:modal] Upload success:', up.path)
-        const { data: urlData } = supabase.storage.from('receipts').getPublicUrl(up.path)
-        const { error: dbErr } = await supabase.from('expenses').update({ receipt_url: urlData.publicUrl }).eq('id', expenseId)
-        if (dbErr) {
-          console.error('[receipt:modal] DB receipt_url update error:', dbErr)
-        } else {
-          console.log('[receipt:modal] receipt_url saved:', urlData.publicUrl)
+      for (const file of receiptFiles) {
+        const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+        const storagePath = `${expenseId}/${Date.now()}_${safeFilename}`
+        const { data: up, error: upErr } = await supabase.storage.from('receipts').upload(storagePath, file)
+        if (upErr) {
+          console.error('[receipt:modal] Storage upload error:', upErr)
+          setSaveError(`Receipt upload failed: ${upErr.message}`)
+          continue
         }
+        const { data: urlData } = supabase.storage.from('receipts').getPublicUrl(up.path)
+        newUrls.push(urlData.publicUrl)
       }
       setUploadingReceipt(false)
+    }
+
+    if (expenseId && (receiptFiles.length > 0 || removedReceiptUrls.length > 0)) {
+      const finalUrls = [...filteredUrls, ...newUrls]
+      const { error: urlErr } = await supabase.from('expenses').update({ receipt_urls: finalUrls }).eq('id', expenseId)
+      if (urlErr) console.error('[receipt:modal] receipt_urls update error:', urlErr)
     }
 
     setSaving(false)
@@ -270,44 +301,39 @@ export default function Expenses() {
   }
 
   async function handleInlineReceiptChange(ev: React.ChangeEvent<HTMLInputElement>) {
-    const file = ev.target.files?.[0]
+    const files = Array.from(ev.target.files ?? [])
     ev.target.value = ''
-    if (!file) return
-    if (!inlineUploadTarget) {
-      console.error('[receipt:inline] No upload target set')
-      return
-    }
+    if (!files.length || !inlineUploadTarget) return
     const expense = inlineUploadTarget
     setInlineUploadTarget(null)
     setInlineUploadError(null)
     setInlineUploadingId(expense.id)
 
-    const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-    const path = `${expense.id}/${Date.now()}_${safeFilename}`
-    console.log('[receipt:inline] Uploading to path:', path, '| file size:', file.size)
-
-    const { data: up, error: upErr } = await supabase.storage.from('receipts').upload(path, file)
-    if (upErr) {
-      console.error('[receipt:inline] Storage upload error:', upErr)
-      setInlineUploadError(`Upload failed: ${upErr.message}`)
-      setInlineUploadingId(null)
-      return
+    const newUrls: string[] = []
+    for (const file of files) {
+      const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const path = `${expense.id}/${Date.now()}_${safeFilename}`
+      const { data: up, error: upErr } = await supabase.storage.from('receipts').upload(path, file)
+      if (upErr) {
+        console.error('[receipt:inline] Storage upload error:', upErr)
+        setInlineUploadError(`Upload failed: ${upErr.message}`)
+        continue
+      }
+      const { data: urlData } = supabase.storage.from('receipts').getPublicUrl(up.path)
+      newUrls.push(urlData.publicUrl)
     }
-    console.log('[receipt:inline] Upload success:', up.path)
 
-    const { data: urlData } = supabase.storage.from('receipts').getPublicUrl(up.path)
-    const receipt_url = urlData.publicUrl
-    console.log('[receipt:inline] Public URL:', receipt_url)
-
-    const { error: dbErr } = await supabase.from('expenses').update({ receipt_url }).eq('id', expense.id)
-    if (dbErr) {
-      console.error('[receipt:inline] DB receipt_url update error:', dbErr)
-      setInlineUploadError(`DB update failed: ${dbErr.message}`)
-      setInlineUploadingId(null)
-      return
+    if (newUrls.length > 0) {
+      const existing = expense.receipt_urls ?? []
+      const updated = [...existing, ...newUrls]
+      const { error: dbErr } = await supabase.from('expenses').update({ receipt_urls: updated }).eq('id', expense.id)
+      if (dbErr) {
+        console.error('[receipt:inline] DB receipt_urls update error:', dbErr)
+        setInlineUploadError(`DB update failed: ${dbErr.message}`)
+      } else {
+        setExpenses(prev => prev.map(ex => ex.id === expense.id ? { ...ex, receipt_urls: updated } : ex))
+      }
     }
-    console.log('[receipt:inline] receipt_url saved to DB')
-    setExpenses(prev => prev.map(ex => ex.id === expense.id ? { ...ex, receipt_url } : ex))
     setInlineUploadingId(null)
   }
 
@@ -317,6 +343,13 @@ export default function Expenses() {
     if (editExpense.receipt_url) {
       const parts = editExpense.receipt_url.split('/receipts/')
       if (parts[1]) await supabase.storage.from('receipts').remove([parts[1]])
+    }
+    if (editExpense.receipt_urls?.length) {
+      const paths = editExpense.receipt_urls.flatMap(u => {
+        const parts = u.split('/receipts/')
+        return parts[1] ? [parts[1]] : []
+      })
+      if (paths.length) await supabase.storage.from('receipts').remove(paths)
     }
     await supabase.from('expenses').delete().eq('id', editExpense.id)
     setShowModal(false)
@@ -359,7 +392,6 @@ export default function Expenses() {
       COL_HEADERS,
       ...dataRows,
     ])
-    // Column widths
     ws['!cols'] = [10, 22, 12, 24, 16, 28, 14, 10, 10, 10, 14, 16, 10, 12].map(w => ({ wch: w }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, MONTHS[activeMonth])
@@ -387,7 +419,6 @@ export default function Expenses() {
       for (const sheetName of wb.SheetNames) {
         const ws = wb.Sheets[sheetName]
         const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' })
-        // Data starts at row 6 (index 5); skip header/empty rows
         const dataRows = rows.slice(5)
         for (const row of dataRows) {
           const rawDate = row[0]
@@ -445,6 +476,11 @@ export default function Expenses() {
     setImporting(false)
     setPendingImport(null)
   }
+
+  // The existing receipts visible in the modal (after applying pending removals)
+  const modalExistingUrls = editExpense
+    ? getReceiptUrls(editExpense).filter(u => !removedReceiptUrls.includes(u))
+    : []
 
   const inp: React.CSSProperties = { width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }
   const lbl: React.CSSProperties = { display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '5px' }
@@ -545,50 +581,56 @@ export default function Expenses() {
                     No expenses for {MONTHS[activeMonth]} {activeYear}
                   </td>
                 </tr>
-              ) : monthExpenses.map((e, i) => (
-                <tr
-                  key={e.id}
-                  onClick={() => openEdit(e)}
-                  style={{ borderBottom: i < monthExpenses.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer' }}
-                  onMouseEnter={ev => (ev.currentTarget as HTMLTableRowElement).style.background = '#f8fafc'}
-                  onMouseLeave={ev => (ev.currentTarget as HTMLTableRowElement).style.background = 'transparent'}
-                >
-                  <td style={{ padding: '10px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{e.expense_date}</td>
-                  <td style={{ padding: '10px 12px', color: '#1e293b', fontWeight: '500', whiteSpace: 'nowrap' }}>{e.category || '—'}</td>
-                  <td style={{ padding: '10px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{e.type || '—'}</td>
-                  <td style={{ padding: '10px 12px', color: '#374151', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.payee || '—'}</td>
-                  <td style={{ padding: '10px 12px', color: '#64748b' }}>{e.category2 || '—'}</td>
-                  <td style={{ padding: '10px 12px', color: '#64748b', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.description || '—'}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', color: '#374151' }}>{e.amount_before_tax ? `$${formatCurrency(e.amount_before_tax)}` : '—'}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', color: '#374151' }}>{e.sales_tax ? `$${formatCurrency(e.sales_tax)}` : '—'}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', color: '#374151' }}>{e.freight_tip ? `$${formatCurrency(e.freight_tip)}` : '—'}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>${formatCurrency(e.total_amount || 0)}</td>
-                  <td style={{ padding: '10px 12px', color: '#94a3b8', fontFamily: 'monospace', fontSize: '12px' }}>{e.reference || '—'}</td>
-                  <td style={{ padding: '10px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{e.payment_method || '—'}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8' }}>{e.exchange_rate ?? '—'}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                    {inlineUploadingId === e.id ? (
-                      <span style={{ fontSize: '11px', color: '#94a3b8' }}>...</span>
-                    ) : e.receipt_url ? (
-                      <button
-                        onClick={ev => { ev.stopPropagation(); openReceiptViewer(e.receipt_url!) }}
-                        title='View receipt'
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb', padding: '2px', display: 'inline-flex' }}
-                      >
-                        <Paperclip size={14} />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={ev => triggerInlineUpload(ev, e)}
-                        title='Upload receipt'
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '2px', display: 'inline-flex' }}
-                      >
-                        <Paperclip size={14} />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              ) : monthExpenses.map((e, i) => {
+                const urls = getReceiptUrls(e)
+                return (
+                  <tr
+                    key={e.id}
+                    onClick={() => openEdit(e)}
+                    style={{ borderBottom: i < monthExpenses.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer' }}
+                    onMouseEnter={ev => (ev.currentTarget as HTMLTableRowElement).style.background = '#f8fafc'}
+                    onMouseLeave={ev => (ev.currentTarget as HTMLTableRowElement).style.background = 'transparent'}
+                  >
+                    <td style={{ padding: '10px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{e.expense_date}</td>
+                    <td style={{ padding: '10px 12px', color: '#1e293b', fontWeight: '500', whiteSpace: 'nowrap' }}>{e.category || '—'}</td>
+                    <td style={{ padding: '10px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{e.type || '—'}</td>
+                    <td style={{ padding: '10px 12px', color: '#374151', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.payee || '—'}</td>
+                    <td style={{ padding: '10px 12px', color: '#64748b' }}>{e.category2 || '—'}</td>
+                    <td style={{ padding: '10px 12px', color: '#64748b', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.description || '—'}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', color: '#374151' }}>{e.amount_before_tax ? `$${formatCurrency(e.amount_before_tax)}` : '—'}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', color: '#374151' }}>{e.sales_tax ? `$${formatCurrency(e.sales_tax)}` : '—'}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', color: '#374151' }}>{e.freight_tip ? `$${formatCurrency(e.freight_tip)}` : '—'}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>${formatCurrency(e.total_amount || 0)}</td>
+                    <td style={{ padding: '10px 12px', color: '#94a3b8', fontFamily: 'monospace', fontSize: '12px' }}>{e.reference || '—'}</td>
+                    <td style={{ padding: '10px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{e.payment_method || '—'}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', color: '#94a3b8' }}>{e.exchange_rate ?? '—'}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                      {inlineUploadingId === e.id ? (
+                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>...</span>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'center' }}>
+                          {urls.length > 0 && (
+                            <button
+                              onClick={ev => { ev.stopPropagation(); setReceiptViewUrls(urls) }}
+                              title='View receipts'
+                              style={{ display: 'flex', alignItems: 'center', gap: '3px', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: '4px', padding: '3px 7px', fontSize: '11px', fontWeight: '500', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                            >
+                              <Eye size={11} /> View{urls.length > 1 ? ` (${urls.length})` : ''}
+                            </button>
+                          )}
+                          <button
+                            onClick={ev => triggerInlineUpload(ev, e)}
+                            title='Add receipt'
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: urls.length > 0 ? '#94a3b8' : '#cbd5e1', padding: '2px', display: 'inline-flex' }}
+                          >
+                            <Paperclip size={14} />
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
             {monthExpenses.length > 0 && (
               <tfoot>
@@ -699,21 +741,66 @@ export default function Expenses() {
                 </div>
               </div>
 
-              {/* Receipt Upload */}
+              {/* Receipts */}
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={lbl}>Receipt</label>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '6px', padding: '8px 14px', cursor: 'pointer', fontSize: '13px', color: '#64748b', flex: 1 }}>
-                    <Paperclip size={14} />
-                    {receiptFile ? receiptFile.name : editExpense?.receipt_url ? 'Replace receipt...' : 'Upload receipt (jpg / png / pdf)'}
-                    <input type='file' accept='.jpg,.jpeg,.png,.pdf' onChange={e => setReceiptFile(e.target.files?.[0] ?? null)} style={{ display: 'none' }} />
-                  </label>
-                  {editExpense?.receipt_url && !receiptFile && (
-                    <button onClick={() => openReceiptViewer(editExpense.receipt_url!)} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', cursor: 'pointer' }}>
-                      <Eye size={14} /> View
-                    </button>
-                  )}
-                </div>
+                <label style={lbl}>Receipts</label>
+                {/* Existing receipts list */}
+                {modalExistingUrls.length > 0 && (
+                  <div style={{ marginBottom: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {modalExistingUrls.map(url => (
+                      <div key={url} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '7px 10px' }}>
+                        <Paperclip size={13} color='#2563eb' style={{ flexShrink: 0 }} />
+                        <span
+                          onClick={() => openReceiptViewer(url)}
+                          style={{ flex: 1, fontSize: '13px', color: '#2563eb', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'underline' }}
+                          title={url}
+                        >
+                          {getReceiptFilename(url)}
+                        </span>
+                        <button
+                          onClick={() => setRemovedReceiptUrls(prev => [...prev, url])}
+                          title='Remove'
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '0', display: 'flex', flexShrink: 0 }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Pending new files */}
+                {receiptFiles.length > 0 && (
+                  <div style={{ marginBottom: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {receiptFiles.map((f, idx) => (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '6px 10px' }}>
+                        <Paperclip size={13} color='#16a34a' style={{ flexShrink: 0 }} />
+                        <span style={{ flex: 1, fontSize: '13px', color: '#15803d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                        <button
+                          onClick={() => setReceiptFiles(prev => prev.filter((_, i) => i !== idx))}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#16a34a', padding: '0', display: 'flex', flexShrink: 0 }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Add files button */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '6px', padding: '8px 14px', cursor: 'pointer', fontSize: '13px', color: '#64748b', width: 'fit-content' }}>
+                  <Plus size={14} /> Add files (jpg / png / pdf)
+                  <input
+                    ref={modalReceiptRef}
+                    type='file'
+                    accept='.jpg,.jpeg,.png,.pdf'
+                    multiple
+                    onChange={e => {
+                      const files = Array.from(e.target.files ?? [])
+                      if (files.length) setReceiptFiles(prev => [...prev, ...files])
+                      e.target.value = ''
+                    }}
+                    style={{ display: 'none' }}
+                  />
+                </label>
               </div>
             </div>
 
@@ -764,14 +851,51 @@ export default function Expenses() {
         </div>
       )}
 
-      {/* Hidden inline receipt upload input */}
-      <input ref={inlineUploadRef} type='file' accept='image/*,application/pdf' style={{ display: 'none' }} onChange={handleInlineReceiptChange} />
+      {/* Hidden inline receipt upload input (multiple) */}
+      <input ref={inlineUploadRef} type='file' accept='image/*,application/pdf' multiple style={{ display: 'none' }} onChange={handleInlineReceiptChange} />
+
+      {/* Receipt List View Modal */}
+      {receiptViewUrls && (
+        <div
+          onClick={() => setReceiptViewUrls(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400, padding: '16px' }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '460px', boxShadow: '0 24px 64px rgba(0,0,0,0.2)' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#1e293b', margin: 0 }}>
+                Attachments ({receiptViewUrls.length})
+              </h3>
+              <button onClick={() => setReceiptViewUrls(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                <X size={20} />
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {receiptViewUrls.map((url, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => { openReceiptViewer(url) }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 14px', cursor: 'pointer', textAlign: 'left', width: '100%' }}
+                >
+                  <Paperclip size={15} color='#2563eb' style={{ flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontSize: '13px', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {getReceiptFilename(url)}
+                  </span>
+                  <Eye size={14} color='#94a3b8' style={{ flexShrink: 0 }} />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Receipt Image Viewer */}
       {viewerUrl && (
         <div
           onClick={() => setViewerUrl(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400, cursor: 'zoom-out' }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500, cursor: 'zoom-out' }}
         >
           <img
             src={viewerUrl}
