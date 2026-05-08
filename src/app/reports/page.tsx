@@ -19,6 +19,26 @@ interface TopProduct {
   total_revenue: number
 }
 
+interface CustomerSalesRow {
+  customer_id: string
+  company_name: string
+  invoice_count: number
+  subtotal: number
+  hst: number
+  total: number
+}
+
+interface GroupedCustomerRow {
+  key: string
+  display_name: string
+  invoice_count: number
+  subtotal: number
+  hst: number
+  total: number
+  is_group: boolean
+  locations?: CustomerSalesRow[]
+}
+
 export default function Reports() {
   const [year, setYear] = useState(new Date().getFullYear())
   const [loading, setLoading] = useState(true)
@@ -32,6 +52,12 @@ export default function Reports() {
   })
   const [monthlySales, setMonthlySales] = useState<MonthlySales[]>([])
   const [topProducts, setTopProducts] = useState<TopProduct[]>([])
+
+  const [csYear, setCsYear] = useState(new Date().getFullYear())
+  const [csStatus, setCsStatus] = useState<'all' | 'paid' | 'sent'>('all')
+  const [customerSales, setCustomerSales] = useState<GroupedCustomerRow[]>([])
+  const [csLoading, setCsLoading] = useState(false)
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
 
   const fetchReports = useCallback(async () => {
     setLoading(true)
@@ -89,6 +115,57 @@ export default function Reports() {
   }, [year])
 
   useEffect(() => { fetchReports() }, [fetchReports])
+
+  const fetchCustomerSales = useCallback(async () => {
+    setCsLoading(true)
+    let query = supabase
+      .from('invoices')
+      .select('customer_id, subtotal_cad, tax_amount_cad, total_cad, status, customers(company_name)')
+      .gte('issued_at', `${csYear}-01-01`)
+      .lte('issued_at', `${csYear}-12-31`)
+    if (csStatus !== 'all') query = query.eq('status', csStatus)
+    const { data } = await query
+
+    const map: Record<string, CustomerSalesRow> = {}
+    for (const inv of data || []) {
+      const id = inv.customer_id
+      const name = (inv.customers as any)?.company_name || 'Unknown'
+      if (!map[id]) map[id] = { customer_id: id, company_name: name, invoice_count: 0, subtotal: 0, hst: 0, total: 0 }
+      map[id].invoice_count++
+      map[id].subtotal += inv.subtotal_cad || 0
+      map[id].hst += inv.tax_amount_cad || 0
+      map[id].total += inv.total_cad || 0
+    }
+
+    const rows = Object.values(map)
+    const heraRows = rows.filter(r => r.company_name.startsWith('HERA BEAUTY')).sort((a, b) => b.total - a.total)
+    const nonHeraRows = rows.filter(r => !r.company_name.startsWith('HERA BEAUTY'))
+
+    const grouped: GroupedCustomerRow[] = nonHeraRows.map(r => ({
+      key: r.customer_id, display_name: r.company_name,
+      invoice_count: r.invoice_count, subtotal: r.subtotal, hst: r.hst, total: r.total,
+      is_group: false,
+    }))
+
+    if (heraRows.length > 0) {
+      grouped.push({
+        key: 'HERA_BEAUTY_GROUP',
+        display_name: 'HERA BEAUTY (All Locations)',
+        invoice_count: heraRows.reduce((s, r) => s + r.invoice_count, 0),
+        subtotal: heraRows.reduce((s, r) => s + r.subtotal, 0),
+        hst: heraRows.reduce((s, r) => s + r.hst, 0),
+        total: heraRows.reduce((s, r) => s + r.total, 0),
+        is_group: true,
+        locations: heraRows,
+      })
+    }
+
+    grouped.sort((a, b) => b.total - a.total)
+    setCustomerSales(grouped)
+    setCsLoading(false)
+  }, [csYear, csStatus])
+
+  useEffect(() => { fetchCustomerSales() }, [fetchCustomerSales])
 
   const maxRevenue = Math.max(...monthlySales.map(m => m.revenue), 1)
 
@@ -195,6 +272,111 @@ export default function Reports() {
               </tr>
             ))}
           </tbody>
+        </table>
+      </div>
+
+      {/* Customer Sales Breakdown */}
+      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginTop: '16px' }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', margin: 0 }}>Customer Sales {csYear}</h3>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            {[2024, 2025, 2026].map(y => (
+              <button key={y} onClick={() => setCsYear(y)} style={{ padding: '5px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: csYear === y ? '#2563eb' : '#fff', color: csYear === y ? '#fff' : '#64748b', cursor: 'pointer', fontSize: '12px', fontWeight: '500' }}>
+                {y}
+              </button>
+            ))}
+            <select value={csStatus} onChange={e => setCsStatus(e.target.value as 'all' | 'paid' | 'sent')} style={{ height: '30px', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0 10px', fontSize: '12px', color: '#374151', background: '#fff', cursor: 'pointer', outline: 'none', marginLeft: '4px' }}>
+              <option value='all'>All Status</option>
+              <option value='paid'>Paid</option>
+              <option value='sent'>Sent</option>
+            </select>
+          </div>
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+              <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Customer</th>
+              <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Invoices</th>
+              <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Subtotal</th>
+              <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>HST</th>
+              <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Total</th>
+              <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>% of Total</th>
+              <th style={{ width: '36px' }} />
+            </tr>
+          </thead>
+          <tbody>
+            {csLoading ? (
+              <tr><td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>Loading...</td></tr>
+            ) : customerSales.length === 0 ? (
+              <tr><td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>No sales data for {csYear}</td></tr>
+            ) : (() => {
+              const grandTotal = customerSales.reduce((s, r) => s + r.total, 0)
+              return customerSales.flatMap(row => {
+                const pct = grandTotal > 0 ? row.total / grandTotal * 100 : 0
+                const isExpanded = expandedGroups.has(row.key)
+                const mainRow = (
+                  <tr key={row.key} style={{ borderBottom: '1px solid #f1f5f9', background: row.is_group ? '#f8fafc' : '#fff' }}>
+                    <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: row.is_group ? '600' : '400', color: '#1e293b' }}>{row.display_name}</td>
+                    <td style={{ padding: '10px 16px', fontSize: '13px', color: '#64748b' }}>{row.invoice_count}</td>
+                    <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', color: '#374151' }}>${formatCurrency(row.subtotal)}</td>
+                    <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', color: '#64748b' }}>${formatCurrency(row.hst)}</td>
+                    <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(row.total)}</td>
+                    <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', color: '#64748b' }}>{pct.toFixed(1)}%</td>
+                    <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+                      {row.is_group && (
+                        <button
+                          onClick={() => setExpandedGroups(prev => {
+                            const next = new Set(prev)
+                            if (next.has(row.key)) next.delete(row.key); else next.add(row.key)
+                            return next
+                          })}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '2px', fontSize: '11px', lineHeight: 1 }}
+                        >
+                          {isExpanded ? '▲' : '▼'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                )
+                if (!row.is_group || !isExpanded || !row.locations) return [mainRow]
+                const subRows = row.locations.map(loc => (
+                  <tr key={loc.customer_id} style={{ borderBottom: '1px solid #f1f5f9', background: '#fafafa' }}>
+                    <td style={{ padding: '8px 16px 8px 32px', fontSize: '12px', color: '#64748b' }}>↳ {loc.company_name}</td>
+                    <td style={{ padding: '8px 16px', fontSize: '12px', color: '#94a3b8' }}>{loc.invoice_count}</td>
+                    <td style={{ padding: '8px 16px', fontSize: '12px', textAlign: 'right', color: '#94a3b8' }}>${formatCurrency(loc.subtotal)}</td>
+                    <td style={{ padding: '8px 16px', fontSize: '12px', textAlign: 'right', color: '#94a3b8' }}>${formatCurrency(loc.hst)}</td>
+                    <td style={{ padding: '8px 16px', fontSize: '12px', textAlign: 'right', color: '#64748b' }}>${formatCurrency(loc.total)}</td>
+                    <td style={{ padding: '8px 16px', fontSize: '12px', textAlign: 'right', color: '#94a3b8' }}>{grandTotal > 0 ? (loc.total / grandTotal * 100).toFixed(1) : '0.0'}%</td>
+                    <td />
+                  </tr>
+                ))
+                return [mainRow, ...subRows]
+              })
+            })()}
+          </tbody>
+          {!csLoading && customerSales.length > 0 && (
+            <tfoot>
+              <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>
+                  Total ({customerSales.length} customers)
+                </td>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>
+                  {customerSales.reduce((s, r) => s + r.invoice_count, 0)}
+                </td>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#374151', textAlign: 'right' }}>
+                  ${formatCurrency(customerSales.reduce((s, r) => s + r.subtotal, 0))}
+                </td>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#374151', textAlign: 'right' }}>
+                  ${formatCurrency(customerSales.reduce((s, r) => s + r.hst, 0))}
+                </td>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '700', color: '#1e293b', textAlign: 'right' }}>
+                  ${formatCurrency(customerSales.reduce((s, r) => s + r.total, 0))}
+                </td>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#64748b', textAlign: 'right' }}>100%</td>
+                <td />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </MainLayout>
