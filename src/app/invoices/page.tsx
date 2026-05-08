@@ -575,7 +575,6 @@ export default function Invoices() {
   }
 
   async function openEditCm(cm: CreditMemo) {
-    if (cm.status !== 'draft') return
     setEditCm(cm)
     setCmSelectedCustomer(customers.find(c => c.id === cm.customer_id) || null)
     setCmForm({ customer_id: cm.customer_id, issued_at: cm.issued_at, po_number: cm.po_number || '', tax_rate: String(Math.round(cm.tax_rate * 100)), notes: cm.notes || '', applied_date: cm.applied_date || '' })
@@ -907,8 +906,9 @@ export default function Invoices() {
 
   const cmStatusColor: { [key: string]: { bg: string; color: string } } = {
     draft:   { bg: '#f8fafc', color: '#64748b' },
-    sent:    { bg: '#eff6ff', color: '#2563eb' },
+    issued:  { bg: '#eff6ff', color: '#2563eb' },
     applied: { bg: '#f5f3ff', color: '#7c3aed' },
+    void:    { bg: '#fef2f2', color: '#dc2626' },
   }
 
   async function updateStatus(invoiceId: string, status: string) {
@@ -1123,9 +1123,7 @@ export default function Invoices() {
             ) : filteredCm.map(cm => (
               <tr key={cm.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600' }}>
-                  {cm.status === 'draft'
-                    ? <span onClick={() => openEditCm(cm)} style={{ color: '#7c3aed', cursor: 'pointer', textDecoration: 'underline' }}>{cm.memo_no}</span>
-                    : <span style={{ color: '#64748b' }}>{cm.memo_no}</span>}
+                  <span onClick={() => openEditCm(cm)} style={{ color: '#7c3aed', cursor: 'pointer', textDecoration: 'underline' }}>{cm.memo_no}</span>
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{cm.customers?.company_name}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{new Date(cm.issued_at).toLocaleDateString('en-CA')}</td>
@@ -1135,8 +1133,9 @@ export default function Invoices() {
                 <td style={{ padding: '12px 16px' }}>
                   <select value={cm.status} onChange={e => updateCmStatus(cm.id, e.target.value)} style={{ background: cmStatusColor[cm.status]?.bg, color: cmStatusColor[cm.status]?.color, border: 'none', borderRadius: '20px', padding: '2px 10px', fontSize: '12px', fontWeight: '500', cursor: 'pointer', outline: 'none' }}>
                     <option value='draft'>Draft</option>
-                    <option value='sent'>Sent</option>
+                    <option value='issued'>Issued</option>
                     <option value='applied'>Applied</option>
+                    <option value='void'>Void</option>
                   </select>
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#7c3aed' }}>
