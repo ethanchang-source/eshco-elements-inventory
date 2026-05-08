@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { Suspense, useEffect, useState, useRef } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
@@ -85,7 +86,16 @@ interface CreditMemo {
   }
 }
 
-export default function Invoices() {
+function InvoicesContent() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
+  function resolveTab(params: ReturnType<typeof useSearchParams>): 'invoices' | 'credit_memos' {
+    const t = params.get('tab')
+    if (t === 'invoices' || t === 'credit_memos') return t
+    return 'invoices'
+  }
+
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [products, setProducts] = useState<Product[]>([])
@@ -98,7 +108,7 @@ export default function Invoices() {
   const [filterCustomer, setFilterCustomer] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [showModal, setShowModal] = useState(false)
-  const [activeTab, setActiveTab] = useState<'invoices' | 'credit_memos'>('invoices')
+  const [activeTab, setActiveTab] = useState<'invoices' | 'credit_memos'>(() => resolveTab(searchParams))
 
   // ── Credit Memo state ──
   const [creditMemos, setCreditMemos] = useState<CreditMemo[]>([])
@@ -963,7 +973,7 @@ export default function Invoices() {
       {/* 탭 */}
       <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', background: '#f1f5f9', borderRadius: '10px', padding: '4px', width: 'fit-content' }}>
         {(['invoices', 'credit_memos'] as const).map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '8px 20px', borderRadius: '7px', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: '500', background: activeTab === tab ? '#fff' : 'transparent', color: activeTab === tab ? '#1e293b' : '#64748b', boxShadow: activeTab === tab ? '0 1px 4px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s' }}>
+          <button key={tab} onClick={() => { setActiveTab(tab); router.replace(`?tab=${tab}`) }} style={{ padding: '8px 20px', borderRadius: '7px', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: '500', background: activeTab === tab ? '#fff' : 'transparent', color: activeTab === tab ? '#1e293b' : '#64748b', boxShadow: activeTab === tab ? '0 1px 4px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s' }}>
             {tab === 'invoices' ? 'Invoices' : 'Credit Memos'}
           </button>
         ))}
@@ -1559,5 +1569,13 @@ export default function Invoices() {
         </div>
       )}
     </MainLayout>
+  )
+}
+
+export default function Invoices() {
+  return (
+    <Suspense fallback={<div style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>Loading...</div>}>
+      <InvoicesContent />
+    </Suspense>
   )
 }
