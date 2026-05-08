@@ -90,9 +90,9 @@ function InvoicesContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
 
-  function resolveTab(params: ReturnType<typeof useSearchParams>): 'invoices' | 'credit_memos' {
+  function resolveTab(params: ReturnType<typeof useSearchParams>): 'invoices' | 'credit_memos' | 'invoices_us' {
     const t = params.get('tab')
-    if (t === 'invoices' || t === 'credit_memos') return t
+    if (t === 'invoices' || t === 'credit_memos' || t === 'invoices_us') return t
     return 'invoices'
   }
 
@@ -108,7 +108,7 @@ function InvoicesContent() {
   const [filterCustomer, setFilterCustomer] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [showModal, setShowModal] = useState(false)
-  const [activeTab, setActiveTab] = useState<'invoices' | 'credit_memos'>(() => resolveTab(searchParams))
+  const [activeTab, setActiveTab] = useState<'invoices' | 'credit_memos' | 'invoices_us'>(() => resolveTab(searchParams))
 
   // ── Credit Memo state ──
   const [creditMemos, setCreditMemos] = useState<CreditMemo[]>([])
@@ -134,6 +134,17 @@ function InvoicesContent() {
   const [cmImportStatus, setCmImportStatus] = useState<string>('')
   const [cmImporting, setCmImporting] = useState(false)
   const cmImportFileRef = useRef<HTMLInputElement>(null)
+
+  const [invoiceCurrency, setInvoiceCurrency] = useState<'CAD' | 'USD'>('CAD')
+  const [usSearch, setUsSearch] = useState('')
+  const [usFilterCustomer, setUsFilterCustomer] = useState('')
+  const [usFilterStatus, setUsFilterStatus] = useState('')
+  const [showUsImportModal, setShowUsImportModal] = useState(false)
+  const [usImportRows, setUsImportRows] = useState<any[]>([])
+  const [usImportStatus, setUsImportStatus] = useState<string>('')
+  const [usImporting, setUsImporting] = useState(false)
+  const usImportFileRef = useRef<HTMLInputElement>(null)
+
   const [editInvoice, setEditInvoice] = useState<Invoice | null>(null)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([])
@@ -155,11 +166,12 @@ function InvoicesContent() {
       if (showPaymentModal) { setShowPaymentModal(false); return }
       if (showAppliedModal) { setShowAppliedModal(false); setAppliedError(''); return }
       if (showCmModal) { setShowCmModal(false); setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null); setCmError(''); return }
+      if (showUsImportModal) { setShowUsImportModal(false); return }
       if (showModal) { setShowModal(false); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [showModal, showCmModal, showDeliveryModal, showPaymentModal, showAppliedModal])
+  }, [showModal, showCmModal, showDeliveryModal, showPaymentModal, showAppliedModal, showUsImportModal])
 
   async function fetchAll() {
     const [inv, cust, prod, cm] = await Promise.all([
@@ -300,7 +312,7 @@ function InvoicesContent() {
         tax_rate: parseFloat(form.tax_rate) / 100,
         tax_amount_cad: taxAmount,
         total_cad: total,
-        currency: 'CAD',
+        currency: invoiceCurrency,
         notes,
         po_number: form.po_number || '',
         invoice_no: '',
@@ -406,6 +418,45 @@ function InvoicesContent() {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Invoices')
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(itemRows), 'Line Items')
     XLSX.writeFile(wb, `invoices_export_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
+  async function handleUsExport() {
+    const usInvoices = invoices.filter(inv => inv.currency === 'USD')
+    const usIds = usInvoices.map(inv => inv.id)
+    const { data: items } = await supabase
+      .from('invoice_items')
+      .select('*, invoices(invoice_no), products(sku, name, size_oz)')
+      .in('invoice_id', usIds)
+      .order('created_at')
+
+    const summaryRows = usInvoices.map(inv => ({
+      'Invoice #': inv.invoice_no,
+      'Customer': inv.customers?.company_name || '',
+      'Date': inv.issued_at,
+      'PO #': inv.po_number || '',
+      'Status': inv.status,
+      'Subtotal (USD)': inv.subtotal_cad,
+      'Tax (USD)': inv.tax_amount_cad,
+      'Total (USD)': inv.total_cad,
+      'Delivery Date': (inv as any).delivery_date || '',
+      'Payment Date': (inv as any).payment_date || '',
+      'Notes': inv.notes || '',
+    }))
+
+    const itemRows = (items || []).map(item => ({
+      'Invoice #': item.invoices?.invoice_no || '',
+      'SKU': item.products?.sku || '',
+      'Product Name': item.products?.name || '',
+      'Size': `${item.products?.size_oz} FL. OZ.`,
+      'Qty': item.qty,
+      'Unit Price (USD)': item.unit_price_cad,
+      'Line Total (USD)': item.line_total_cad,
+    }))
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Invoices (US)')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(itemRows), 'Line Items')
+    XLSX.writeFile(wb, `invoices_us_export_${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
   function downloadTemplate() {
@@ -564,6 +615,165 @@ function InvoicesContent() {
 
     setImportStatus(`Done: ${imported} imported, ${skipped} skipped.\n${errors.join('\n')}`)
     setImporting(false)
+    if (imported > 0) fetchAll()
+  }
+
+  function downloadUsTemplate() {
+    const rows = [
+      {
+        'Invoice #': 'USINV-2025-001',
+        'Customer Name': 'Example US Retailer Inc.',
+        'Date': '2025-01-15',
+        'PO #': 'PO12345',
+        'Status': 'paid',
+        'Delivery Date': '2025-01-20',
+        'Payment Date': '2025-02-15',
+        'Notes': '',
+        'SKU': 'IPB-001',
+        'Qty': 12,
+        'Unit Price USD': 25.00,
+        'Tax Rate %': 0,
+      },
+      {
+        'Invoice #': 'USINV-2025-001',
+        'Customer Name': 'Example US Retailer Inc.',
+        'Date': '2025-01-15',
+        'PO #': 'PO12345',
+        'Status': 'paid',
+        'Delivery Date': '2025-01-20',
+        'Payment Date': '2025-02-15',
+        'Notes': '',
+        'SKU': 'IPB-002',
+        'Qty': 6,
+        'Unit Price USD': 30.00,
+        'Tax Rate %': 0,
+      },
+    ]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Import Template')
+    XLSX.writeFile(wb, 'invoice_us_import_template.xlsx')
+  }
+
+  function handleUsFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const data = ev.target?.result
+      const wb = XLSX.read(data, { type: 'binary', cellDates: true })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json(ws, { raw: false })
+      setUsImportRows(rows as any[])
+      setUsImportStatus('')
+    }
+    reader.readAsBinaryString(file)
+  }
+
+  async function handleUsImport() {
+    if (usImportRows.length === 0) return
+    setUsImporting(true)
+    setUsImportStatus('')
+
+    const grouped: { [key: string]: any[] } = {}
+    for (const row of usImportRows) {
+      const no = String(row['Invoice #'] || '').trim()
+      if (!no) continue
+      if (!grouped[no]) grouped[no] = []
+      grouped[no].push(row)
+    }
+
+    const { data: allCustomers } = await supabase.from('customers').select('id, company_name')
+    const { data: allProducts } = await supabase.from('products').select('id, sku, price_whs_cad')
+    const { data: existingInvoices } = await supabase.from('invoices').select('invoice_no')
+    const existingNos = new Set((existingInvoices || []).map(i => i.invoice_no))
+
+    const customerMap: { [name: string]: string } = {}
+    for (const c of allCustomers || []) customerMap[c.company_name.toLowerCase()] = c.id
+
+    const productMap: { [sku: string]: { id: string; price: number } } = {}
+    for (const p of allProducts || []) productMap[p.sku.toUpperCase()] = { id: p.id, price: p.price_whs_cad }
+
+    let imported = 0, skipped = 0
+    const errors: string[] = []
+
+    for (const [invoiceNo, rows] of Object.entries(grouped)) {
+      if (existingNos.has(invoiceNo)) {
+        skipped++
+        errors.push(`${invoiceNo}: already exists, skipped`)
+        continue
+      }
+
+      const first = rows[0]
+      const customerName = String(first['Customer Name'] || '').trim()
+      const customerId = customerMap[customerName.toLowerCase()]
+      if (!customerId) {
+        skipped++
+        errors.push(`${invoiceNo}: customer "${customerName}" not found`)
+        continue
+      }
+
+      const issuedAt = String(first['Date'] || '').trim()
+      const taxRate = parseFloat(String(first['Tax Rate %'] || '0')) / 100
+      const poNumber = String(first['PO #'] || '').trim()
+      const status = String(first['Status'] || 'paid').trim()
+      const deliveryDate = String(first['Delivery Date'] || '').trim() || null
+      const paymentDate = String(first['Payment Date'] || '').trim() || null
+      const notes = String(first['Notes'] || '').trim()
+
+      const lineItems: { product_id: string; qty: number; unit_price_cad: number; line_total_cad: number }[] = []
+      let hasError = false
+
+      for (const row of rows) {
+        const sku = String(row['SKU'] || '').trim().toUpperCase()
+        const qty = parseInt(String(row['Qty'] || '0'))
+        const unitPrice = parseFloat(String(row['Unit Price USD'] || '0'))
+        if (!sku || qty <= 0) continue
+        const product = productMap[sku]
+        if (!product) {
+          errors.push(`${invoiceNo}: SKU "${sku}" not found`)
+          hasError = true
+          break
+        }
+        lineItems.push({ product_id: product.id, qty, unit_price_cad: unitPrice, line_total_cad: unitPrice * qty })
+      }
+
+      if (hasError || lineItems.length === 0) {
+        skipped++
+        continue
+      }
+
+      const subtotal = lineItems.reduce((s, i) => s + i.line_total_cad, 0)
+      const taxAmount = subtotal * taxRate
+      const total = subtotal + taxAmount
+
+      const { data: inv, error } = await supabase.from('invoices').insert([{
+        invoice_no: invoiceNo,
+        customer_id: customerId,
+        issued_at: issuedAt,
+        status,
+        subtotal_cad: subtotal,
+        tax_rate: taxRate,
+        tax_amount_cad: taxAmount,
+        total_cad: total,
+        currency: 'USD',
+        notes,
+        po_number: poNumber,
+        delivery_date: deliveryDate,
+        payment_date: paymentDate,
+      }]).select().single()
+
+      if (error || !inv) {
+        skipped++
+        errors.push(`${invoiceNo}: DB error - ${error?.message}`)
+        continue
+      }
+
+      await supabase.from('invoice_items').insert(lineItems.map(i => ({ ...i, invoice_id: inv.id })))
+      imported++
+    }
+
+    setUsImportStatus(`Done: ${imported} imported, ${skipped} skipped.\n${errors.join('\n')}`)
+    setUsImporting(false)
     if (imported > 0) fetchAll()
   }
 
@@ -914,6 +1124,19 @@ function InvoicesContent() {
   const filteredCmHST = filteredCm.reduce((s, cm) => s + (cm.tax_amount_cad || 0), 0)
   const filteredCmTotal = filteredCm.reduce((s, cm) => s + (cm.total_cad || 0), 0)
 
+  const filteredUs = invoices.filter(inv => {
+    if (inv.currency !== 'USD') return false
+    const matchSearch = !usSearch ||
+      inv.invoice_no?.toLowerCase().includes(usSearch.toLowerCase()) ||
+      inv.customers?.company_name?.toLowerCase().includes(usSearch.toLowerCase())
+    const matchCustomer = !usFilterCustomer || inv.customer_id === usFilterCustomer
+    const matchStatus = !usFilterStatus || inv.status === usFilterStatus
+    return matchSearch && matchCustomer && matchStatus
+  })
+  const filteredUsSubtotal = filteredUs.reduce((s, inv) => s + (inv.subtotal_cad || 0), 0)
+  const filteredUsHST = filteredUs.reduce((s, inv) => s + (inv.tax_amount_cad || 0), 0)
+  const filteredUsTotal = filteredUs.reduce((s, inv) => s + (inv.total_cad || 0), 0)
+
   const cmStatusColor: { [key: string]: { bg: string; color: string } } = {
     draft:   { bg: '#f8fafc', color: '#64748b' },
     issued:  { bg: '#eff6ff', color: '#2563eb' },
@@ -972,9 +1195,9 @@ function InvoicesContent() {
       `}</style>
       {/* 탭 */}
       <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', background: '#f1f5f9', borderRadius: '10px', padding: '4px', width: 'fit-content' }}>
-        {(['invoices', 'credit_memos'] as const).map(tab => (
+        {(['invoices', 'credit_memos', 'invoices_us'] as const).map(tab => (
           <button key={tab} onClick={() => { setActiveTab(tab); router.replace(`?tab=${tab}`) }} style={{ padding: '8px 20px', borderRadius: '7px', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: '500', background: activeTab === tab ? '#fff' : 'transparent', color: activeTab === tab ? '#1e293b' : '#64748b', boxShadow: activeTab === tab ? '0 1px 4px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s' }}>
-            {tab === 'invoices' ? 'Invoices' : 'Credit Memos'}
+            {tab === 'invoices' ? 'Invoices' : tab === 'credit_memos' ? 'Credit Memos' : 'Invoices (US)'}
           </button>
         ))}
       </div>
@@ -1005,7 +1228,7 @@ function InvoicesContent() {
           <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <TableIcon size={15} /> Export Excel
           </button>
-          <button onClick={() => { setEditInvoice(null); setLineItems([]); setSelectedCustomer(null); setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '13', notes: '' }); setShowModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+          <button onClick={() => { setInvoiceCurrency('CAD'); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null); setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '13', notes: '' }); setShowModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={16} /> New Invoice
           </button>
         </div>
@@ -1183,6 +1406,108 @@ function InvoicesContent() {
       </div>
       </> /* end credit memos tab */}
 
+      {/* ── INVOICES (US) TAB ── */}
+      {activeTab === 'invoices_us' && <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', width: '260px' }}>
+            <Search size={16} color='#94a3b8' />
+            <input value={usSearch} onChange={e => setUsSearch(e.target.value)} placeholder='Search invoices (US)...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
+          </div>
+          <select value={usFilterCustomer} onChange={e => setUsFilterCustomer(e.target.value)} style={{ height: '40px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0 12px', fontSize: '14px', color: usFilterCustomer ? '#1e293b' : '#94a3b8', cursor: 'pointer', outline: 'none' }}>
+            <option value=''>All Customers</option>
+            {customers.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+          </select>
+          <select value={usFilterStatus} onChange={e => setUsFilterStatus(e.target.value)} style={{ height: '40px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0 12px', fontSize: '14px', color: usFilterStatus ? '#1e293b' : '#94a3b8', cursor: 'pointer', outline: 'none' }}>
+            <option value=''>All Statuses</option>
+            <option value='draft'>Draft</option>
+            <option value='sent'>Sent</option>
+            <option value='paid'>Paid</option>
+          </select>
+        </div>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button onClick={() => { setShowUsImportModal(true); setUsImportRows([]); setUsImportStatus('') }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+            <Upload size={15} /> Import
+          </button>
+          <button onClick={handleUsExport} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+            <TableIcon size={15} /> Export Excel
+          </button>
+          <button onClick={() => { setInvoiceCurrency('USD'); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null); setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '0', notes: '' }); setShowModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#0369a1', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+            <Plus size={16} /> New Invoice (US)
+          </button>
+        </div>
+      </div>
+
+      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+              {['Invoice #', 'Customer', 'Date', 'Subtotal', 'Tax', 'Total', 'Status', 'Delivery Date', 'Payment Date', ''].map(h => (
+                <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={10} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>Loading...</td></tr>
+            ) : filteredUs.length === 0 ? (
+              <tr><td colSpan={10} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
+                <FileText size={32} color='#e2e8f0' style={{ display: 'block', margin: '0 auto 8px' }} />
+                No US invoices yet
+              </td></tr>
+            ) : filteredUs.map(inv => (
+              <tr key={inv.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600' }}>
+                  {inv.status === 'draft' ? (
+                    <span onClick={() => { setInvoiceCurrency('USD'); openEditModal(inv) }} style={{ color: '#0369a1', cursor: 'pointer', textDecoration: 'underline' }}>{inv.invoice_no}</span>
+                  ) : (
+                    <span style={{ color: '#64748b' }}>{inv.invoice_no}</span>
+                  )}
+                </td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{inv.customers?.company_name}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{new Date(inv.issued_at).toLocaleDateString('en-CA')}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${formatCurrency(inv.subtotal_cad)}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>${formatCurrency(inv.tax_amount_cad)}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(inv.total_cad)} USD</td>
+                <td style={{ padding: '12px 16px' }}>
+                  <select value={inv.status} onChange={e => updateStatus(inv.id, e.target.value)} style={{ background: statusColor[inv.status]?.bg, color: statusColor[inv.status]?.color, border: 'none', borderRadius: '20px', padding: '2px 10px', fontSize: '12px', fontWeight: '500', cursor: 'pointer', outline: 'none' }}>
+                    <option value='draft'>Draft</option>
+                    <option value='sent'>Sent</option>
+                    <option value='paid'>Paid</option>
+                  </select>
+                </td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#0369a1' }}><span onClick={() => { setDeliveryInfo({ invoiceId: inv.id, date: inv.delivery_date || new Date().toISOString().split('T')[0] }); setShowDeliveryModal(true) }} style={{ cursor: 'pointer', textDecoration: inv.delivery_date ? 'underline' : 'none' }}>{inv.delivery_date ? inv.delivery_date : <button style={{ background: '#e0f2fe', color: '#0369a1', border: 'none', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer' }}>+ Add</button>}</span></td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#16a34a' }}><span onClick={() => { setPaymentInfo({ invoiceId: inv.id, date: inv.payment_date || new Date().toISOString().split('T')[0] }); setShowPaymentModal(true) }} style={{ cursor: 'pointer', textDecoration: inv.payment_date ? 'underline' : 'none' }}>{inv.payment_date || '-'}</span></td>
+                <td style={{ padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button onClick={() => handleDownloadPDF(inv)} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#e0f2fe', color: '#0369a1', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer', fontWeight: '500' }}>
+                      <Download size={12} /> PDF
+                    </button>
+                    <button onClick={() => handleDelete(inv.id)} style={{ display: 'flex', alignItems: 'center', background: '#fef2f2', color: '#dc2626', border: 'none', borderRadius: '6px', padding: '6px 8px', fontSize: '12px', cursor: 'pointer' }}>
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          {filteredUs.length > 0 && (
+            <tfoot>
+              <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
+                <td colSpan={3} style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>
+                  {filteredUs.length} record{filteredUs.length !== 1 ? 's' : ''}
+                </td>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${formatCurrency(filteredUsSubtotal)}</td>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${formatCurrency(filteredUsHST)}</td>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '700', color: '#1e293b', whiteSpace: 'nowrap' }}>${formatCurrency(filteredUsTotal)} USD</td>
+                <td colSpan={4} />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+      </> /* end invoices_us tab */}
+
       {showImportModal && (
         <div className="modal-overlay" onClick={() => setShowImportModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, overflowY: 'auto' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '540px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
@@ -1295,6 +1620,65 @@ function InvoicesContent() {
               <button onClick={() => { setShowCmImportModal(false); setCmImportRows([]); setCmImportStatus('') }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Close</button>
               <button onClick={handleCmImport} disabled={cmImportRows.length === 0 || cmImporting} style={{ padding: '8px 20px', background: cmImporting ? '#a78bfa' : '#7c3aed', color: '#fff', border: 'none', borderRadius: '6px', cursor: cmImportRows.length === 0 || cmImporting ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
                 {cmImporting ? 'Importing...' : `Import ${cmImportRows.length > 0 ? new Set(cmImportRows.map((r: any) => r['Credit Memo #'])).size + ' credit memos' : ''}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showUsImportModal && (
+        <div className="modal-overlay" onClick={() => setShowUsImportModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, overflowY: 'auto' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '540px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '6px' }}>Import US Invoices from Excel</h2>
+            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Import historical US invoice data. Existing invoice numbers will be skipped.</p>
+
+            <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '14px 16px', marginBottom: '20px', border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '8px' }}>Required columns in your Excel file:</div>
+              <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
+                {['Invoice #', 'Customer Name', 'Date (YYYY-MM-DD)', 'SKU', 'Qty', 'Unit Price USD'].map(col => (
+                  <div key={col} style={{ fontSize: '12px', color: '#0369a1', fontFamily: 'monospace' }}>• {col}</div>
+                ))}
+              </div>
+              <div style={{ fontSize: '13px', fontWeight: '500', color: '#374151', marginTop: '10px', marginBottom: '4px' }}>Optional columns:</div>
+              <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px' }}>
+                {['PO #', 'Status (draft/sent/paid)', 'Delivery Date', 'Payment Date', 'Notes', 'Tax Rate % (default 0)'].map(col => (
+                  <div key={col} style={{ fontSize: '12px', color: '#64748b', fontFamily: 'monospace' }}>• {col}</div>
+                ))}
+              </div>
+              <button onClick={downloadUsTemplate} style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '6px', background: '#e0f2fe', color: '#0369a1', border: 'none', borderRadius: '6px', padding: '7px 14px', fontSize: '12px', cursor: 'pointer', fontWeight: '500' }}>
+                <Download size={13} /> Download Template
+              </button>
+            </div>
+
+            <div
+              onClick={() => usImportFileRef.current?.click()}
+              style={{ border: '2px dashed #e2e8f0', borderRadius: '8px', padding: '28px', textAlign: 'center', cursor: 'pointer', marginBottom: '16px', background: usImportRows.length > 0 ? '#f0fdf4' : '#fafafa' }}
+            >
+              <Upload size={24} color={usImportRows.length > 0 ? '#16a34a' : '#94a3b8'} style={{ display: 'block', margin: '0 auto 8px' }} />
+              {usImportRows.length > 0 ? (
+                <div style={{ fontSize: '14px', color: '#16a34a', fontWeight: '500' }}>{usImportRows.length} rows loaded — click to change file</div>
+              ) : (
+                <div style={{ fontSize: '14px', color: '#64748b' }}>Click to select .xlsx or .xls file</div>
+              )}
+              <input ref={usImportFileRef} type='file' accept='.xlsx,.xls' onChange={handleUsFileSelect} style={{ display: 'none' }} />
+            </div>
+
+            {usImportRows.length > 0 && !usImportStatus && (
+              <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '12px 14px', marginBottom: '16px', fontSize: '13px', color: '#374151' }}>
+                Preview: <strong>{usImportRows.length}</strong> rows, <strong>{new Set(usImportRows.map((r: any) => r['Invoice #'])).size}</strong> unique invoice numbers
+              </div>
+            )}
+
+            {usImportStatus && (
+              <div style={{ background: usImportStatus.includes('error') || usImportStatus.includes('skipped') && !usImportStatus.includes('0 skipped') ? '#fef2f2' : '#f0fdf4', borderRadius: '8px', padding: '12px 14px', marginBottom: '16px', fontSize: '12px', color: '#374151', whiteSpace: 'pre-wrap', fontFamily: 'monospace', maxHeight: '140px', overflowY: 'auto' }}>
+                {usImportStatus}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button onClick={() => { setShowUsImportModal(false); setUsImportRows([]); setUsImportStatus('') }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Close</button>
+              <button onClick={handleUsImport} disabled={usImportRows.length === 0 || usImporting} style={{ padding: '8px 20px', background: usImporting ? '#94a3b8' : '#0369a1', color: '#fff', border: 'none', borderRadius: '6px', cursor: usImportRows.length === 0 || usImporting ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
+                {usImporting ? 'Importing...' : `Import ${usImportRows.length > 0 ? new Set(usImportRows.map((r: any) => r['Invoice #'])).size + ' invoices' : ''}`}
               </button>
             </div>
           </div>
