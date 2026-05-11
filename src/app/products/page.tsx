@@ -258,7 +258,7 @@ export default function Products() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {['SKU', 'Name', 'Size', 'Barcode', 'Unit Cost', 'WHS Price', 'Margin Rate', 'MSRP', 'Stock', 'Status'].map(h => (
+              {['SKU', 'Name', 'Size', 'Barcode', 'MFG Cost (CAD)', 'WHS Price', 'Margin Rate', 'MSRP', 'Stock', 'Status'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
@@ -336,7 +336,7 @@ export default function Products() {
             {([
               ['SKU', 'sku', 'IAP013'], ['Product Name', 'name', 'JBCO 2oz'],
               ['Size (oz)', 'size_oz', '2'], ['Barcode UPC', 'barcode_upc', '628176712130'],
-              ['Unit Cost (CAD)', 'unit_cost_cad', '0.00'], ['MSRP (CAD)', 'msrp_cad', '0.00'],
+              ['MFG Cost (CAD)', 'unit_cost_cad', '0.00'], ['MSRP (CAD)', 'msrp_cad', '0.00'],
               ['WHS Price (CAD)', 'price_whs_cad', '0.00'], ['Reorder Threshold', 'reorder_threshold', '100'],
             ] as [string, string, string][]).map(([label, key, placeholder]) => (
               <div key={key} style={{ marginBottom: '16px' }}>
@@ -365,7 +365,7 @@ export default function Products() {
               {([
                 ['SKU', 'sku'], ['Size (oz)', 'size_oz'],
                 ['Barcode UPC', 'barcode_upc'], ['Barcode ITF-14', 'barcode_itf14'],
-                ['Unit Cost (CAD)', 'unit_cost_cad'], ['MSRP (CAD)', 'msrp_cad'],
+                ['MFG Cost (CAD)', 'unit_cost_cad'], ['MSRP (CAD)', 'msrp_cad'],
                 ['WHS Price (CAD)', 'price_whs_cad'], ['Dist Price (CAD)', 'price_dist_cad'],
               ] as [string, string][]).map(([label, key]) => (
                 <div key={key}>

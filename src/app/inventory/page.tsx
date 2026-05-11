@@ -478,7 +478,7 @@ function InventoryContent() {
               {tab === 'packaging' && ['Item #', 'Name', 'Type', 'Size', 'Cost (CAD)', 'Cost (Avg)', 'Current Stock', 'Reorder At', 'Status'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
-              {tab === 'finished' && ['SKU', 'Name', 'Size', 'Unit Cost (CAD)', 'Current Stock', 'Reorder At', 'Status'].map(h => (
+              {tab === 'finished' && ['SKU', 'Name', 'Size', 'MFG Cost (CAD)', 'Current Stock', 'Reorder At', 'Status'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
