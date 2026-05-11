@@ -53,6 +53,8 @@ interface Invoice {
   currency: string
   notes: string
   po_number: string
+  wire_fee?: number
+  received_amount?: number
   customers?: {
     company_name: string
     warehouse_address: string
@@ -155,6 +157,7 @@ function InvoicesContent() {
     shipping: '0',
     tax_rate: '13',
     notes: '',
+    wire_fee: '0',
   })
 
   useEffect(() => { fetchAll() }, [])
@@ -209,6 +212,7 @@ function InvoicesContent() {
 
   async function openEditModal(invoice: Invoice) {
     if (invoice.status !== 'draft') return
+    setInvoiceCurrency((invoice.currency as 'CAD' | 'USD') || 'CAD')
     setEditInvoice(invoice)
     const customer = customers.find(c => c.id === invoice.customer_id) || null
     setSelectedCustomer(customer)
@@ -219,6 +223,7 @@ function InvoicesContent() {
       shipping: '0',
       tax_rate: String(Math.round(invoice.tax_rate * 100)),
       notes: invoice.notes || '',
+      wire_fee: String(invoice.wire_fee || 0),
     })
     const [{ data: items }, { data: custPrices }] = await Promise.all([
       supabase.from('invoice_items').select('*, products(id, sku, name, size_oz, price_whs_cad)').eq('invoice_id', invoice.id),
@@ -270,6 +275,8 @@ function InvoicesContent() {
   const taxBase = subtotal + shipping
   const taxAmount = taxBase * (parseFloat(form.tax_rate) / 100)
   const total = taxBase + taxAmount
+  const wireFee = parseFloat(form.wire_fee) || 0
+  const receivedAmount = total - wireFee
   const totalBoxes = Math.ceil(activeItems.reduce((sum, item) => sum + item.qty, 0) / 36)
 
   async function handleSubmit() {
@@ -290,6 +297,8 @@ function InvoicesContent() {
         total_cad: total,
         notes,
         po_number: form.po_number || '',
+        wire_fee: invoiceCurrency === 'USD' ? wireFee : null,
+        received_amount: invoiceCurrency === 'USD' ? receivedAmount : null,
       }).eq('id', editInvoice.id)
 
       await supabase.from('invoice_items').delete().eq('invoice_id', editInvoice.id)
@@ -316,6 +325,8 @@ function InvoicesContent() {
         notes,
         po_number: form.po_number || '',
         invoice_no: '',
+        wire_fee: invoiceCurrency === 'USD' ? wireFee : null,
+        received_amount: invoiceCurrency === 'USD' ? receivedAmount : null,
       }]).select().single()
 
       if (invoice) {
@@ -335,7 +346,7 @@ function InvoicesContent() {
     setEditInvoice(null)
     setLineItems([])
     setSelectedCustomer(null)
-    setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '13', notes: '' })
+    setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '13', notes: '', wire_fee: '0' })
     fetchAll()
   }
 
@@ -352,6 +363,9 @@ function InvoicesContent() {
       issued_at: invoice.issued_at,
       po_number: invoice.po_number || '',
       payment_terms: invoice.customers.payment_terms || '',
+      currency: invoice.currency || 'CAD',
+      wire_fee: invoice.wire_fee || 0,
+      received_amount: invoice.received_amount ?? undefined,
       customer: {
         company_name: invoice.customers.company_name,
         warehouse_address: invoice.customers.warehouse_address,
@@ -373,7 +387,6 @@ function InvoicesContent() {
       tax_amount: invoice.tax_amount_cad,
       total: invoice.total_cad,
       notes: invoice.notes || '',
-      po_number: invoice.po_number || '',
     })
   }
 
@@ -1136,6 +1149,8 @@ function InvoicesContent() {
   const filteredUsSubtotal = filteredUs.reduce((s, inv) => s + (inv.subtotal_cad || 0), 0)
   const filteredUsHST = filteredUs.reduce((s, inv) => s + (inv.tax_amount_cad || 0), 0)
   const filteredUsTotal = filteredUs.reduce((s, inv) => s + (inv.total_cad || 0), 0)
+  const filteredUsWireFee = filteredUs.reduce((s, inv) => s + (inv.wire_fee || 0), 0)
+  const filteredUsReceived = filteredUs.reduce((s, inv) => s + (inv.received_amount || 0), 0)
 
   const cmStatusColor: { [key: string]: { bg: string; color: string } } = {
     draft:   { bg: '#f8fafc', color: '#64748b' },
@@ -1228,7 +1243,7 @@ function InvoicesContent() {
           <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <TableIcon size={15} /> Export Excel
           </button>
-          <button onClick={() => { setInvoiceCurrency('CAD'); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null); setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '13', notes: '' }); setShowModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+          <button onClick={() => { setInvoiceCurrency('CAD'); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null); setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '13', notes: '', wire_fee: '0' }); setShowModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={16} /> New Invoice
           </button>
         </div>
@@ -1432,7 +1447,7 @@ function InvoicesContent() {
           <button onClick={handleUsExport} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <TableIcon size={15} /> Export Excel
           </button>
-          <button onClick={() => { setInvoiceCurrency('USD'); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null); setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '0', notes: '' }); setShowModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#0369a1', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+          <button onClick={() => { setInvoiceCurrency('USD'); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null); setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '0', notes: '', wire_fee: '0' }); setShowModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#0369a1', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={16} /> New Invoice (US)
           </button>
         </div>
@@ -1442,7 +1457,7 @@ function InvoicesContent() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {['Invoice #', 'Customer', 'Date', 'Subtotal', 'Tax', 'Total', 'Status', 'Delivery Date', 'Payment Date', ''].map(h => (
+              {['Invoice #', 'Customer', 'Date', 'Subtotal', 'Tax', 'Total', 'Wire Fee', 'Received', 'Status', 'Delivery Date', 'Payment Date', ''].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
@@ -1469,6 +1484,8 @@ function InvoicesContent() {
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${formatCurrency(inv.subtotal_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>${formatCurrency(inv.tax_amount_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(inv.total_cad)} USD</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{inv.wire_fee ? `-$${formatCurrency(inv.wire_fee)}` : '-'}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#0369a1' }}>{inv.received_amount ? `$${formatCurrency(inv.received_amount)}` : '-'}</td>
                 <td style={{ padding: '12px 16px' }}>
                   <select value={inv.status} onChange={e => updateStatus(inv.id, e.target.value)} style={{ background: statusColor[inv.status]?.bg, color: statusColor[inv.status]?.color, border: 'none', borderRadius: '20px', padding: '2px 10px', fontSize: '12px', fontWeight: '500', cursor: 'pointer', outline: 'none' }}>
                     <option value='draft'>Draft</option>
@@ -1500,6 +1517,8 @@ function InvoicesContent() {
                 <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${formatCurrency(filteredUsSubtotal)}</td>
                 <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${formatCurrency(filteredUsHST)}</td>
                 <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '700', color: '#1e293b', whiteSpace: 'nowrap' }}>${formatCurrency(filteredUsTotal)} USD</td>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#64748b', whiteSpace: 'nowrap' }}>{filteredUsWireFee > 0 ? `-$${formatCurrency(filteredUsWireFee)}` : '-'}</td>
+                <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '700', color: '#0369a1', whiteSpace: 'nowrap' }}>{filteredUsReceived > 0 ? `$${formatCurrency(filteredUsReceived)}` : '-'}</td>
                 <td colSpan={4} />
               </tr>
             </tfoot>
@@ -1938,8 +1957,19 @@ function InvoicesContent() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '700', color: '#1e293b', borderTop: '1px solid #e2e8f0', paddingTop: '8px' }}>
-                  <span>TOTAL</span><span>${formatCurrency(total)} CAD</span>
+                  <span>TOTAL</span><span>${formatCurrency(total)} {invoiceCurrency}</span>
                 </div>
+                {invoiceCurrency === 'USD' && (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', color: '#64748b', marginTop: '6px' }}>
+                      <span>Wire Fee</span>
+                      <input value={form.wire_fee} onChange={e => setForm({ ...form, wire_fee: e.target.value })} style={{ width: '80px', padding: '2px 8px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '13px', outline: 'none', textAlign: 'right' }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: '600', color: '#0369a1', marginTop: '4px' }}>
+                      <span>Received Amount</span><span>${formatCurrency(receivedAmount)}</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 

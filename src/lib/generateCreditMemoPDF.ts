@@ -39,6 +39,10 @@ const COMPANY = {
   hst: '752458133RT0001',
 }
 
+function fmt(n: number): string {
+  return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
 export function generateCreditMemoPDF(data: CreditMemoData) {
   const doc = new jsPDF()
   const pageWidth = doc.internal.pageSize.getWidth()
@@ -99,9 +103,9 @@ export function generateCreditMemoPDF(data: CreditMemoData) {
       item.sku,
       item.name,
       item.size,
-      `$${item.unit_price.toFixed(2)}`,
+      `$${fmt(item.unit_price)}`,
       item.qty.toString(),
-      `$${item.total.toFixed(2)}`,
+      `$${fmt(item.total)}`,
     ]),
     styles: { fontSize: 8, cellPadding: 3 },
     headStyles: { fillColor: [100, 60, 180], textColor: 255, fontStyle: 'bold', fontSize: 8 },
@@ -132,17 +136,17 @@ export function generateCreditMemoPDF(data: CreditMemoData) {
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
   doc.text('SUB TOTAL', rightX - 50, sumY, { align: 'left' })
-  doc.text(`$${data.subtotal.toFixed(2)}`, rightX, sumY, { align: 'right' })
+  doc.text(`$${fmt(data.subtotal)}`, rightX, sumY, { align: 'right' })
   sumY += 6
   doc.text(`HST (${(data.tax_rate * 100).toFixed(0)}%)`, rightX - 50, sumY, { align: 'left' })
-  doc.text(`$${data.tax_amount.toFixed(2)}`, rightX, sumY, { align: 'right' })
+  doc.text(`$${fmt(data.tax_amount)}`, rightX, sumY, { align: 'right' })
   sumY += 2
   doc.line(rightX - 60, sumY, rightX, sumY)
   sumY += 5
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(10)
   doc.text('TOTAL CREDIT', rightX - 50, sumY, { align: 'left' })
-  doc.text(`$${data.total.toFixed(2)}`, rightX, sumY, { align: 'right' })
+  doc.text(`$${fmt(data.total)}`, rightX, sumY, { align: 'right' })
 
   const bottomY = doc.internal.pageSize.getHeight() - 20
   doc.setFont('helvetica', 'normal')

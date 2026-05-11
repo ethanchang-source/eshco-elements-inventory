@@ -7,6 +7,9 @@ interface InvoiceData {
   issued_at: string
   po_number?: string
   payment_terms?: string
+  currency?: string
+  wire_fee?: number
+  received_amount?: number
   customer: {
     company_name: string
     warehouse_address: string
@@ -37,6 +40,10 @@ const COMPANY = {
   phone: '(647) 400-7180',
   email: 'sales@iampurebeauty.com',
   hst: '752458133RT0001',
+}
+
+function fmt(n: number): string {
+  return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
 
 export function generateInvoicePDF(data: InvoiceData) {
@@ -112,9 +119,9 @@ export function generateInvoicePDF(data: InvoiceData) {
         item.sku,
         item.name,
         item.size,
-        `$${item.unit_price.toFixed(2)}`,
+        `$${fmt(item.unit_price)}`,
         item.qty.toString(),
-        `$${item.total.toFixed(2)}`,
+        `$${fmt(item.total)}`,
       ]),
       [{
         content: `Total number of Boxes: ${totalBoxes}`,
@@ -153,20 +160,33 @@ export function generateInvoicePDF(data: InvoiceData) {
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
   doc.text('SUB TOTAL', rightX - 50, sumY, { align: 'left' })
-  doc.text(`$${data.subtotal.toFixed(2)}`, rightX, sumY, { align: 'right' })
+  doc.text(`$${fmt(data.subtotal)}`, rightX, sumY, { align: 'right' })
   sumY += 6
   doc.text('S & H', rightX - 50, sumY, { align: 'left' })
-  doc.text(`$${data.shipping.toFixed(2)}`, rightX, sumY, { align: 'right' })
+  doc.text(`$${fmt(data.shipping)}`, rightX, sumY, { align: 'right' })
   sumY += 6
   doc.text(`HST (${(data.tax_rate * 100).toFixed(0)}%)`, rightX - 50, sumY, { align: 'left' })
-  doc.text(`$${data.tax_amount.toFixed(2)}`, rightX, sumY, { align: 'right' })
+  doc.text(`$${fmt(data.tax_amount)}`, rightX, sumY, { align: 'right' })
   sumY += 2
   doc.line(rightX - 60, sumY, rightX, sumY)
   sumY += 5
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(10)
   doc.text('TOTAL', rightX - 50, sumY, { align: 'left' })
-  doc.text(`$${data.total.toFixed(2)}`, rightX, sumY, { align: 'right' })
+  doc.text(`$${fmt(data.total)}`, rightX, sumY, { align: 'right' })
+
+  if (data.currency === 'USD' && data.wire_fee !== undefined && data.wire_fee > 0) {
+    sumY += 7
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.text('WIRE FEE', rightX - 50, sumY, { align: 'left' })
+    doc.text(`-$${fmt(data.wire_fee)}`, rightX, sumY, { align: 'right' })
+    sumY += 6
+    const received = data.received_amount !== undefined ? data.received_amount : data.total - data.wire_fee
+    doc.setFont('helvetica', 'bold')
+    doc.text('RECEIVED AMOUNT', rightX - 50, sumY, { align: 'left' })
+    doc.text(`$${fmt(received)}`, rightX, sumY, { align: 'right' })
+  }
 
   // 하단
   const bottomY = doc.internal.pageSize.getHeight() - 20
