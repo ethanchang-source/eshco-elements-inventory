@@ -8,6 +8,8 @@ import { formatCurrency } from '@/lib/utils'
 import { FlaskConical, Plus, Search, Package, Upload, Download, AlertTriangle } from 'lucide-react'
 import { parseCSV, downloadCSVTemplate } from '@/lib/csvImport'
 import * as XLSX from 'xlsx'
+import { logActivity } from '@/lib/activityLog'
+import UndoToast from '@/components/UndoToast'
 
 interface RawMaterial {
   id: string
@@ -84,6 +86,7 @@ function InventoryContent() {
   const [editRawForm, setEditRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '' })
   const [editPackForm, setEditPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '' })
   const [editFinishedStock, setEditFinishedStock] = useState('')
+  const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
 
   useEffect(() => { fetchAll() }, [])
 
@@ -91,7 +94,7 @@ function InventoryContent() {
     const [r, p, fg] = await Promise.all([
       supabase.from('raw_materials').select('*').order('item_no'),
       supabase.from('packaging').select('*').order('item_no'),
-      supabase.from('products').select('*').eq('is_active', true).order('sku'),
+      supabase.from('products').select('*').eq('is_active', true).is('deleted_at', null).order('sku'),
     ])
     setRawMaterials(r.data || [])
     setPackaging(p.data || [])
@@ -147,10 +150,21 @@ function InventoryContent() {
   async function handleDeleteRaw() {
     if (!editRaw) return
     if (!confirm(`Delete "${editRaw.name}"?`)) return
-    const { error } = await supabase.from('raw_materials').delete().eq('id', editRaw.id)
+    const old = { ...editRaw }
+    await logActivity(supabase, 'raw_materials', old.id, 'DELETE', old)
+    const { error } = await supabase.from('raw_materials').delete().eq('id', old.id)
     if (error) console.error('raw_material delete error:', error)
     setEditRaw(null)
     fetchAll()
+    setUndoToast({
+      message: `"${old.name}" deleted.`,
+      onUndo: async () => {
+        await supabase.from('raw_materials').upsert([old])
+        await logActivity(supabase, 'raw_materials', old.id, 'UPDATE', null, old)
+        setUndoToast(null)
+        fetchAll()
+      },
+    })
   }
 
   async function handleUpdatePack() {
@@ -172,10 +186,21 @@ function InventoryContent() {
   async function handleDeletePack() {
     if (!editPack) return
     if (!confirm(`Delete "${editPack.name}"?`)) return
-    const { error } = await supabase.from('packaging').delete().eq('id', editPack.id)
+    const old = { ...editPack }
+    await logActivity(supabase, 'packaging', old.id, 'DELETE', old)
+    const { error } = await supabase.from('packaging').delete().eq('id', old.id)
     if (error) console.error('packaging delete error:', error)
     setEditPack(null)
     fetchAll()
+    setUndoToast({
+      message: `"${old.name}" deleted.`,
+      onUndo: async () => {
+        await supabase.from('packaging').upsert([old])
+        await logActivity(supabase, 'packaging', old.id, 'UPDATE', null, old)
+        setUndoToast(null)
+        fetchAll()
+      },
+    })
   }
 
   async function handleUpdateFinished() {
@@ -188,11 +213,21 @@ function InventoryContent() {
 
   async function handleDeleteFinished() {
     if (!editFinished) return
-    if (!confirm(`Delete product "${editFinished.sku} – ${editFinished.name}"? This cannot be undone.`)) return
-    const { error } = await supabase.from('products').delete().eq('id', editFinished.id)
-    if (error) console.error('product delete error:', error)
+    if (!confirm(`Delete product "${editFinished.sku} – ${editFinished.name}"?`)) return
+    const old = { ...editFinished }
+    await logActivity(supabase, 'products', old.id, 'DELETE', old)
+    await supabase.from('products').update({ deleted_at: new Date().toISOString() }).eq('id', old.id)
     setEditFinished(null)
     fetchAll()
+    setUndoToast({
+      message: `"${old.sku}" deleted.`,
+      onUndo: async () => {
+        await supabase.from('products').update({ deleted_at: null }).eq('id', old.id)
+        await logActivity(supabase, 'products', old.id, 'UPDATE', null, old)
+        setUndoToast(null)
+        fetchAll()
+      },
+    })
   }
 
   async function handleRawSubmit() {
@@ -714,6 +749,7 @@ function InventoryContent() {
           </div>
         </div>
       )}
+      {undoToast && <UndoToast message={undoToast.message} onUndo={undoToast.onUndo} onDismiss={() => setUndoToast(null)} />}
     </MainLayout>
   )
 }

@@ -17,6 +17,7 @@ const pageTitles: { [key: string]: string } = {
   '/expenses': 'Expenses',
   '/reports': 'Reports',
   '/scan': 'Scan Stock',
+  '/activity': 'Activity Log',
 }
 
 export default function Header() {

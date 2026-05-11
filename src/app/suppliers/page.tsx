@@ -5,6 +5,8 @@ import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { Truck, Plus, Search, Globe, Phone, Mail, Upload, Download, TableIcon, AlertTriangle, MapPin } from 'lucide-react'
 import * as XLSX from 'xlsx'
+import { logActivity } from '@/lib/activityLog'
+import UndoToast from '@/components/UndoToast'
 
 interface Supplier {
   id: string
@@ -47,6 +49,7 @@ export default function Suppliers() {
   const [showImportConfirm, setShowImportConfirm] = useState(false)
   const [snapshot, setSnapshot] = useState<Supplier[] | null>(null)
   const [undoRestoring, setUndoRestoring] = useState(false)
+  const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
 
   useEffect(() => { fetchSuppliers() }, [])
 
@@ -61,7 +64,7 @@ export default function Suppliers() {
   }, [showModal, showImportConfirm])
 
   async function fetchSuppliers() {
-    const { data } = await supabase.from('suppliers').select('*').order('name')
+    const { data } = await supabase.from('suppliers').select('*').is('deleted_at', null).order('name')
     setSuppliers(data || [])
     setLoading(false)
   }
@@ -115,9 +118,12 @@ export default function Suppliers() {
       postal_code: billToSameAsShipTo ? form.ship_to_postal_code : form.postal_code,
     }
     if (editSupplier) {
+      const old = { ...editSupplier }
       await supabase.from('suppliers').update(payload).eq('id', editSupplier.id)
+      await logActivity(supabase, 'suppliers', editSupplier.id, 'UPDATE', old, payload)
     } else {
-      await supabase.from('suppliers').insert([payload])
+      const { data: inserted } = await supabase.from('suppliers').insert([payload]).select().single()
+      if (inserted) await logActivity(supabase, 'suppliers', inserted.id, 'INSERT', null, payload)
     }
     setShowModal(false)
     setEditSupplier(null)
@@ -129,10 +135,21 @@ export default function Suppliers() {
   async function handleDelete() {
     if (!editSupplier) return
     if (!confirm(`"${editSupplier.name}" 공급업체를 삭제하시겠습니까?`)) return
-    await supabase.from('suppliers').delete().eq('id', editSupplier.id)
+    const old = { ...editSupplier }
+    await logActivity(supabase, 'suppliers', old.id, 'DELETE', old)
+    await supabase.from('suppliers').update({ deleted_at: new Date().toISOString() }).eq('id', old.id)
     setShowModal(false)
     setEditSupplier(null)
     fetchSuppliers()
+    setUndoToast({
+      message: `"${old.name}" deleted.`,
+      onUndo: async () => {
+        await supabase.from('suppliers').update({ deleted_at: null }).eq('id', old.id)
+        await logActivity(supabase, 'suppliers', old.id, 'UPDATE', null, old)
+        setUndoToast(null)
+        fetchSuppliers()
+      },
+    })
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -477,6 +494,13 @@ export default function Suppliers() {
             </div>
           </div>
         </div>
+      )}
+      {undoToast && (
+        <UndoToast
+          message={undoToast.message}
+          onUndo={undoToast.onUndo}
+          onDismiss={() => setUndoToast(null)}
+        />
       )}
     </MainLayout>
   )

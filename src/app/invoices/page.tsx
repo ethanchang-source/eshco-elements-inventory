@@ -9,6 +9,8 @@ import { FileText, Plus, Search, Download, Trash2, Upload, TableIcon } from 'luc
 import { generateInvoicePDF } from '@/lib/generateInvoicePDF'
 import { generateCreditMemoPDF } from '@/lib/generateCreditMemoPDF'
 import * as XLSX from 'xlsx'
+import { logActivity } from '@/lib/activityLog'
+import UndoToast from '@/components/UndoToast'
 
 interface Customer {
   id: string
@@ -148,6 +150,8 @@ function InvoicesContent() {
   const [usImporting, setUsImporting] = useState(false)
   const usImportFileRef = useRef<HTMLInputElement>(null)
 
+  const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
+
   const [editInvoice, setEditInvoice] = useState<Invoice | null>(null)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([])
@@ -179,11 +183,11 @@ function InvoicesContent() {
 
   async function fetchAll() {
     const [cad, usd, cust, prod, cm] = await Promise.all([
-      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').eq('currency', 'CAD').order('invoice_no', { ascending: false }),
-      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').eq('currency', 'USD').order('invoice_no', { ascending: false }),
-      supabase.from('customers').select('*').order('company_name'),
-      supabase.from('products').select('*').eq('is_active', true).order('sku'),
-      supabase.from('credit_memos').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').order('memo_no', { ascending: false }),
+      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').eq('currency', 'CAD').is('deleted_at', null).order('invoice_no', { ascending: false }),
+      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').eq('currency', 'USD').is('deleted_at', null).order('invoice_no', { ascending: false }),
+      supabase.from('customers').select('*').is('deleted_at', null).order('company_name'),
+      supabase.from('products').select('*').eq('is_active', true).is('deleted_at', null).order('sku'),
+      supabase.from('credit_memos').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').is('deleted_at', null).order('memo_no', { ascending: false }),
     ])
     setCadInvoices(cad.data || [])
     setUsdInvoices(usd.data || [])
@@ -394,10 +398,22 @@ function InvoicesContent() {
   }
 
   async function handleDelete(invoiceId: string) {
-    if (!confirm('Are you sure you want to delete this invoice? This cannot be undone.')) return
-    await supabase.from('invoice_items').delete().eq('invoice_id', invoiceId)
-    await supabase.from('invoices').delete().eq('id', invoiceId)
+    if (!confirm('Delete this invoice?')) return
+    const inv = cadInvoices.find(i => i.id === invoiceId) || usdInvoices.find(i => i.id === invoiceId)
+    if (!inv) return
+    const old = { ...inv }
+    await logActivity(supabase, 'invoices', invoiceId, 'DELETE', old)
+    await supabase.from('invoices').update({ deleted_at: new Date().toISOString() }).eq('id', invoiceId)
     fetchAll()
+    setUndoToast({
+      message: `Invoice "${old.invoice_no}" deleted.`,
+      onUndo: async () => {
+        await supabase.from('invoices').update({ deleted_at: null }).eq('id', invoiceId)
+        await logActivity(supabase, 'invoices', invoiceId, 'UPDATE', null, old)
+        setUndoToast(null)
+        fetchAll()
+      },
+    })
   }
 
   async function handleExport() {
@@ -1099,10 +1115,22 @@ function InvoicesContent() {
   }
 
   async function handleCmDelete(id: string) {
-    if (!confirm('Delete this credit memo? This cannot be undone.')) return
-    await supabase.from('credit_memo_items').delete().eq('memo_id', id)
-    await supabase.from('credit_memos').delete().eq('id', id)
+    if (!confirm('Delete this credit memo?')) return
+    const cm = creditMemos.find(m => m.id === id)
+    if (!cm) return
+    const old = { ...cm }
+    await logActivity(supabase, 'credit_memos', id, 'DELETE', old)
+    await supabase.from('credit_memos').update({ deleted_at: new Date().toISOString() }).eq('id', id)
     fetchAll()
+    setUndoToast({
+      message: `Credit memo "${old.memo_no}" deleted.`,
+      onUndo: async () => {
+        await supabase.from('credit_memos').update({ deleted_at: null }).eq('id', id)
+        await logActivity(supabase, 'credit_memos', id, 'UPDATE', null, old)
+        setUndoToast(null)
+        fetchAll()
+      },
+    })
   }
 
   async function updateCmStatus(id: string, status: string) {
@@ -1863,6 +1891,14 @@ function InvoicesContent() {
             </div>
           </div>
         </div>
+      )}
+
+      {undoToast && (
+        <UndoToast
+          message={undoToast.message}
+          onUndo={undoToast.onUndo}
+          onDismiss={() => setUndoToast(null)}
+        />
       )}
 
       {showModal && (

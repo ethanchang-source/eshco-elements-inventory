@@ -6,6 +6,8 @@ import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
 import { Plus, Download, Upload, X, Paperclip, AlertTriangle, Eye } from 'lucide-react'
 import * as XLSX from 'xlsx'
+import { logActivity } from '@/lib/activityLog'
+import UndoToast from '@/components/UndoToast'
 
 interface Expense {
   id: string
@@ -129,6 +131,7 @@ export default function Expenses() {
   const [rangeToMonth, setRangeToMonth] = useState(currentMonthIdx)
   const [rangeError, setRangeError] = useState('')
   const [exportingRange, setExportingRange] = useState(false)
+  const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
 
   useEffect(() => { fetchExpenses(activeYear) }, [activeYear])
 
@@ -149,6 +152,7 @@ export default function Expenses() {
     const { data } = await supabase
       .from('expenses')
       .select('*')
+      .is('deleted_at', null)
       .gte('expense_date', `${year}-01-01`)
       .lte('expense_date', `${year}-12-31`)
       .order('expense_date', { ascending: false })
@@ -349,22 +353,22 @@ export default function Expenses() {
 
   async function handleDelete() {
     if (!editExpense) return
-    if (!confirm('Delete this expense? This cannot be undone.')) return
-    if (editExpense.receipt_url) {
-      const parts = editExpense.receipt_url.split('/receipts/')
-      if (parts[1]) await supabase.storage.from('receipts').remove([parts[1]])
-    }
-    if (editExpense.receipt_urls?.length) {
-      const paths = editExpense.receipt_urls.flatMap(u => {
-        const parts = u.split('/receipts/')
-        return parts[1] ? [parts[1]] : []
-      })
-      if (paths.length) await supabase.storage.from('receipts').remove(paths)
-    }
-    await supabase.from('expenses').delete().eq('id', editExpense.id)
+    if (!confirm('Delete this expense?')) return
+    const old = { ...editExpense }
+    await logActivity(supabase, 'expenses', old.id, 'DELETE', old)
+    await supabase.from('expenses').update({ deleted_at: new Date().toISOString() }).eq('id', old.id)
     setShowModal(false)
     setEditExpense(null)
     fetchExpenses(activeYear)
+    setUndoToast({
+      message: `Expense "${old.payee || old.category || old.id.slice(0, 8)}" deleted.`,
+      onUndo: async () => {
+        await supabase.from('expenses').update({ deleted_at: null }).eq('id', old.id)
+        await logActivity(supabase, 'expenses', old.id, 'UPDATE', null, old)
+        setUndoToast(null)
+        fetchExpenses(activeYear)
+      },
+    })
   }
 
   function openReceiptViewer(url: string) {
@@ -986,6 +990,13 @@ export default function Expenses() {
             <X size={20} />
           </button>
         </div>
+      )}
+      {undoToast && (
+        <UndoToast
+          message={undoToast.message}
+          onUndo={undoToast.onUndo}
+          onDismiss={() => setUndoToast(null)}
+        />
       )}
     </MainLayout>
   )

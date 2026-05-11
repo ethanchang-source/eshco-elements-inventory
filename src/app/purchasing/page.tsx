@@ -6,6 +6,8 @@ import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
 import { ShoppingCart, Plus, Search, Download, X, Trash2, Clock, Paperclip } from 'lucide-react'
 import * as XLSX from 'xlsx'
+import { logActivity } from '@/lib/activityLog'
+import UndoToast from '@/components/UndoToast'
 
 interface Supplier { id: string; name: string }
 interface RawMaterial { id: string; item_no: string; name: string; unit: string; cost_per_unit_cad: number }
@@ -147,6 +149,8 @@ export default function Purchasing() {
   const [pendingRollbackStatus, setPendingRollbackStatus] = useState<'ordered' | 'shipped'>('ordered')
   const [rollbackTransitioning, setRollbackTransitioning] = useState(false)
 
+  const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
+
   // Material history modal
   const [showHistory, setShowHistory] = useState(false)
   const [historyLabel, setHistoryLabel] = useState('')
@@ -174,6 +178,7 @@ export default function Purchasing() {
       supabase
         .from('purchase_orders')
         .select('*, suppliers(name), raw_materials(item_no, name), packaging(item_no, name)')
+        .is('deleted_at', null)
         .order('ordered_at', { ascending: false }),
       supabase.from('suppliers').select('id, name').order('name'),
       supabase.from('raw_materials').select('id, item_no, name, unit, cost_per_unit_cad').order('item_no'),
@@ -433,35 +438,51 @@ export default function Purchasing() {
     setDeleting(true)
     setDeleteError('')
 
-    console.log('[handleDelete] starting delete for PO id:', detail.id, 'status:', detail.status)
+    const old = { ...detail }
+    const wasReceived = old.status === 'received'
 
-    if (detail.status === 'received') {
-      if (detail.item_type === 'raw_material' && detail.raw_material_id) {
-        const { data: mat, error: matErr } = await supabase.from('raw_materials').select('current_stock').eq('id', detail.raw_material_id).single()
-        if (matErr) console.error('[handleDelete] raw_materials fetch error:', matErr)
-        const newStock = Math.max(0, (mat?.current_stock || 0) - detail.qty_ordered)
-        console.log('[handleDelete] updating raw_material current_stock to:', newStock)
-        const { error: updErr } = await supabase.from('raw_materials').update({ current_stock: newStock }).eq('id', detail.raw_material_id)
-        if (updErr) { console.error('[handleDelete] raw_materials update error:', updErr); setDeleteError(updErr.message || 'Failed to update raw material stock.'); setDeleting(false); return }
-      } else if (detail.item_type === 'packaging' && detail.packaging_id) {
-        const { data: pkg, error: pkgErr } = await supabase.from('packaging').select('current_stock').eq('id', detail.packaging_id).single()
-        if (pkgErr) console.error('[handleDelete] packaging fetch error:', pkgErr)
-        const newStock = Math.max(0, (pkg?.current_stock || 0) - detail.qty_ordered)
-        console.log('[handleDelete] updating packaging current_stock to:', newStock)
-        const { error: updErr } = await supabase.from('packaging').update({ current_stock: newStock }).eq('id', detail.packaging_id)
-        if (updErr) { console.error('[handleDelete] packaging update error:', updErr); setDeleteError(updErr.message || 'Failed to update packaging stock.'); setDeleting(false); return }
+    if (wasReceived) {
+      if (old.item_type === 'raw_material' && old.raw_material_id) {
+        const { data: mat, error: matErr } = await supabase.from('raw_materials').select('current_stock').eq('id', old.raw_material_id).single()
+        if (matErr) { setDeleteError(matErr.message || 'Failed to fetch stock.'); setDeleting(false); return }
+        const newStock = Math.max(0, (mat?.current_stock || 0) - old.qty_ordered)
+        const { error: updErr } = await supabase.from('raw_materials').update({ current_stock: newStock }).eq('id', old.raw_material_id)
+        if (updErr) { setDeleteError(updErr.message || 'Failed to update raw material stock.'); setDeleting(false); return }
+      } else if (old.item_type === 'packaging' && old.packaging_id) {
+        const { data: pkg, error: pkgErr } = await supabase.from('packaging').select('current_stock').eq('id', old.packaging_id).single()
+        if (pkgErr) { setDeleteError(pkgErr.message || 'Failed to fetch stock.'); setDeleting(false); return }
+        const newStock = Math.max(0, (pkg?.current_stock || 0) - old.qty_ordered)
+        const { error: updErr } = await supabase.from('packaging').update({ current_stock: newStock }).eq('id', old.packaging_id)
+        if (updErr) { setDeleteError(updErr.message || 'Failed to update packaging stock.'); setDeleting(false); return }
       }
     }
 
-    console.log('[handleDelete] deleting purchase_orders row id:', detail.id)
-    const { error } = await supabase.from('purchase_orders').delete().eq('id', detail.id)
-    if (error) { console.error('[handleDelete] PO delete error:', error); setDeleteError(error.message || 'Failed to delete purchase order.'); setDeleting(false); return }
+    await logActivity(supabase, 'purchase_orders', old.id, 'DELETE', old)
+    const { error } = await supabase.from('purchase_orders').update({ deleted_at: new Date().toISOString() }).eq('id', old.id)
+    if (error) { setDeleteError(error.message || 'Failed to delete purchase order.'); setDeleting(false); return }
 
-    console.log('[handleDelete] delete successful')
     setDeleting(false)
     setShowDeleteConfirm(false)
     setShowDetail(false)
     fetchAll()
+    setUndoToast({
+      message: `PO "${old.po_number || old.id.slice(0, 8)}" deleted.`,
+      onUndo: async () => {
+        await supabase.from('purchase_orders').update({ deleted_at: null }).eq('id', old.id)
+        if (wasReceived) {
+          if (old.item_type === 'raw_material' && old.raw_material_id) {
+            const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', old.raw_material_id).single()
+            await supabase.from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + old.qty_ordered }).eq('id', old.raw_material_id)
+          } else if (old.item_type === 'packaging' && old.packaging_id) {
+            const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', old.packaging_id).single()
+            await supabase.from('packaging').update({ current_stock: (pkg?.current_stock || 0) + old.qty_ordered }).eq('id', old.packaging_id)
+          }
+        }
+        await logActivity(supabase, 'purchase_orders', old.id, 'UPDATE', null, old)
+        setUndoToast(null)
+        fetchAll()
+      },
+    })
   }
 
   function handleExport() {
@@ -1214,6 +1235,13 @@ export default function Purchasing() {
             </div>
           </div>
         </div>
+      )}
+      {undoToast && (
+        <UndoToast
+          message={undoToast.message}
+          onUndo={undoToast.onUndo}
+          onDismiss={() => setUndoToast(null)}
+        />
       )}
     </MainLayout>
   )

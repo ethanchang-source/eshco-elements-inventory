@@ -7,6 +7,8 @@ import { formatCurrency } from '@/lib/utils'
 import { Package, Plus, Search, Upload, Download, TableIcon, AlertTriangle } from 'lucide-react'
 import { parseCSV, downloadCSVTemplate } from '@/lib/csvImport'
 import * as XLSX from 'xlsx'
+import { logActivity } from '@/lib/activityLog'
+import UndoToast from '@/components/UndoToast'
 
 interface Product {
   id: string
@@ -42,11 +44,12 @@ export default function Products() {
   const [showImportConfirm, setShowImportConfirm] = useState(false)
   const [snapshot, setSnapshot] = useState<Product[] | null>(null)
   const [undoRestoring, setUndoRestoring] = useState(false)
+  const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
 
   useEffect(() => { fetchProducts() }, [])
 
   async function fetchProducts() {
-    const { data } = await supabase.from('products').select('*').order('sku')
+    const { data } = await supabase.from('products').select('*').is('deleted_at', null).order('sku')
     setProducts(data || [])
     setLoading(false)
   }
@@ -71,7 +74,8 @@ export default function Products() {
 
   async function handleUpdate() {
     if (!editProduct) return
-    const { error } = await supabase.from('products').update({
+    const old = { ...editProduct }
+    const payload = {
       sku: editForm.sku.trim(),
       name: editForm.name.trim(),
       size_oz: parseFloat(editForm.size_oz) || 0,
@@ -84,19 +88,31 @@ export default function Products() {
       reorder_threshold: parseInt(editForm.reorder_threshold) || 0,
       is_active: editForm.is_active === 'true',
       notes: editForm.notes.trim() || null,
-    }).eq('id', editProduct.id)
+    }
+    const { error } = await supabase.from('products').update(payload).eq('id', editProduct.id)
     if (error) console.error('product update error:', error)
+    await logActivity(supabase, 'products', editProduct.id, 'UPDATE', old, payload)
     setEditProduct(null)
     fetchProducts()
   }
 
   async function handleDeleteProduct() {
     if (!editProduct) return
-    if (!confirm(`Delete "${editProduct.sku} – ${editProduct.name}"? This cannot be undone.`)) return
-    const { error } = await supabase.from('products').delete().eq('id', editProduct.id)
-    if (error) console.error('product delete error:', error)
+    if (!confirm(`Delete "${editProduct.sku} – ${editProduct.name}"?`)) return
+    const old = { ...editProduct }
+    await logActivity(supabase, 'products', old.id, 'DELETE', old)
+    await supabase.from('products').update({ deleted_at: new Date().toISOString() }).eq('id', old.id)
     setEditProduct(null)
     fetchProducts()
+    setUndoToast({
+      message: `"${old.sku}" deleted.`,
+      onUndo: async () => {
+        await supabase.from('products').update({ deleted_at: null }).eq('id', old.id)
+        await logActivity(supabase, 'products', old.id, 'UPDATE', null, old)
+        setUndoToast(null)
+        fetchProducts()
+      },
+    })
   }
 
   async function handleAddSubmit() {
@@ -414,6 +430,13 @@ export default function Products() {
             </div>
           </div>
         </div>
+      )}
+      {undoToast && (
+        <UndoToast
+          message={undoToast.message}
+          onUndo={undoToast.onUndo}
+          onDismiss={() => setUndoToast(null)}
+        />
       )}
     </MainLayout>
   )

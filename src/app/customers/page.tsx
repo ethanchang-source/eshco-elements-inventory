@@ -6,6 +6,8 @@ import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
 import { Users, Plus, Search, MapPin, Phone, Mail, Upload, Download, TableIcon, AlertTriangle } from 'lucide-react'
 import * as XLSX from 'xlsx'
+import { logActivity } from '@/lib/activityLog'
+import UndoToast from '@/components/UndoToast'
 
 interface Customer {
   id: string
@@ -63,6 +65,7 @@ export default function Customers() {
   const [savingPrices, setSavingPrices] = useState(false)
   const [pricesSaveMsg, setPricesSaveMsg] = useState('')
   const [billToSameAsShipTo, setBillToSameAsShipTo] = useState(false)
+  const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
 
   useEffect(() => { fetchCustomers(); fetchProducts() }, [])
 
@@ -75,7 +78,7 @@ export default function Customers() {
   }, [showModal])
 
   async function fetchCustomers() {
-    const { data } = await supabase.from('customers').select('*').order('company_name')
+    const { data } = await supabase.from('customers').select('*').is('deleted_at', null).order('company_name')
     setCustomers(data || [])
     setLoading(false)
   }
@@ -141,10 +144,21 @@ export default function Customers() {
   async function handleDelete() {
     if (!editCustomer) return
     if (!confirm(`Delete customer "${editCustomer.company_name}"?`)) return
-    await supabase.from('customers').delete().eq('id', editCustomer.id)
+    const old = { ...editCustomer }
+    await logActivity(supabase, 'customers', old.id, 'DELETE', old)
+    await supabase.from('customers').update({ deleted_at: new Date().toISOString() }).eq('id', old.id)
     setShowModal(false)
     setEditCustomer(null)
     fetchCustomers()
+    setUndoToast({
+      message: `"${old.company_name}" deleted.`,
+      onUndo: async () => {
+        await supabase.from('customers').update({ deleted_at: null }).eq('id', old.id)
+        await logActivity(supabase, 'customers', old.id, 'UPDATE', null, old)
+        setUndoToast(null)
+        fetchCustomers()
+      },
+    })
   }
 
   async function handleSubmit() {
@@ -160,9 +174,12 @@ export default function Customers() {
       } : {}),
     }
     if (editCustomer) {
+      const old = { ...editCustomer }
       await supabase.from('customers').update(payload).eq('id', editCustomer.id)
+      await logActivity(supabase, 'customers', editCustomer.id, 'UPDATE', old, payload)
     } else {
-      await supabase.from('customers').insert([payload])
+      const { data: inserted } = await supabase.from('customers').insert([payload]).select().single()
+      if (inserted) await logActivity(supabase, 'customers', inserted.id, 'INSERT', null, payload)
     }
     setShowModal(false)
     setEditCustomer(null)
@@ -635,6 +652,13 @@ export default function Customers() {
             </>}
           </div>
         </div>
+      )}
+      {undoToast && (
+        <UndoToast
+          message={undoToast.message}
+          onUndo={undoToast.onUndo}
+          onDismiss={() => setUndoToast(null)}
+        />
       )}
     </MainLayout>
   )
