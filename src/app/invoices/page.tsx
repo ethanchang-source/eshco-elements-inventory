@@ -98,7 +98,8 @@ function InvoicesContent() {
     return 'invoices'
   }
 
-  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [cadInvoices, setCadInvoices] = useState<Invoice[]>([])
+  const [usdInvoices, setUsdInvoices] = useState<Invoice[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
@@ -177,13 +178,15 @@ function InvoicesContent() {
   }, [showModal, showCmModal, showDeliveryModal, showPaymentModal, showAppliedModal, showUsImportModal])
 
   async function fetchAll() {
-    const [inv, cust, prod, cm] = await Promise.all([
-      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').order('invoice_no', { ascending: false }),
+    const [cad, usd, cust, prod, cm] = await Promise.all([
+      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').eq('currency', 'CAD').order('invoice_no', { ascending: false }),
+      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').eq('currency', 'USD').order('invoice_no', { ascending: false }),
       supabase.from('customers').select('*').order('company_name'),
       supabase.from('products').select('*').eq('is_active', true).order('sku'),
       supabase.from('credit_memos').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').order('memo_no', { ascending: false }),
     ])
-    setInvoices(inv.data || [])
+    setCadInvoices(cad.data || [])
+    setUsdInvoices(usd.data || [])
     setCustomers(cust.data || [])
     setProducts(prod.data || [])
     setCreditMemos(cm.data || [])
@@ -403,7 +406,7 @@ function InvoicesContent() {
       .select('*, invoices(invoice_no), products(sku, name, size_oz)')
       .order('created_at')
 
-    const summaryRows = invoices.map(inv => ({
+    const summaryRows = cadInvoices.map(inv => ({
       'Invoice #': inv.invoice_no,
       'Customer': inv.customers?.company_name || '',
       'Date': inv.issued_at,
@@ -434,15 +437,14 @@ function InvoicesContent() {
   }
 
   async function handleUsExport() {
-    const usInvoices = invoices.filter(inv => inv.currency === 'USD')
-    const usIds = usInvoices.map(inv => inv.id)
+    const usIds = usdInvoices.map(inv => inv.id)
     const { data: items } = await supabase
       .from('invoice_items')
       .select('*, invoices(invoice_no), products(sku, name, size_oz)')
       .in('invoice_id', usIds)
       .order('created_at')
 
-    const summaryRows = usInvoices.map(inv => ({
+    const summaryRows = usdInvoices.map(inv => ({
       'Invoice #': inv.invoice_no,
       'Customer': inv.customers?.company_name || '',
       'Date': inv.issued_at,
@@ -1137,8 +1139,7 @@ function InvoicesContent() {
   const filteredCmHST = filteredCm.reduce((s, cm) => s + (cm.tax_amount_cad || 0), 0)
   const filteredCmTotal = filteredCm.reduce((s, cm) => s + (cm.total_cad || 0), 0)
 
-  const filteredUs = invoices.filter(inv => {
-    if (inv.currency !== 'USD') return false
+  const filteredUs = usdInvoices.filter(inv => {
     const matchSearch = !usSearch ||
       inv.invoice_no?.toLowerCase().includes(usSearch.toLowerCase()) ||
       inv.customers?.company_name?.toLowerCase().includes(usSearch.toLowerCase())
@@ -1181,7 +1182,7 @@ function InvoicesContent() {
     fetchAll()
   }
 
-  const filtered = invoices.filter(inv => {
+  const filtered = cadInvoices.filter(inv => {
     const matchSearch = !search ||
       inv.invoice_no?.toLowerCase().includes(search.toLowerCase()) ||
       inv.customers?.company_name?.toLowerCase().includes(search.toLowerCase())
