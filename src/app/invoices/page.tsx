@@ -884,6 +884,7 @@ function InvoicesContent() {
         .from('invoices')
         .select('invoice_no')
         .like('invoice_no', `${yr}-U%`)
+        .is('deleted_at', null)
         .order('invoice_no', { ascending: false })
         .limit(1)
       const last = data?.[0]?.invoice_no || ''
@@ -897,6 +898,7 @@ function InvoicesContent() {
         .eq('currency', 'CAD')
         .like('invoice_no', `${yr}-%`)
         .not('invoice_no', 'like', `${yr}-U%`)
+        .is('deleted_at', null)
         .order('invoice_no', { ascending: false })
         .limit(1)
       const last = data?.[0]?.invoice_no || ''
