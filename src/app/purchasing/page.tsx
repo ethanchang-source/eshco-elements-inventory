@@ -13,6 +13,25 @@ interface Supplier { id: string; name: string }
 interface RawMaterial { id: string; item_no: string; name: string; unit: string; cost_per_unit_cad: number }
 interface PackagingItem { id: string; item_no: string; name: string; type: string | null; cost_cad: number }
 
+interface POItem {
+  id: string
+  po_id: string
+  material_type: 'raw_material' | 'packaging'
+  material_id: string
+  quantity: number
+  unit_price: number
+  line_total: number
+  raw_materials?: { item_no: string; name: string; unit: string }
+  packaging?: { item_no: string; name: string }
+}
+
+interface LineItemForm {
+  material_type: 'raw_material' | 'packaging'
+  material_id: string
+  quantity: string
+  unit_price: string
+}
+
 interface PO {
   id: string
   supplier_id: string
@@ -32,7 +51,6 @@ interface PO {
   received_at: string | null
   notes: string | null
   po_number: string | null
-  // columns added via SQL — optional until migration runs
   invoice_url?: string | null
   amount_usd?: number | null
   exchange_rate?: number | null
@@ -59,7 +77,18 @@ const STATUS_STYLE: Record<string, { bg: string; color: string; label: string }>
   cancelled: { bg: '#fef2f2', color: '#dc2626', label: 'Cancelled' },
 }
 
-const emptyForm = {
+const emptyCreateForm = {
+  supplier_id: '',
+  ordered_at: new Date().toISOString().slice(0, 10),
+  notes: '',
+  shipping_cad: '',
+  brokerage_cad: '',
+  duty_cad: '',
+  amount_usd: '',
+  amount_cad: '',
+}
+
+const emptyEditForm = {
   supplier_id: '',
   item_type: 'raw_material' as 'raw_material' | 'packaging',
   raw_material_id: '',
@@ -75,6 +104,8 @@ const emptyForm = {
   amount_usd: '',
   amount_cad: '',
 }
+
+const emptyLineItem: LineItemForm = { material_type: 'raw_material', material_id: '', quantity: '', unit_price: '' }
 
 function calcDays(from: string | null, to: string | null): number | null {
   if (!from || !to) return null
@@ -111,15 +142,16 @@ const UNIT_SELECT = (value: string, onChange: (v: string) => void, style: React.
 
 export default function Purchasing() {
   const [pos, setPOs] = useState<PO[]>([])
+  const [poItems, setPoItems] = useState<Record<string, POItem[]>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([])
   const [packaging, setPackaging] = useState<PackagingItem[]>([])
 
-  // Create modal
   const [showCreate, setShowCreate] = useState(false)
-  const [form, setForm] = useState({ ...emptyForm })
+  const [createForm, setCreateForm] = useState({ ...emptyCreateForm })
+  const [lineItems, setLineItems] = useState<LineItemForm[]>([{ ...emptyLineItem }])
   const [saving, setSaving] = useState(false)
   const [createError, setCreateError] = useState('')
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null)
@@ -127,32 +159,27 @@ export default function Purchasing() {
   const editInvoiceInputRef = useRef<HTMLInputElement>(null)
   const [labelQtys, setLabelQtys] = useState<Record<string, string>>({})
 
-  // Detail/Edit modal
   const [showDetail, setShowDetail] = useState(false)
   const [detail, setDetail] = useState<PO | null>(null)
-  const [editForm, setEditForm] = useState({ ...emptyForm })
+  const [editForm, setEditForm] = useState({ ...emptyEditForm })
   const [updateError, setUpdateError] = useState('')
   const [updating, setUpdating] = useState(false)
 
-  // Status transition modal
   const [showStatusModal, setShowStatusModal] = useState(false)
   const [pendingStatus, setPendingStatus] = useState<'shipped' | 'received' | 'cancelled' | 'ordered'>('shipped')
   const [statusDate, setStatusDate] = useState(new Date().toISOString().slice(0, 10))
   const [statusTransitioning, setStatusTransitioning] = useState(false)
 
-  // Delete confirm modal
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
 
-  // Rollback from received modal
   const [showRollbackConfirm, setShowRollbackConfirm] = useState(false)
   const [pendingRollbackStatus, setPendingRollbackStatus] = useState<'ordered' | 'shipped'>('ordered')
   const [rollbackTransitioning, setRollbackTransitioning] = useState(false)
 
   const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
 
-  // Material history modal
   const [showHistory, setShowHistory] = useState(false)
   const [historyLabel, setHistoryLabel] = useState('')
   const [historyData, setHistoryData] = useState<HistoryEntry[]>([])
@@ -183,7 +210,7 @@ export default function Purchasing() {
   }, [showCreate, showDetail, showStatusModal, showDeleteConfirm, showHistory, showRollbackConfirm])
 
   async function fetchAll() {
-    const [posRes, suppRes, rawRes, pkgRes] = await Promise.all([
+    const [posRes, suppRes, rawRes, pkgRes, itemsRes] = await Promise.all([
       supabase
         .from('purchase_orders')
         .select('*, suppliers(name), raw_materials(item_no, name), packaging(item_no, name)')
@@ -192,11 +219,18 @@ export default function Purchasing() {
       supabase.from('suppliers').select('id, name').order('name'),
       supabase.from('raw_materials').select('id, item_no, name, unit, cost_per_unit_cad').order('item_no'),
       supabase.from('packaging').select('id, item_no, name, type, cost_cad').order('item_no'),
+      supabase.from('purchase_order_items').select('*, raw_materials(item_no, name, unit), packaging(item_no, name)'),
     ])
     setPOs(posRes.data || [])
     setSuppliers(suppRes.data || [])
     setRawMaterials(rawRes.data || [])
     setPackaging(pkgRes.data || [])
+    const grouped: Record<string, POItem[]> = {}
+    for (const item of (itemsRes.data || []) as POItem[]) {
+      if (!grouped[item.po_id]) grouped[item.po_id] = []
+      grouped[item.po_id].push(item)
+    }
+    setPoItems(grouped)
     setLoading(false)
   }
 
@@ -219,6 +253,44 @@ export default function Purchasing() {
     if (po.item_type === 'raw_material' && po.raw_materials) return `${po.raw_materials.item_no} — ${po.raw_materials.name}`
     if (po.item_type === 'packaging' && po.packaging) return `${po.packaging.item_no} — ${po.packaging.name}`
     return '—'
+  }
+
+  function getPODisplayLabel(po: PO): string {
+    const items = poItems[po.id]
+    if (items && items.length > 0) {
+      if (items.length === 1) {
+        const item = items[0]
+        if (item.material_type === 'raw_material' && item.raw_materials) return `${item.raw_materials.item_no} — ${item.raw_materials.name}`
+        if (item.material_type === 'packaging' && item.packaging) return `${item.packaging.item_no} — ${item.packaging.name}`
+      }
+      return `${items.length} items`
+    }
+    return getMaterialLabel(po)
+  }
+
+  function getLineItemLabel(item: POItem): string {
+    if (item.material_type === 'raw_material' && item.raw_materials) return `${item.raw_materials.item_no} — ${item.raw_materials.name}`
+    if (item.material_type === 'packaging' && item.packaging) return `${item.packaging.item_no} — ${item.packaging.name}`
+    return item.material_id
+  }
+
+  function updateLineItem(index: number, field: keyof LineItemForm, value: string) {
+    setLineItems(prev => {
+      const updated = [...prev]
+      const item = { ...updated[index], [field]: value }
+      if (field === 'material_type') { item.material_id = ''; item.unit_price = '' }
+      if (field === 'material_id') {
+        if (item.material_type === 'raw_material') {
+          const mat = rawMaterials.find(m => m.id === value)
+          if (mat?.cost_per_unit_cad != null) item.unit_price = String(mat.cost_per_unit_cad)
+        } else {
+          const pkg = packaging.find(p => p.id === value)
+          if (pkg?.cost_cad != null) item.unit_price = String(pkg.cost_cad)
+        }
+      }
+      updated[index] = item
+      return updated
+    })
   }
 
   function openDetail(po: PO) {
@@ -245,10 +317,9 @@ export default function Purchasing() {
 
   async function handleCreate() {
     setCreateError('')
-    if (!form.supplier_id) { setCreateError('Please select a supplier.'); return }
-    if (!form.ordered_at) { setCreateError('Please enter an order date.'); return }
+    if (!createForm.supplier_id) { setCreateError('Please select a supplier.'); return }
+    if (!createForm.ordered_at) { setCreateError('Please enter an order date.'); return }
 
-    // Upload invoice helper (shared for both paths)
     async function uploadInvoice(): Promise<string | null> {
       if (!invoiceFile) return null
       const ext = invoiceFile.name.split('.').pop()
@@ -259,83 +330,82 @@ export default function Purchasing() {
       return urlData.publicUrl
     }
 
+    type ItemInsert = { material_type: string; material_id: string; quantity: number; unit_price: number; line_total: number }
+    let itemsToInsert: ItemInsert[]
+
     if (isDigitalLabels) {
-      const itemsToCreate = labelItems.filter(item => parseFloat(labelQtys[item.id] || '0') > 0)
-      if (itemsToCreate.length === 0) { setCreateError('Please enter a quantity for at least one label item.'); return }
-      setSaving(true)
-      const invoice_url = await uploadInvoice()
-      let failCount = 0
-      for (const item of itemsToCreate) {
-        const { error } = await supabase.from('purchase_orders').insert([{
-          supplier_id: form.supplier_id,
-          item_type: 'packaging',
-          raw_material_id: null,
-          packaging_id: item.id,
-          qty_ordered: parseFloat(labelQtys[item.id]),
-          qty_received: null,
-          unit: 'ea',
-          cost_total_cad: 0,
-          status: 'ordered',
-          ordered_at: form.ordered_at,
-          notes: form.notes || null,
-          invoice_url,
-        }])
-        if (error) { console.error('Label PO insert error:', error); failCount++ }
-      }
-      if (failCount > 0) { setCreateError(`${failCount} PO(s) failed to create.`); setSaving(false); return }
-      setSaving(false)
-      setShowCreate(false)
-      setCreateError('')
-      setForm({ ...emptyForm })
-      setLabelQtys({})
-      setInvoiceFile(null)
-      fetchAll()
-      return
+      const filtered = labelItems.filter(item => parseFloat(labelQtys[item.id] || '0') > 0)
+      if (filtered.length === 0) { setCreateError('Please enter a quantity for at least one label item.'); return }
+      itemsToInsert = filtered.map(item => {
+        const qty = parseFloat(labelQtys[item.id])
+        const unitPrice = item.cost_cad || 0
+        return { material_type: 'packaging', material_id: item.id, quantity: qty, unit_price: unitPrice, line_total: qty * unitPrice }
+      })
+    } else {
+      const valid = lineItems.filter(li => li.material_id && parseFloat(li.quantity || '0') > 0)
+      if (valid.length === 0) { setCreateError('Please add at least one item with a material and quantity.'); return }
+      itemsToInsert = valid.map(li => {
+        const qty = parseFloat(li.quantity)
+        const unitPrice = parseFloat(li.unit_price || '0')
+        return { material_type: li.material_type, material_id: li.material_id, quantity: qty, unit_price: unitPrice, line_total: qty * unitPrice }
+      })
     }
 
-    // Normal single-item validation
-    if (!form.qty_ordered || parseFloat(form.qty_ordered) <= 0) { setCreateError('Please enter a valid quantity.'); return }
-    if (!form.cost_total_cad || parseFloat(form.cost_total_cad) < 0) { setCreateError('Please enter the total cost.'); return }
-    if (form.item_type === 'raw_material' && !form.raw_material_id) { setCreateError('Please select a raw material.'); return }
-    if (form.item_type === 'packaging' && !form.packaging_id) { setCreateError('Please select a packaging item.'); return }
+    const itemsSubtotal = itemsToInsert.reduce((s, i) => s + i.line_total, 0)
+    const shippingCad = parseFloat(createForm.shipping_cad || '0') || 0
+    const brokerageCad = parseFloat(createForm.brokerage_cad || '0') || 0
+    const dutyCad = parseFloat(createForm.duty_cad || '0') || 0
+    const costTotalCad = itemsSubtotal + shippingCad + brokerageCad + dutyCad
 
     setSaving(true)
     const invoice_url = await uploadInvoice()
-    const exchangeRate = form.amount_usd && form.amount_cad
-      ? parseFloat(form.amount_cad) / parseFloat(form.amount_usd)
+    const exchangeRate = createForm.amount_usd && createForm.amount_cad && parseFloat(createForm.amount_usd) > 0
+      ? parseFloat(createForm.amount_cad) / parseFloat(createForm.amount_usd)
       : null
 
-    // inventory is NOT updated here — only when status becomes 'received'
-    const { error } = await supabase.from('purchase_orders').insert([{
-      supplier_id: form.supplier_id,
-      item_type: form.item_type,
-      raw_material_id: form.item_type === 'raw_material' ? form.raw_material_id : null,
-      packaging_id: form.item_type === 'packaging' ? form.packaging_id : null,
-      qty_ordered: parseFloat(form.qty_ordered),
+    const { data: poData, error: poError } = await supabase.from('purchase_orders').insert([{
+      supplier_id: createForm.supplier_id,
+      item_type: itemsToInsert[0].material_type,
+      raw_material_id: null,
+      packaging_id: null,
+      qty_ordered: 0,
       qty_received: null,
-      unit: form.unit || null,
-      cost_total_cad: parseFloat(form.cost_total_cad) || 0,
-      shipping_cad: form.shipping_cad ? parseFloat(form.shipping_cad) : null,
-      brokerage_cad: form.brokerage_cad ? parseFloat(form.brokerage_cad) : null,
-      duty_cad: form.duty_cad ? parseFloat(form.duty_cad) : null,
+      unit: null,
+      cost_total_cad: costTotalCad,
+      shipping_cad: shippingCad || null,
+      brokerage_cad: brokerageCad || null,
+      duty_cad: dutyCad || null,
       status: 'ordered',
-      ordered_at: form.ordered_at,
-      notes: form.notes || null,
+      ordered_at: createForm.ordered_at,
+      notes: createForm.notes || null,
       invoice_url,
-      amount_usd: form.amount_usd ? parseFloat(form.amount_usd) : null,
+      amount_usd: createForm.amount_usd ? parseFloat(createForm.amount_usd) : null,
       exchange_rate: exchangeRate,
-    }])
+    }]).select('id').single()
 
-    if (error) {
-      console.error('PO insert error:', error)
-      setCreateError(error.message || 'Failed to create purchase order.')
+    if (poError || !poData) {
+      setCreateError(poError?.message || 'Failed to create purchase order.')
       setSaving(false)
       return
     }
+
+    const { error: itemsError } = await supabase.from('purchase_order_items').insert(
+      itemsToInsert.map(i => ({ ...i, po_id: poData.id }))
+    )
+
+    if (itemsError) {
+      await supabase.from('purchase_orders').delete().eq('id', poData.id)
+      setCreateError(itemsError.message || 'Failed to create PO items.')
+      setSaving(false)
+      return
+    }
+
     setSaving(false)
     setShowCreate(false)
     setCreateError('')
-    setForm({ ...emptyForm })
+    setCreateForm({ ...emptyCreateForm })
+    setLineItems([{ ...emptyLineItem }])
+    setLabelQtys({})
     setInvoiceFile(null)
     fetchAll()
   }
@@ -345,39 +415,50 @@ export default function Purchasing() {
     setUpdateError('')
     if (!editForm.supplier_id) { setUpdateError('Please select a supplier.'); return }
     if (!editForm.ordered_at) { setUpdateError('Please enter an order date.'); return }
-    if (!editForm.qty_ordered || parseFloat(editForm.qty_ordered) <= 0) { setUpdateError('Please enter a valid quantity.'); return }
-    if (!editForm.cost_total_cad || parseFloat(editForm.cost_total_cad) < 0) { setUpdateError('Please enter the total cost.'); return }
-    if (editForm.item_type === 'raw_material' && !editForm.raw_material_id) { setUpdateError('Please select a raw material.'); return }
-    if (editForm.item_type === 'packaging' && !editForm.packaging_id) { setUpdateError('Please select a packaging item.'); return }
+
+    const isMultiItem = (poItems[detail.id]?.length ?? 0) > 0
+
+    if (!isMultiItem) {
+      if (!editForm.qty_ordered || parseFloat(editForm.qty_ordered) <= 0) { setUpdateError('Please enter a valid quantity.'); return }
+      if (!editForm.cost_total_cad || parseFloat(editForm.cost_total_cad) < 0) { setUpdateError('Please enter the total cost.'); return }
+      if (editForm.item_type === 'raw_material' && !editForm.raw_material_id) { setUpdateError('Please select a raw material.'); return }
+      if (editForm.item_type === 'packaging' && !editForm.packaging_id) { setUpdateError('Please select a packaging item.'); return }
+    }
 
     setUpdating(true)
     const exchangeRate = editForm.amount_usd && editForm.amount_cad
       ? parseFloat(editForm.amount_cad) / parseFloat(editForm.amount_usd)
       : detail.exchange_rate ?? null
 
-    const { error } = await supabase.from('purchase_orders').update({
+    const updatePayload: Record<string, unknown> = {
       supplier_id: editForm.supplier_id,
-      item_type: editForm.item_type,
-      raw_material_id: editForm.item_type === 'raw_material' ? editForm.raw_material_id : null,
-      packaging_id: editForm.item_type === 'packaging' ? editForm.packaging_id : null,
-      qty_ordered: parseFloat(editForm.qty_ordered),
-      unit: editForm.unit || null,
-      cost_total_cad: parseFloat(editForm.cost_total_cad) || 0,
+      ordered_at: editForm.ordered_at,
+      notes: editForm.notes || null,
       shipping_cad: editForm.shipping_cad ? parseFloat(editForm.shipping_cad) : null,
       brokerage_cad: editForm.brokerage_cad ? parseFloat(editForm.brokerage_cad) : null,
       duty_cad: editForm.duty_cad ? parseFloat(editForm.duty_cad) : null,
-      ordered_at: editForm.ordered_at,
-      notes: editForm.notes || null,
       amount_usd: editForm.amount_usd ? parseFloat(editForm.amount_usd) : null,
       exchange_rate: exchangeRate,
-    }).eq('id', detail.id)
-
-    if (error) {
-      console.error('PO update error:', error)
-      setUpdateError(error.message || 'Failed to update purchase order.')
-      setUpdating(false)
-      return
     }
+
+    if (isMultiItem) {
+      const items = poItems[detail.id] || []
+      const itemsSubtotal = items.reduce((s, i) => s + i.line_total, 0)
+      const shippingCad = editForm.shipping_cad ? parseFloat(editForm.shipping_cad) : 0
+      const brokerageCad = editForm.brokerage_cad ? parseFloat(editForm.brokerage_cad) : 0
+      const dutyCad = editForm.duty_cad ? parseFloat(editForm.duty_cad) : 0
+      updatePayload.cost_total_cad = itemsSubtotal + shippingCad + brokerageCad + dutyCad
+    } else {
+      updatePayload.item_type = editForm.item_type
+      updatePayload.raw_material_id = editForm.item_type === 'raw_material' ? editForm.raw_material_id : null
+      updatePayload.packaging_id = editForm.item_type === 'packaging' ? editForm.packaging_id : null
+      updatePayload.qty_ordered = parseFloat(editForm.qty_ordered)
+      updatePayload.unit = editForm.unit || null
+      updatePayload.cost_total_cad = parseFloat(editForm.cost_total_cad) || 0
+    }
+
+    const { error } = await supabase.from('purchase_orders').update(updatePayload).eq('id', detail.id)
+    if (error) { console.error('PO update error:', error); setUpdateError(error.message || 'Failed to update purchase order.'); setUpdating(false); return }
     setUpdating(false)
     setShowDetail(false)
     fetchAll()
@@ -408,12 +489,10 @@ export default function Purchasing() {
     if (!detail) return
     setStatusTransitioning(true)
 
-    // 1. DB에서 현재 PO의 status를 직접 조회
     const { data: currentPO, error: fetchErr } = await supabase
       .from('purchase_orders').select('status').eq('id', detail.id).single()
     if (fetchErr) { console.error('PO fetch error:', fetchErr); setStatusTransitioning(false); return }
 
-    // 2. 현재 status가 이미 'received'이면 inventory 업데이트 완전 스킵하고 return
     if (currentPO?.status === 'received') {
       setStatusTransitioning(false)
       setShowStatusModal(false)
@@ -423,22 +502,31 @@ export default function Purchasing() {
     }
 
     const updatePayload: Record<string, unknown> = { status: pendingStatus }
+    const items = poItems[detail.id]
+    const isMultiItem = items && items.length > 0
 
     if (pendingStatus === 'shipped') {
       updatePayload.shipped_at = statusDate
     } else if (pendingStatus === 'received') {
       updatePayload.received_at = statusDate
-      updatePayload.qty_received = detail.qty_ordered
-      // Inventory is automatically updated by Supabase trigger 'trigger_purchase_received'
-      // when qty_received changes. Do NOT update inventory here to avoid double counting.
+      if (isMultiItem) {
+        for (const item of items) {
+          if (item.material_type === 'raw_material') {
+            const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', item.material_id).single()
+            await supabase.from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
+          } else {
+            const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', item.material_id).single()
+            await supabase.from('packaging').update({ current_stock: (pkg?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
+          }
+        }
+      } else {
+        updatePayload.qty_received = detail.qty_ordered
+      }
     }
 
-    // 5. inventory 업데이트 후 즉시 PO의 status를 업데이트
     const { error } = await supabase.from('purchase_orders').update(updatePayload).eq('id', detail.id)
     if (error) { console.error('PO status update error:', error); setStatusTransitioning(false); return }
 
-    // 6. 결과 출력
-    console.log('confirmStatusTransition done', detail.id, pendingStatus)
     setStatusTransitioning(false)
     setShowStatusModal(false)
     setShowDetail(false)
@@ -449,23 +537,31 @@ export default function Purchasing() {
     if (!detail) return
     setRollbackTransitioning(true)
 
-    if (detail.item_type === 'raw_material' && detail.raw_material_id) {
-      const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', detail.raw_material_id).single()
-      const newStock = Math.max(0, (mat?.current_stock || 0) - detail.qty_ordered)
-      await supabase.from('raw_materials').update({ current_stock: newStock }).eq('id', detail.raw_material_id)
-    } else if (detail.item_type === 'packaging' && detail.packaging_id) {
-      const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', detail.packaging_id).single()
-      const newStock = Math.max(0, (pkg?.current_stock || 0) - detail.qty_ordered)
-      await supabase.from('packaging').update({ current_stock: newStock }).eq('id', detail.packaging_id)
+    const items = poItems[detail.id]
+    const isMultiItem = items && items.length > 0
+
+    if (isMultiItem) {
+      for (const item of items) {
+        if (item.material_type === 'raw_material') {
+          const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', item.material_id).single()
+          await supabase.from('raw_materials').update({ current_stock: Math.max(0, (mat?.current_stock || 0) - item.quantity) }).eq('id', item.material_id)
+        } else {
+          const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', item.material_id).single()
+          await supabase.from('packaging').update({ current_stock: Math.max(0, (pkg?.current_stock || 0) - item.quantity) }).eq('id', item.material_id)
+        }
+      }
+    } else {
+      if (detail.item_type === 'raw_material' && detail.raw_material_id) {
+        const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', detail.raw_material_id).single()
+        await supabase.from('raw_materials').update({ current_stock: Math.max(0, (mat?.current_stock || 0) - detail.qty_ordered) }).eq('id', detail.raw_material_id)
+      } else if (detail.item_type === 'packaging' && detail.packaging_id) {
+        const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', detail.packaging_id).single()
+        await supabase.from('packaging').update({ current_stock: Math.max(0, (pkg?.current_stock || 0) - detail.qty_ordered) }).eq('id', detail.packaging_id)
+      }
     }
 
-    const updatePayload: Record<string, unknown> = {
-      status: pendingRollbackStatus,
-      qty_received: null,
-      received_at: null,
-    }
+    const updatePayload: Record<string, unknown> = { status: pendingRollbackStatus, qty_received: null, received_at: null }
     if (pendingRollbackStatus === 'ordered') updatePayload.shipped_at = null
-
     await supabase.from('purchase_orders').update(updatePayload).eq('id', detail.id)
 
     setRollbackTransitioning(false)
@@ -481,24 +577,39 @@ export default function Purchasing() {
 
     const old = { ...detail }
     const wasReceived = old.status === 'received'
+    const items = poItems[old.id] || []
+    const isMultiItem = items.length > 0
 
     if (wasReceived) {
-      if (old.item_type === 'raw_material' && old.raw_material_id) {
-        const { data: mat, error: matErr } = await supabase.from('raw_materials').select('current_stock').eq('id', old.raw_material_id).single()
-        if (matErr) { setDeleteError(matErr.message || 'Failed to fetch stock.'); setDeleting(false); return }
-        const newStock = Math.max(0, (mat?.current_stock || 0) - old.qty_ordered)
-        const { error: updErr } = await supabase.from('raw_materials').update({ current_stock: newStock }).eq('id', old.raw_material_id)
-        if (updErr) { setDeleteError(updErr.message || 'Failed to update raw material stock.'); setDeleting(false); return }
-      } else if (old.item_type === 'packaging' && old.packaging_id) {
-        const { data: pkg, error: pkgErr } = await supabase.from('packaging').select('current_stock').eq('id', old.packaging_id).single()
-        if (pkgErr) { setDeleteError(pkgErr.message || 'Failed to fetch stock.'); setDeleting(false); return }
-        const newStock = Math.max(0, (pkg?.current_stock || 0) - old.qty_ordered)
-        const { error: updErr } = await supabase.from('packaging').update({ current_stock: newStock }).eq('id', old.packaging_id)
-        if (updErr) { setDeleteError(updErr.message || 'Failed to update packaging stock.'); setDeleting(false); return }
+      if (isMultiItem) {
+        for (const item of items) {
+          if (item.material_type === 'raw_material') {
+            const { data: mat, error: e } = await supabase.from('raw_materials').select('current_stock').eq('id', item.material_id).single()
+            if (e) { setDeleteError(e.message); setDeleting(false); return }
+            await supabase.from('raw_materials').update({ current_stock: Math.max(0, (mat?.current_stock || 0) - item.quantity) }).eq('id', item.material_id)
+          } else {
+            const { data: pkg, error: e } = await supabase.from('packaging').select('current_stock').eq('id', item.material_id).single()
+            if (e) { setDeleteError(e.message); setDeleting(false); return }
+            await supabase.from('packaging').update({ current_stock: Math.max(0, (pkg?.current_stock || 0) - item.quantity) }).eq('id', item.material_id)
+          }
+        }
+      } else {
+        if (old.item_type === 'raw_material' && old.raw_material_id) {
+          const { data: mat, error: matErr } = await supabase.from('raw_materials').select('current_stock').eq('id', old.raw_material_id).single()
+          if (matErr) { setDeleteError(matErr.message || 'Failed to fetch stock.'); setDeleting(false); return }
+          const { error: updErr } = await supabase.from('raw_materials').update({ current_stock: Math.max(0, (mat?.current_stock || 0) - old.qty_ordered) }).eq('id', old.raw_material_id)
+          if (updErr) { setDeleteError(updErr.message || 'Failed to update raw material stock.'); setDeleting(false); return }
+        } else if (old.item_type === 'packaging' && old.packaging_id) {
+          const { data: pkg, error: pkgErr } = await supabase.from('packaging').select('current_stock').eq('id', old.packaging_id).single()
+          if (pkgErr) { setDeleteError(pkgErr.message || 'Failed to fetch stock.'); setDeleting(false); return }
+          const { error: updErr } = await supabase.from('packaging').update({ current_stock: Math.max(0, (pkg?.current_stock || 0) - old.qty_ordered) }).eq('id', old.packaging_id)
+          if (updErr) { setDeleteError(updErr.message || 'Failed to update packaging stock.'); setDeleting(false); return }
+        }
       }
     }
 
     await logActivity(supabase, 'purchase_orders', old.id, 'DELETE', old)
+    if (isMultiItem) await supabase.from('purchase_order_items').delete().eq('po_id', old.id)
     const { error } = await supabase.from('purchase_orders').delete().eq('id', old.id)
     if (error) { setDeleteError(error.message || 'Failed to delete purchase order.'); setDeleting(false); return }
 
@@ -511,13 +622,31 @@ export default function Purchasing() {
       onUndo: async () => {
         const { suppliers: _s, raw_materials: _r, packaging: _p, ...poRow } = old
         await supabase.from('purchase_orders').upsert([poRow])
+        if (isMultiItem && items.length > 0) {
+          await supabase.from('purchase_order_items').insert(
+            items.map(({ id, po_id, material_type, material_id, quantity, unit_price, line_total }) =>
+              ({ id, po_id, material_type, material_id, quantity, unit_price, line_total }))
+          )
+        }
         if (wasReceived) {
-          if (old.item_type === 'raw_material' && old.raw_material_id) {
-            const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', old.raw_material_id).single()
-            await supabase.from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + old.qty_ordered }).eq('id', old.raw_material_id)
-          } else if (old.item_type === 'packaging' && old.packaging_id) {
-            const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', old.packaging_id).single()
-            await supabase.from('packaging').update({ current_stock: (pkg?.current_stock || 0) + old.qty_ordered }).eq('id', old.packaging_id)
+          if (isMultiItem) {
+            for (const item of items) {
+              if (item.material_type === 'raw_material') {
+                const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', item.material_id).single()
+                await supabase.from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
+              } else {
+                const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', item.material_id).single()
+                await supabase.from('packaging').update({ current_stock: (pkg?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
+              }
+            }
+          } else {
+            if (old.item_type === 'raw_material' && old.raw_material_id) {
+              const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', old.raw_material_id).single()
+              await supabase.from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + old.qty_ordered }).eq('id', old.raw_material_id)
+            } else if (old.item_type === 'packaging' && old.packaging_id) {
+              const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', old.packaging_id).single()
+              await supabase.from('packaging').update({ current_stock: (pkg?.current_stock || 0) + old.qty_ordered }).eq('id', old.packaging_id)
+            }
           }
         }
         await logActivity(supabase, 'purchase_orders', old.id, 'UPDATE', null, old)
@@ -531,11 +660,7 @@ export default function Purchasing() {
     const rows = pos.map(po => ({
       'PO Number': po.po_number || '',
       'Supplier': po.suppliers?.name || '',
-      'Item Type': po.item_type === 'raw_material' ? 'Raw Material' : 'Packaging',
-      'Material': getMaterialLabel(po),
-      'Qty Ordered': po.qty_ordered,
-      'Qty Received': po.qty_received ?? '',
-      'Unit': po.unit || '',
+      'Items': getPODisplayLabel(po),
       'Cost Total (CAD)': po.cost_total_cad || 0,
       'Amount USD': po.amount_usd ?? '',
       'Exchange Rate': po.exchange_rate ?? '',
@@ -557,26 +682,6 @@ export default function Purchasing() {
     XLSX.writeFile(wb, `purchase_orders_${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
-  function handleMaterialSelect(id: string, isEdit: boolean) {
-    if (!isEdit) {
-      if (form.item_type === 'raw_material') {
-        const mat = rawMaterials.find(r => r.id === id)
-        setForm(f => ({ ...f, raw_material_id: id, unit: mat?.unit || f.unit, cost_total_cad: mat?.cost_per_unit_cad != null ? String(mat.cost_per_unit_cad) : f.cost_total_cad }))
-      } else {
-        const pkg = packaging.find(p => p.id === id)
-        setForm(f => ({ ...f, packaging_id: id, cost_total_cad: pkg?.cost_cad != null ? String(pkg.cost_cad) : f.cost_total_cad }))
-      }
-    } else {
-      if (editForm.item_type === 'raw_material') {
-        const mat = rawMaterials.find(r => r.id === id)
-        setEditForm(f => ({ ...f, raw_material_id: id, unit: mat?.unit || f.unit, cost_total_cad: mat?.cost_per_unit_cad != null ? String(mat.cost_per_unit_cad) : f.cost_total_cad }))
-      } else {
-        const pkg = packaging.find(p => p.id === id)
-        setEditForm(f => ({ ...f, packaging_id: id, cost_total_cad: pkg?.cost_cad != null ? String(pkg.cost_cad) : f.cost_total_cad }))
-      }
-    }
-  }
-
   function handleTableStatusChange(po: PO, newStatus: string) {
     if (newStatus === po.status) return
     if (po.status === 'cancelled') return
@@ -593,7 +698,7 @@ export default function Purchasing() {
 
   const filtered = pos.filter(po =>
     po.suppliers?.name?.toLowerCase().includes(search.toLowerCase()) ||
-    getMaterialLabel(po).toLowerCase().includes(search.toLowerCase()) ||
+    getPODisplayLabel(po).toLowerCase().includes(search.toLowerCase()) ||
     po.status?.toLowerCase().includes(search.toLowerCase())
   )
 
@@ -602,28 +707,29 @@ export default function Purchasing() {
   const numInp: React.CSSProperties = { ...inp, textAlign: 'right' }
   const roInp: React.CSSProperties = { ...inp, background: '#f8fafc', color: '#64748b' }
 
-  const createMatOpts = form.item_type === 'raw_material'
-    ? rawMaterials.map(m => ({ id: m.id, label: `${m.item_no} — ${m.name}${m.unit ? ` (${m.unit})` : ''}` }))
-    : packaging.map(p => ({ id: p.id, label: `${p.item_no} — ${p.name}${p.type ? ` [${p.type}]` : ''}` }))
-  const editMatOpts = editForm.item_type === 'raw_material'
-    ? rawMaterials.map(m => ({ id: m.id, label: `${m.item_no} — ${m.name}${m.unit ? ` (${m.unit})` : ''}` }))
-    : packaging.map(p => ({ id: p.id, label: `${p.item_no} — ${p.name}${p.type ? ` [${p.type}]` : ''}` }))
-
-  const selectedSupplierName = suppliers.find(s => s.id === form.supplier_id)?.name || ''
+  const selectedSupplierName = suppliers.find(s => s.id === createForm.supplier_id)?.name || ''
   const isDigitalLabels = selectedSupplierName === 'Digital Labels'
   const labelItems = packaging.filter(p => p.item_no.startsWith('LABEL-'))
 
   const isReadOnly = detail?.status !== 'ordered' && detail?.status !== 'shipped'
+  const detailItems = detail ? (poItems[detail.id] || []) : []
+  const detailIsMultiItem = detailItems.length > 0
 
-  // USD/CAD exchange rate calculation (live)
-  const createExchangeRate = form.amount_usd && form.amount_cad && parseFloat(form.amount_usd) > 0
-    ? (parseFloat(form.amount_cad) / parseFloat(form.amount_usd)).toFixed(4)
+  const lineItemsSubtotal = lineItems.reduce((s, li) => s + parseFloat(li.quantity || '0') * parseFloat(li.unit_price || '0'), 0)
+  const createShipping = parseFloat(createForm.shipping_cad || '0') || 0
+  const createBrokerage = parseFloat(createForm.brokerage_cad || '0') || 0
+  const createDuty = parseFloat(createForm.duty_cad || '0') || 0
+  const createGrandTotal = lineItemsSubtotal + createShipping + createBrokerage + createDuty
+
+  const labelSubtotal = labelItems.reduce((s, item) => s + parseFloat(labelQtys[item.id] || '0') * (item.cost_cad || 0), 0)
+
+  const createExchangeRate = createForm.amount_usd && createForm.amount_cad && parseFloat(createForm.amount_usd) > 0
+    ? (parseFloat(createForm.amount_cad) / parseFloat(createForm.amount_usd)).toFixed(4)
     : null
   const editExchangeRate = editForm.amount_usd && editForm.amount_cad && parseFloat(editForm.amount_usd) > 0
     ? (parseFloat(editForm.amount_cad) / parseFloat(editForm.amount_usd)).toFixed(4)
     : null
 
-  // History: supplier avg price summary (received POs only for meaningful avg)
   const supplierSummary = historyData.reduce((acc, row) => {
     if (row.status === 'received') {
       const s = row.suppliers?.name || 'Unknown'
@@ -633,6 +739,10 @@ export default function Purchasing() {
     }
     return acc
   }, {} as Record<string, { totalCost: number; totalQty: number }>)
+
+  const editMatOpts = editForm.item_type === 'raw_material'
+    ? rawMaterials.map(m => ({ id: m.id, label: `${m.item_no} — ${m.name}${m.unit ? ` (${m.unit})` : ''}` }))
+    : packaging.map(p => ({ id: p.id, label: `${p.item_no} — ${p.name}${p.type ? ` [${p.type}]` : ''}` }))
 
   return (
     <MainLayout>
@@ -655,7 +765,7 @@ export default function Purchasing() {
             <Download size={14} /> Export Excel
           </button>
           <button
-            onClick={() => { setShowCreate(true); setCreateError(''); setForm({ ...emptyForm }); setInvoiceFile(null) }}
+            onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ ...emptyCreateForm }); setLineItems([{ ...emptyLineItem }]); setLabelQtys({}); setInvoiceFile(null) }}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}
           >
             <Plus size={16} /> New PO
@@ -673,10 +783,10 @@ export default function Purchasing() {
         </div>
       ) : (
         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', minWidth: '1100px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', minWidth: '1000px' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                {['Supplier', 'Material', 'Qty', 'Cost (CAD)', 'Status', 'Order Date', 'Shipped', 'Received', 'Lead Time', ''].map((h, i) => (
+                {['Supplier', 'Items', 'Cost (CAD)', 'Status', 'Order Date', 'Shipped', 'Received', 'Lead Time', ''].map((h, i) => (
                   <th key={i} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -687,11 +797,11 @@ export default function Purchasing() {
                 const os = calcDays(po.ordered_at, po.shipped_at)
                 const sr = calcDays(po.shipped_at, po.received_at)
                 const total = calcDays(po.ordered_at, po.received_at)
-                const matId = po.item_type === 'raw_material' ? po.raw_material_id : po.packaging_id
+                const legacyMatId = po.item_type === 'raw_material' ? po.raw_material_id : po.packaging_id
+                const rowItems = poItems[po.id]
                 return (
                   <tr
                     key={po.id}
-                    className='po-row'
                     onClick={() => openDetail(po)}
                     style={{ borderBottom: i < filtered.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer', transition: 'background 0.1s' }}
                     onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = '#f8fafc'}
@@ -700,10 +810,10 @@ export default function Purchasing() {
                     <td style={{ padding: '12px 16px', color: '#374151', fontWeight: '500' }}>{po.suppliers?.name || '—'}</td>
                     <td style={{ padding: '12px 16px', color: '#374151' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span>{getMaterialLabel(po)}</span>
-                        {matId && (
+                        <span>{getPODisplayLabel(po)}</span>
+                        {!rowItems?.length && legacyMatId && (
                           <button
-                            onClick={e => { e.stopPropagation(); fetchMaterialHistory(po.item_type, matId, getMaterialLabel(po)) }}
+                            onClick={e => { e.stopPropagation(); fetchMaterialHistory(po.item_type, legacyMatId, getMaterialLabel(po)) }}
                             title='View purchase history'
                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '2px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
                           >
@@ -712,7 +822,6 @@ export default function Purchasing() {
                         )}
                       </div>
                     </td>
-                    <td style={{ padding: '12px 16px', color: '#374151', whiteSpace: 'nowrap' }}>{po.qty_ordered} {po.unit || ''}</td>
                     <td style={{ padding: '12px 16px', color: '#1e293b', fontWeight: '500' }}>${formatCurrency(po.cost_total_cad || 0)}</td>
                     <td style={{ padding: '12px 16px' }}>
                       <select
@@ -758,31 +867,31 @@ export default function Purchasing() {
       {/* ── Create PO Modal ── */}
       {showCreate && (
         <div className="modal-overlay" onClick={() => { setShowCreate(false); setCreateError('') }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '20px' }}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '680px', margin: '20px auto' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '760px', margin: '20px auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>New Purchase Order</h2>
               <button onClick={() => { setShowCreate(false); setCreateError('') }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
             </div>
 
             {/* Supplier + Date */}
-            <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+            <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '20px' }}>
               <div>
                 <label style={lbl}>Supplier *</label>
-                <select value={form.supplier_id} onChange={e => setForm(f => ({ ...f, supplier_id: e.target.value }))} style={inp}>
+                <select value={createForm.supplier_id} onChange={e => setCreateForm(f => ({ ...f, supplier_id: e.target.value }))} style={inp}>
                   <option value=''>Select supplier...</option>
                   {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
               <div>
                 <label style={lbl}>Order Date *</label>
-                <input type='date' value={form.ordered_at} onChange={e => setForm(f => ({ ...f, ordered_at: e.target.value }))} style={inp} />
+                <input type='date' value={createForm.ordered_at} onChange={e => setCreateForm(f => ({ ...f, ordered_at: e.target.value }))} style={inp} />
               </div>
             </div>
 
-            {/* Item selection: Digital Labels multi-item grid OR normal single-item form */}
+            {/* Items section */}
             {isDigitalLabels ? (
-              <div style={{ marginBottom: '14px' }}>
-                <label style={lbl}>Label Items — enter qty for each item to order</label>
+              <div style={{ marginBottom: '20px' }}>
+                <label style={lbl}>Label Items — enter qty for each item to include in this PO</label>
                 <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', maxHeight: '280px', overflowY: 'auto' }}>
                   {labelItems.length === 0 ? (
                     <div style={{ padding: '16px', color: '#94a3b8', fontSize: '13px', textAlign: 'center' }}>No LABEL- items found in packaging.</div>
@@ -793,9 +902,7 @@ export default function Purchasing() {
                         <span style={{ color: '#64748b', marginLeft: '8px' }}>{item.name}</span>
                       </div>
                       <input
-                        type='number'
-                        min='0'
-                        step='1'
+                        type='number' min='0' step='1'
                         value={labelQtys[item.id] || ''}
                         onChange={e => setLabelQtys(q => ({ ...q, [item.id]: e.target.value }))}
                         placeholder='Qty'
@@ -805,55 +912,116 @@ export default function Purchasing() {
                     </div>
                   ))}
                 </div>
-                <div style={{ marginTop: '6px', fontSize: '12px', color: '#64748b' }}>
-                  {Object.values(labelQtys).filter(q => parseFloat(q || '0') > 0).length} item(s) with quantity &gt; 0 will create separate POs.
+                <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '12px', color: '#64748b' }}>
+                    {Object.values(labelQtys).filter(q => parseFloat(q || '0') > 0).length} item(s) with qty &gt; 0 → 1 PO created
+                  </span>
+                  {labelSubtotal > 0 && <span style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>Subtotal: ${formatCurrency(labelSubtotal)}</span>}
                 </div>
               </div>
             ) : (
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <label style={{ ...lbl, marginBottom: 0 }}>Line Items *</label>
+                  <button
+                    onClick={() => setLineItems(prev => [...prev, { ...emptyLineItem }])}
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', color: '#374151', cursor: 'pointer' }}
+                  >
+                    <Plus size={13} /> Add Item
+                  </button>
+                </div>
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                  {/* Table header */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 80px 100px 90px 32px', gap: '0', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '8px 12px', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <span>Type</span><span>Material</span><span style={{ textAlign: 'right' }}>Qty</span><span style={{ textAlign: 'right' }}>Unit Price</span><span style={{ textAlign: 'right' }}>Total</span><span />
+                  </div>
+                  {lineItems.map((li, idx) => {
+                    const matOpts = li.material_type === 'raw_material'
+                      ? rawMaterials.map(m => ({ id: m.id, label: `${m.item_no} — ${m.name}` }))
+                      : packaging.map(p => ({ id: p.id, label: `${p.item_no} — ${p.name}` }))
+                    const lineTotal = parseFloat(li.quantity || '0') * parseFloat(li.unit_price || '0')
+                    return (
+                      <div key={idx} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 80px 100px 90px 32px', gap: '0', padding: '8px 12px', borderBottom: idx < lineItems.length - 1 ? '1px solid #f1f5f9' : 'none', alignItems: 'center' }}>
+                        <select
+                          value={li.material_type}
+                          onChange={e => updateLineItem(idx, 'material_type', e.target.value)}
+                          style={{ ...inp, padding: '6px 8px', fontSize: '12px' }}
+                        >
+                          <option value='raw_material'>Raw Material</option>
+                          <option value='packaging'>Packaging</option>
+                        </select>
+                        <select
+                          value={li.material_id}
+                          onChange={e => updateLineItem(idx, 'material_id', e.target.value)}
+                          style={{ ...inp, padding: '6px 8px', fontSize: '12px', marginLeft: '6px' }}
+                        >
+                          <option value=''>Select...</option>
+                          {matOpts.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                        </select>
+                        <input
+                          type='number' min='0' step='any'
+                          value={li.quantity}
+                          onChange={e => updateLineItem(idx, 'quantity', e.target.value)}
+                          placeholder='0'
+                          style={{ ...numInp, padding: '6px 8px', fontSize: '12px', marginLeft: '6px' }}
+                        />
+                        <input
+                          type='number' min='0' step='0.01'
+                          value={li.unit_price}
+                          onChange={e => updateLineItem(idx, 'unit_price', e.target.value)}
+                          placeholder='0.00'
+                          style={{ ...numInp, padding: '6px 8px', fontSize: '12px', marginLeft: '6px' }}
+                        />
+                        <div style={{ textAlign: 'right', fontSize: '13px', fontWeight: '500', color: '#1e293b', paddingRight: '4px' }}>
+                          ${formatCurrency(lineTotal)}
+                        </div>
+                        <button
+                          onClick={() => setLineItems(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev)}
+                          style={{ background: 'none', border: 'none', cursor: lineItems.length > 1 ? 'pointer' : 'default', color: lineItems.length > 1 ? '#dc2626' : '#e2e8f0', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    )
+                  })}
+                  {/* Subtotal row */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 12px', borderTop: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                    <span style={{ fontSize: '13px', color: '#64748b', marginRight: '12px' }}>Items Subtotal:</span>
+                    <span style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b', minWidth: '80px', textAlign: 'right' }}>${formatCurrency(lineItemsSubtotal)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Cost fields: Shipping, Brokerage, Duty */}
+            {!isDigitalLabels && (
               <>
-                {/* Item Type + Material */}
-                <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                <div className="modal-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
                   <div>
-                    <label style={lbl}>Item Type *</label>
-                    <select value={form.item_type} onChange={e => setForm(f => ({ ...f, item_type: e.target.value as 'raw_material' | 'packaging', raw_material_id: '', packaging_id: '' }))} style={inp}>
-                      <option value='raw_material'>Raw Material</option>
-                      <option value='packaging'>Packaging</option>
-                    </select>
+                    <label style={lbl}>Shipping (CAD)</label>
+                    <input type='number' min='0' step='0.01' value={createForm.shipping_cad} onChange={e => setCreateForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
                   </div>
                   <div>
-                    <label style={lbl}>Material *</label>
-                    <select value={form.item_type === 'raw_material' ? form.raw_material_id : form.packaging_id} onChange={e => handleMaterialSelect(e.target.value, false)} style={inp}>
-                      <option value=''>Select material...</option>
-                      {createMatOpts.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                    </select>
+                    <label style={lbl}>Brokerage (CAD)</label>
+                    <input type='number' min='0' step='0.01' value={createForm.brokerage_cad} onChange={e => setCreateForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                  </div>
+                  <div>
+                    <label style={lbl}>Duty (CAD)</label>
+                    <input type='number' min='0' step='0.01' value={createForm.duty_cad} onChange={e => setCreateForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
                   </div>
                 </div>
 
-                {/* Qty + Unit */}
-                <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-                  <div>
-                    <label style={lbl}>Qty Ordered *</label>
-                    <input type='number' min='0' step='any' value={form.qty_ordered} onChange={e => setForm(f => ({ ...f, qty_ordered: e.target.value }))} placeholder='0' style={numInp} />
-                  </div>
-                  <div>
-                    <label style={lbl}>Unit</label>
-                    {UNIT_SELECT(form.unit, v => setForm(f => ({ ...f, unit: v })), inp)}
-                  </div>
-                </div>
-
-                {/* USD / CAD section */}
+                {/* USD section */}
                 <div style={{ marginBottom: '14px', padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>USD Purchase (optional)</div>
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>USD Invoice (optional)</div>
                   <div className="modal-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                     <div>
                       <label style={lbl}>Amount (USD)</label>
-                      <input type='number' min='0' step='0.01' value={form.amount_usd} onChange={e => setForm(f => ({ ...f, amount_usd: e.target.value }))} placeholder='0.00' style={numInp} />
+                      <input type='number' min='0' step='0.01' value={createForm.amount_usd} onChange={e => setCreateForm(f => ({ ...f, amount_usd: e.target.value }))} placeholder='0.00' style={numInp} />
                     </div>
                     <div>
                       <label style={lbl}>Amount (CAD)</label>
-                      <input type='number' min='0' step='0.01' value={form.amount_cad}
-                        onChange={e => setForm(f => ({ ...f, amount_cad: e.target.value, cost_total_cad: e.target.value }))}
-                        placeholder='0.00' style={numInp} />
+                      <input type='number' min='0' step='0.01' value={createForm.amount_cad} onChange={e => setCreateForm(f => ({ ...f, amount_cad: e.target.value }))} placeholder='0.00' style={numInp} />
                     </div>
                     <div>
                       <label style={lbl}>Exchange Rate</label>
@@ -862,34 +1030,21 @@ export default function Purchasing() {
                   </div>
                 </div>
 
-                {/* Cost fields */}
-                <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-                  <div>
-                    <label style={lbl}>Cost Total (CAD) *</label>
-                    <input type='number' min='0' step='0.01' value={form.cost_total_cad} onChange={e => setForm(f => ({ ...f, cost_total_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                  </div>
-                  <div>
-                    <label style={lbl}>Shipping (CAD)</label>
-                    <input type='number' min='0' step='0.01' value={form.shipping_cad} onChange={e => setForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                  </div>
-                  <div>
-                    <label style={lbl}>Brokerage (CAD)</label>
-                    <input type='number' min='0' step='0.01' value={form.brokerage_cad} onChange={e => setForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                  </div>
-                  <div>
-                    <label style={lbl}>Duty (CAD)</label>
-                    <input type='number' min='0' step='0.01' value={form.duty_cad} onChange={e => setForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                  </div>
+                {/* Grand Total */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px', marginBottom: '14px', padding: '10px 14px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                  <span style={{ fontSize: '14px', color: '#1d4ed8', fontWeight: '600' }}>Grand Total (CAD):</span>
+                  <span style={{ fontSize: '18px', fontWeight: '700', color: '#1d4ed8' }}>${formatCurrency(createGrandTotal)}</span>
                 </div>
               </>
             )}
 
-            {/* Notes + Invoice upload */}
+            {/* Notes */}
             <div style={{ marginBottom: '14px' }}>
               <label style={lbl}>Notes</label>
-              <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder='Optional notes...' style={{ ...inp, resize: 'vertical', fontFamily: 'inherit' }} />
+              <textarea value={createForm.notes} onChange={e => setCreateForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder='Optional notes...' style={{ ...inp, resize: 'vertical', fontFamily: 'inherit' }} />
             </div>
 
+            {/* Invoice attachment */}
             <div style={{ marginBottom: '16px' }}>
               <label style={lbl}>Invoice Attachment</label>
               <div
@@ -954,51 +1109,101 @@ export default function Purchasing() {
             </div>
 
             {isReadOnly ? (
-              /* ── Read-only view ── */
               <>
-                <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', padding: '16px', background: '#f8fafc', borderRadius: '8px', marginBottom: '20px' }}>
-                  {([
-                    ['Supplier', detail.suppliers?.name || '—'],
-                    ['Item Type', detail.item_type === 'raw_material' ? 'Raw Material' : 'Packaging'],
-                    ['Material', getMaterialLabel(detail)],
-                    ['Qty Ordered', `${detail.qty_ordered} ${detail.unit || ''}`.trim()],
-                    ['Qty Received', detail.qty_received != null ? `${detail.qty_received} ${detail.unit || ''}`.trim() : '—'],
-                    ['Cost Total (CAD)', `$${formatCurrency(detail.cost_total_cad || 0)}`],
-                    ...(detail.amount_usd ? [['Amount (USD)', `$${formatCurrency(detail.amount_usd)}`], ['Exchange Rate', detail.exchange_rate ? detail.exchange_rate.toFixed(4) : '—']] as [string,string][] : []),
-                    ['Shipping (CAD)', detail.shipping_cad != null ? `$${formatCurrency(detail.shipping_cad)}` : '—'],
-                    ['Brokerage (CAD)', detail.brokerage_cad != null ? `$${formatCurrency(detail.brokerage_cad)}` : '—'],
-                    ['Duty (CAD)', detail.duty_cad != null ? `$${formatCurrency(detail.duty_cad)}` : '—'],
-                  ] as [string, string][]).map(([label, value]) => (
-                    <div key={label}>
-                      <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '3px' }}>{label}</div>
-                      <div style={{ fontSize: '14px', color: '#374151' }}>{value}</div>
-                    </div>
-                  ))}
-                  {(calcDays(detail.ordered_at, detail.shipped_at) != null || calcDays(detail.ordered_at, detail.received_at) != null) && (
-                    <div style={{ gridColumn: '1 / -1' }}>
-                      <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '3px' }}>Lead Time</div>
-                      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '14px', color: '#374151' }}>
-                        {calcDays(detail.ordered_at, detail.shipped_at) != null && <span>O→S: <strong>{calcDays(detail.ordered_at, detail.shipped_at)}d</strong></span>}
-                        {calcDays(detail.shipped_at, detail.received_at) != null && <span>S→R: <strong>{calcDays(detail.shipped_at, detail.received_at)}d</strong></span>}
-                        {calcDays(detail.ordered_at, detail.received_at) != null && <span>Total: <strong>{calcDays(detail.ordered_at, detail.received_at)}d</strong></span>}
+                {/* Line items table (new-style PO) */}
+                {detailIsMultiItem ? (
+                  <div style={{ marginBottom: '20px' }}>
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc' }}>
+                            <th style={{ padding: '9px 14px', textAlign: 'left', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Item</th>
+                            <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Qty</th>
+                            <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Unit Price</th>
+                            <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {detailItems.map((item, i) => (
+                            <tr key={item.id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '10px 14px', color: '#374151' }}>{getLineItemLabel(item)}</td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right', color: '#374151' }}>{item.quantity}</td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right', color: '#64748b' }}>${formatCurrency(item.unit_price || 0)}</td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: '500', color: '#1e293b' }}>${formatCurrency(item.line_total || 0)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {/* Cost summary */}
+                      <div style={{ borderTop: '1px solid #e2e8f0', padding: '10px 14px', background: '#f8fafc' }}>
+                        {(() => {
+                          const subtotal = detailItems.reduce((s, i) => s + i.line_total, 0)
+                          return (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', fontSize: '13px' }}>
+                              <div style={{ color: '#64748b' }}>Items: <strong style={{ color: '#374151' }}>${formatCurrency(subtotal)}</strong></div>
+                              {detail.shipping_cad != null && <div style={{ color: '#64748b' }}>Shipping: <strong style={{ color: '#374151' }}>${formatCurrency(detail.shipping_cad)}</strong></div>}
+                              {detail.brokerage_cad != null && <div style={{ color: '#64748b' }}>Brokerage: <strong style={{ color: '#374151' }}>${formatCurrency(detail.brokerage_cad)}</strong></div>}
+                              {detail.duty_cad != null && <div style={{ color: '#64748b' }}>Duty: <strong style={{ color: '#374151' }}>${formatCurrency(detail.duty_cad)}</strong></div>}
+                              <div style={{ color: '#1d4ed8', fontWeight: '700', fontSize: '14px', borderTop: '1px solid #e2e8f0', paddingTop: '6px', marginTop: '2px' }}>
+                                Total: ${formatCurrency(detail.cost_total_cad || 0)}
+                              </div>
+                            </div>
+                          )
+                        })()}
                       </div>
                     </div>
-                  )}
-                  {detail.invoice_url && (
-                    <div style={{ gridColumn: '1 / -1' }}>
-                      <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '3px' }}>Invoice</div>
-                      <a href={detail.invoice_url} target='_blank' rel='noreferrer' style={{ fontSize: '14px', color: '#2563eb', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <Paperclip size={13} /> View Invoice
-                      </a>
+                    <div style={{ marginTop: '12px', display: 'flex', gap: '16px', fontSize: '13px', color: '#64748b', flexWrap: 'wrap' }}>
+                      <span>Supplier: <strong style={{ color: '#374151' }}>{detail.suppliers?.name || '—'}</strong></span>
+                      {detail.amount_usd && <span>USD: <strong style={{ color: '#374151' }}>${formatCurrency(detail.amount_usd)}</strong></span>}
+                      {detail.exchange_rate && <span>Rate: <strong style={{ color: '#374151' }}>{detail.exchange_rate.toFixed(4)}</strong></span>}
                     </div>
-                  )}
-                  {detail.notes && (
-                    <div style={{ gridColumn: '1 / -1' }}>
-                      <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '3px' }}>Notes</div>
-                      <div style={{ fontSize: '14px', color: '#374151' }}>{detail.notes}</div>
-                    </div>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  /* Legacy single-item read-only grid */
+                  <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', padding: '16px', background: '#f8fafc', borderRadius: '8px', marginBottom: '20px' }}>
+                    {([
+                      ['Supplier', detail.suppliers?.name || '—'],
+                      ['Item Type', detail.item_type === 'raw_material' ? 'Raw Material' : 'Packaging'],
+                      ['Material', getMaterialLabel(detail)],
+                      ['Qty Ordered', `${detail.qty_ordered} ${detail.unit || ''}`.trim()],
+                      ['Qty Received', detail.qty_received != null ? `${detail.qty_received} ${detail.unit || ''}`.trim() : '—'],
+                      ['Cost Total (CAD)', `$${formatCurrency(detail.cost_total_cad || 0)}`],
+                      ...(detail.amount_usd ? [['Amount (USD)', `$${formatCurrency(detail.amount_usd)}`], ['Exchange Rate', detail.exchange_rate ? detail.exchange_rate.toFixed(4) : '—']] as [string,string][] : []),
+                      ['Shipping (CAD)', detail.shipping_cad != null ? `$${formatCurrency(detail.shipping_cad)}` : '—'],
+                      ['Brokerage (CAD)', detail.brokerage_cad != null ? `$${formatCurrency(detail.brokerage_cad)}` : '—'],
+                      ['Duty (CAD)', detail.duty_cad != null ? `$${formatCurrency(detail.duty_cad)}` : '—'],
+                    ] as [string, string][]).map(([label, value]) => (
+                      <div key={label}>
+                        <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '3px' }}>{label}</div>
+                        <div style={{ fontSize: '14px', color: '#374151' }}>{value}</div>
+                      </div>
+                    ))}
+                    {(calcDays(detail.ordered_at, detail.shipped_at) != null || calcDays(detail.ordered_at, detail.received_at) != null) && (
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '3px' }}>Lead Time</div>
+                        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '14px', color: '#374151' }}>
+                          {calcDays(detail.ordered_at, detail.shipped_at) != null && <span>O→S: <strong>{calcDays(detail.ordered_at, detail.shipped_at)}d</strong></span>}
+                          {calcDays(detail.shipped_at, detail.received_at) != null && <span>S→R: <strong>{calcDays(detail.shipped_at, detail.received_at)}d</strong></span>}
+                          {calcDays(detail.ordered_at, detail.received_at) != null && <span>Total: <strong>{calcDays(detail.ordered_at, detail.received_at)}d</strong></span>}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {detail.invoice_url && (
+                  <div style={{ marginBottom: '12px' }}>
+                    <a href={detail.invoice_url} target='_blank' rel='noreferrer' style={{ fontSize: '14px', color: '#2563eb', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Paperclip size={13} /> View Invoice
+                    </a>
+                  </div>
+                )}
+                {detail.notes && (
+                  <div style={{ marginBottom: '16px', padding: '10px 14px', background: '#f8fafc', borderRadius: '6px', fontSize: '13px', color: '#374151' }}>
+                    <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '3px' }}>Notes</div>
+                    {detail.notes}
+                  </div>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   {detail.status === 'received' ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1018,7 +1223,7 @@ export default function Purchasing() {
                 </div>
               </>
             ) : (
-              /* ── Edit form ── */
+              /* Edit form */
               <>
                 <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
                   <div>
@@ -1034,37 +1239,113 @@ export default function Purchasing() {
                   </div>
                 </div>
 
-                <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-                  <div>
-                    <label style={lbl}>Item Type *</label>
-                    <select value={editForm.item_type} onChange={e => setEditForm(f => ({ ...f, item_type: e.target.value as 'raw_material' | 'packaging', raw_material_id: '', packaging_id: '' }))} style={inp}>
-                      <option value='raw_material'>Raw Material</option>
-                      <option value='packaging'>Packaging</option>
-                    </select>
+                {/* Line items display for multi-item PO */}
+                {detailIsMultiItem ? (
+                  <div style={{ marginBottom: '14px' }}>
+                    <label style={lbl}>Line Items</label>
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc' }}>
+                            <th style={{ padding: '8px 12px', textAlign: 'left', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Item</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Qty</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Unit Price</th>
+                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {detailItems.map(item => (
+                            <tr key={item.id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '8px 12px', color: '#374151' }}>{getLineItemLabel(item)}</td>
+                              <td style={{ padding: '8px 12px', textAlign: 'right', color: '#374151' }}>{item.quantity}</td>
+                              <td style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b' }}>${formatCurrency(item.unit_price || 0)}</td>
+                              <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '500' }}>${formatCurrency(item.line_total || 0)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                  <div>
-                    <label style={lbl}>Material *</label>
-                    <select value={editForm.item_type === 'raw_material' ? editForm.raw_material_id : editForm.packaging_id} onChange={e => handleMaterialSelect(e.target.value, true)} style={inp}>
-                      <option value=''>Select material...</option>
-                      {editMatOpts.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                    </select>
-                  </div>
-                </div>
+                ) : (
+                  /* Legacy item fields */
+                  <>
+                    <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                      <div>
+                        <label style={lbl}>Item Type *</label>
+                        <select value={editForm.item_type} onChange={e => setEditForm(f => ({ ...f, item_type: e.target.value as 'raw_material' | 'packaging', raw_material_id: '', packaging_id: '' }))} style={inp}>
+                          <option value='raw_material'>Raw Material</option>
+                          <option value='packaging'>Packaging</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={lbl}>Material *</label>
+                        <select value={editForm.item_type === 'raw_material' ? editForm.raw_material_id : editForm.packaging_id} onChange={e => {
+                          const id = e.target.value
+                          if (editForm.item_type === 'raw_material') {
+                            const mat = rawMaterials.find(m => m.id === id)
+                            setEditForm(f => ({ ...f, raw_material_id: id, unit: mat?.unit || f.unit, cost_total_cad: mat?.cost_per_unit_cad != null ? String(mat.cost_per_unit_cad) : f.cost_total_cad }))
+                          } else {
+                            const pkg = packaging.find(p => p.id === id)
+                            setEditForm(f => ({ ...f, packaging_id: id, cost_total_cad: pkg?.cost_cad != null ? String(pkg.cost_cad) : f.cost_total_cad }))
+                          }
+                        }} style={inp}>
+                          <option value=''>Select material...</option>
+                          {editMatOpts.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                      <div>
+                        <label style={lbl}>Qty Ordered *</label>
+                        <input type='number' min='0' step='any' value={editForm.qty_ordered} onChange={e => setEditForm(f => ({ ...f, qty_ordered: e.target.value }))} placeholder='0' style={numInp} />
+                      </div>
+                      <div>
+                        <label style={lbl}>Unit</label>
+                        {UNIT_SELECT(editForm.unit, v => setEditForm(f => ({ ...f, unit: v })), inp)}
+                      </div>
+                    </div>
+                    <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                      <div>
+                        <label style={lbl}>Cost Total (CAD) *</label>
+                        <input type='number' min='0' step='0.01' value={editForm.cost_total_cad} onChange={e => setEditForm(f => ({ ...f, cost_total_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                      </div>
+                      <div>
+                        <label style={lbl}>Shipping (CAD)</label>
+                        <input type='number' min='0' step='0.01' value={editForm.shipping_cad} onChange={e => setEditForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                      </div>
+                      <div>
+                        <label style={lbl}>Brokerage (CAD)</label>
+                        <input type='number' min='0' step='0.01' value={editForm.brokerage_cad} onChange={e => setEditForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                      </div>
+                      <div>
+                        <label style={lbl}>Duty (CAD)</label>
+                        <input type='number' min='0' step='0.01' value={editForm.duty_cad} onChange={e => setEditForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                      </div>
+                    </div>
+                  </>
+                )}
 
-                <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-                  <div>
-                    <label style={lbl}>Qty Ordered *</label>
-                    <input type='number' min='0' step='any' value={editForm.qty_ordered} onChange={e => setEditForm(f => ({ ...f, qty_ordered: e.target.value }))} placeholder='0' style={numInp} />
+                {/* For multi-item: show shipping/brokerage/duty editable */}
+                {detailIsMultiItem && (
+                  <div className="modal-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                    <div>
+                      <label style={lbl}>Shipping (CAD)</label>
+                      <input type='number' min='0' step='0.01' value={editForm.shipping_cad} onChange={e => setEditForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                    </div>
+                    <div>
+                      <label style={lbl}>Brokerage (CAD)</label>
+                      <input type='number' min='0' step='0.01' value={editForm.brokerage_cad} onChange={e => setEditForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                    </div>
+                    <div>
+                      <label style={lbl}>Duty (CAD)</label>
+                      <input type='number' min='0' step='0.01' value={editForm.duty_cad} onChange={e => setEditForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                    </div>
                   </div>
-                  <div>
-                    <label style={lbl}>Unit</label>
-                    {UNIT_SELECT(editForm.unit, v => setEditForm(f => ({ ...f, unit: v })), inp)}
-                  </div>
-                </div>
+                )}
 
-                {/* USD section for edit */}
+                {/* USD section */}
                 <div style={{ marginBottom: '14px', padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>USD Purchase (optional)</div>
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>USD Invoice (optional)</div>
                   <div className="modal-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                     <div>
                       <label style={lbl}>Amount (USD)</label>
@@ -1073,32 +1354,13 @@ export default function Purchasing() {
                     <div>
                       <label style={lbl}>Amount (CAD)</label>
                       <input type='number' min='0' step='0.01' value={editForm.amount_cad}
-                        onChange={e => setEditForm(f => ({ ...f, amount_cad: e.target.value, cost_total_cad: e.target.value }))}
+                        onChange={e => setEditForm(f => ({ ...f, amount_cad: e.target.value, ...(!detailIsMultiItem ? { cost_total_cad: e.target.value } : {}) }))}
                         placeholder='0.00' style={numInp} />
                     </div>
                     <div>
                       <label style={lbl}>Exchange Rate</label>
                       <input readOnly value={editExchangeRate ?? (detail.exchange_rate ? detail.exchange_rate.toFixed(4) : '')} placeholder='auto' style={{ ...roInp, textAlign: 'right' }} />
                     </div>
-                  </div>
-                </div>
-
-                <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-                  <div>
-                    <label style={lbl}>Cost Total (CAD) *</label>
-                    <input type='number' min='0' step='0.01' value={editForm.cost_total_cad} onChange={e => setEditForm(f => ({ ...f, cost_total_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                  </div>
-                  <div>
-                    <label style={lbl}>Shipping (CAD)</label>
-                    <input type='number' min='0' step='0.01' value={editForm.shipping_cad} onChange={e => setEditForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                  </div>
-                  <div>
-                    <label style={lbl}>Brokerage (CAD)</label>
-                    <input type='number' min='0' step='0.01' value={editForm.brokerage_cad} onChange={e => setEditForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                  </div>
-                  <div>
-                    <label style={lbl}>Duty (CAD)</label>
-                    <input type='number' min='0' step='0.01' value={editForm.duty_cad} onChange={e => setEditForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
                   </div>
                 </div>
 
@@ -1118,7 +1380,6 @@ export default function Purchasing() {
                   <div style={{ marginBottom: '14px', padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '13px', color: '#dc2626' }}>{updateError}</div>
                 )}
 
-                {/* Status + actions row */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <label style={{ ...lbl, marginBottom: 0, whiteSpace: 'nowrap' }}>Status:</label>
@@ -1163,7 +1424,12 @@ export default function Purchasing() {
             {pendingStatus !== 'cancelled' ? (
               <>
                 <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 16px' }}>
-                  {pendingStatus === 'shipped' ? 'Select the date this order was shipped.' : `Select the received date. Inventory will be updated: +${detail.qty_ordered}${detail.unit ? ' ' + detail.unit : ''}.`}
+                  {pendingStatus === 'shipped'
+                    ? 'Select the date this order was shipped.'
+                    : detailIsMultiItem
+                      ? `Select the received date. Inventory will be updated for all ${detailItems.length} line item(s).`
+                      : `Select the received date. Inventory will be updated: +${detail.qty_ordered}${detail.unit ? ' ' + detail.unit : ''}.`
+                  }
                 </p>
                 <div style={{ marginBottom: '20px' }}>
                   <label style={lbl}>{pendingStatus === 'shipped' ? 'Shipped Date' : 'Received Date'}</label>
@@ -1196,7 +1462,10 @@ export default function Purchasing() {
               Changing status back from <strong>Received</strong> will deduct inventory.
             </p>
             <div style={{ padding: '10px 14px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '6px', fontSize: '13px', color: '#92400e', marginBottom: '20px' }}>
-              <strong>{detail.qty_ordered}{detail.unit ? ' ' + detail.unit : ''}</strong> of {getMaterialLabel(detail)} will be deducted from inventory.
+              {detailIsMultiItem
+                ? <><strong>{detailItems.length} item(s)</strong> will be deducted from inventory.</>
+                : <><strong>{detail.qty_ordered}{detail.unit ? ' ' + detail.unit : ''}</strong> of {getMaterialLabel(detail)} will be deducted from inventory.</>
+              }
               <div style={{ marginTop: '4px', color: '#78350f' }}>New status: <strong>{pendingRollbackStatus === 'shipped' ? 'Shipped' : 'Ordered'}</strong></div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
@@ -1219,13 +1488,19 @@ export default function Purchasing() {
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '380px' }}>
             <h3 style={{ fontSize: '16px', fontWeight: '600', margin: '0 0 12px', color: '#dc2626' }}>Delete Purchase Order</h3>
             <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 12px' }}>
-              Delete this PO for {getMaterialLabel(detail)} ({detail.qty_ordered}{detail.unit ? ' ' + detail.unit : ''})?
+              {detailIsMultiItem
+                ? `Delete this PO with ${detailItems.length} line item(s)?`
+                : `Delete this PO for ${getMaterialLabel(detail)} (${detail.qty_ordered}${detail.unit ? ' ' + detail.unit : ''})?`
+              }
             </p>
             <div style={{ padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>
               If status is <strong>Received</strong>, inventory will be reduced accordingly.
               {detail.status === 'received' && (
                 <div style={{ marginTop: '6px', color: '#92400e', fontWeight: '500' }}>
-                  This PO is Received — {detail.qty_ordered}{detail.unit ? ' ' + detail.unit : ''} will be deducted from inventory.
+                  {detailIsMultiItem
+                    ? `This PO is Received — ${detailItems.length} item(s) will be deducted from inventory.`
+                    : `This PO is Received — ${detail.qty_ordered}${detail.unit ? ' ' + detail.unit : ''} will be deducted from inventory.`
+                  }
                 </div>
               )}
             </div>
@@ -1253,8 +1528,6 @@ export default function Purchasing() {
               </div>
               <button onClick={() => setShowHistory(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
             </div>
-
-            {/* Supplier avg price summary */}
             {Object.keys(supplierSummary).length > 0 && (
               <div style={{ marginBottom: '20px', padding: '14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px' }}>
                 <div style={{ fontSize: '12px', fontWeight: '600', color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Avg Price by Supplier (Received POs)</div>
@@ -1263,17 +1536,13 @@ export default function Purchasing() {
                     <div key={supplier} style={{ fontSize: '13px' }}>
                       <span style={{ color: '#374151', fontWeight: '500' }}>{supplier}</span>
                       <span style={{ color: '#64748b' }}>: </span>
-                      <strong style={{ color: '#15803d' }}>
-                        ${formatCurrency(totalQty > 0 ? totalCost / totalQty : 0)}/unit
-                      </strong>
+                      <strong style={{ color: '#15803d' }}>${formatCurrency(totalQty > 0 ? totalCost / totalQty : 0)}/unit</strong>
                       <span style={{ color: '#94a3b8', marginLeft: '4px' }}>({totalQty} units, ${formatCurrency(totalCost)} total)</span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-
-            {/* History table */}
             {historyLoading ? (
               <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>Loading...</div>
             ) : historyData.length === 0 ? (
@@ -1309,13 +1578,13 @@ export default function Purchasing() {
                 </table>
               </div>
             )}
-
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
               <button onClick={() => setShowHistory(false)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Close</button>
             </div>
           </div>
         </div>
       )}
+
       {undoToast && (
         <UndoToast
           message={undoToast.message}
