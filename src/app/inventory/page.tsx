@@ -22,6 +22,7 @@ interface RawMaterial {
   reorder_threshold: number
   max_capacity?: number | null
   notes?: string | null
+  preferred_supplier_id?: string | null
 }
 
 interface Packaging {
@@ -36,6 +37,21 @@ interface Packaging {
   reorder_threshold: number
   max_capacity?: number | null
   notes?: string | null
+  preferred_supplier_id?: string | null
+}
+
+interface Supplier {
+  id: string
+  name: string
+}
+
+interface PurchaseHistoryEntry {
+  id: string
+  qty_ordered: number
+  cost_total_cad: number
+  ordered_at: string
+  status: string
+  suppliers: { name: string } | null
 }
 
 interface Product {
@@ -86,28 +102,47 @@ function InventoryContent() {
   const [editRaw, setEditRaw] = useState<RawMaterial | null>(null)
   const [editPack, setEditPack] = useState<Packaging | null>(null)
   const [editFinished, setEditFinished] = useState<Product | null>(null)
-  const [editRawForm, setEditRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '' })
-  const [editPackForm, setEditPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '' })
+  const [editRawForm, setEditRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '' })
+  const [editPackForm, setEditPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '' })
   const [editFinishedStock, setEditFinishedStock] = useState('')
   const [editFinishedMaxCapacity, setEditFinishedMaxCapacity] = useState('')
   const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
+  const [inventorySuppliers, setInventorySuppliers] = useState<Supplier[]>([])
+  const [itemPurchaseHistory, setItemPurchaseHistory] = useState<PurchaseHistoryEntry[]>([])
+  const [loadingItemHistory, setLoadingItemHistory] = useState(false)
 
   useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
-    const [r, p, fg] = await Promise.all([
+    const [r, p, fg, sup] = await Promise.all([
       supabase.from('raw_materials').select('*').order('item_no'),
       supabase.from('packaging').select('*').order('item_no'),
       supabase.from('products').select('*').eq('is_active', true).is('deleted_at', null).order('sku'),
+      supabase.from('suppliers').select('id, name').order('name'),
     ])
     setRawMaterials(r.data || [])
     setPackaging(p.data || [])
     setProducts(fg.data || [])
+    setInventorySuppliers(sup.data || [])
     setLoading(false)
+  }
+
+  async function fetchItemPurchaseHistory(itemType: 'raw_material' | 'packaging', itemId: string) {
+    setLoadingItemHistory(true)
+    const col = itemType === 'raw_material' ? 'raw_material_id' : 'packaging_id'
+    const { data } = await supabase
+      .from('purchase_orders')
+      .select('id, qty_ordered, cost_total_cad, ordered_at, status, suppliers(name)')
+      .eq(col, itemId)
+      .order('ordered_at', { ascending: false })
+      .limit(10)
+    setItemPurchaseHistory((data as unknown as PurchaseHistoryEntry[]) || [])
+    setLoadingItemHistory(false)
   }
 
   function openEditRaw(r: RawMaterial) {
     setEditRaw(r)
+    setItemPurchaseHistory([])
     setEditRawForm({
       item_no: r.item_no || '',
       name: r.name || '',
@@ -116,11 +151,14 @@ function InventoryContent() {
       current_stock: String(r.current_stock ?? ''),
       reorder_threshold: String(r.reorder_threshold ?? ''),
       max_capacity: String(r.max_capacity ?? ''),
+      preferred_supplier_id: r.preferred_supplier_id || '',
     })
+    fetchItemPurchaseHistory('raw_material', r.id)
   }
 
   function openEditPack(p: Packaging) {
     setEditPack(p)
+    setItemPurchaseHistory([])
     setEditPackForm({
       item_no: p.item_no || '',
       name: p.name || '',
@@ -130,7 +168,9 @@ function InventoryContent() {
       current_stock: String(p.current_stock ?? ''),
       reorder_threshold: String(p.reorder_threshold ?? ''),
       max_capacity: String(p.max_capacity ?? ''),
+      preferred_supplier_id: p.preferred_supplier_id || '',
     })
+    fetchItemPurchaseHistory('packaging', p.id)
   }
 
   function openEditFinished(p: Product) {
@@ -149,9 +189,11 @@ function InventoryContent() {
       current_stock: parseFloat(editRawForm.current_stock) || 0,
       reorder_threshold: parseFloat(editRawForm.reorder_threshold) || 0,
       max_capacity: editRawForm.max_capacity !== '' ? parseFloat(editRawForm.max_capacity) : null,
+      preferred_supplier_id: editRawForm.preferred_supplier_id || null,
     }).eq('id', editRaw.id)
     if (error) console.error('raw_material update error:', error)
     setEditRaw(null)
+    setItemPurchaseHistory([])
     fetchAll()
   }
 
@@ -163,6 +205,7 @@ function InventoryContent() {
     const { error } = await supabase.from('raw_materials').delete().eq('id', old.id)
     if (error) console.error('raw_material delete error:', error)
     setEditRaw(null)
+    setItemPurchaseHistory([])
     fetchAll()
     setUndoToast({
       message: `"${old.name}" deleted.`,
@@ -186,9 +229,11 @@ function InventoryContent() {
       current_stock: parseInt(editPackForm.current_stock) || 0,
       reorder_threshold: parseInt(editPackForm.reorder_threshold) || 0,
       max_capacity: editPackForm.max_capacity !== '' ? parseInt(editPackForm.max_capacity) : null,
+      preferred_supplier_id: editPackForm.preferred_supplier_id || null,
     }).eq('id', editPack.id)
     if (error) console.error('packaging update error:', error)
     setEditPack(null)
+    setItemPurchaseHistory([])
     fetchAll()
   }
 
@@ -200,6 +245,7 @@ function InventoryContent() {
     const { error } = await supabase.from('packaging').delete().eq('id', old.id)
     if (error) console.error('packaging delete error:', error)
     setEditPack(null)
+    setItemPurchaseHistory([])
     fetchAll()
     setUndoToast({
       message: `"${old.name}" deleted.`,
@@ -756,7 +802,7 @@ function InventoryContent() {
 
       {/* Edit Raw Material Modal */}
       {editRaw && (
-        <div className="modal-overlay" onClick={() => { setShowModal(false); setEditRaw(null) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
+        <div className="modal-overlay" onClick={() => { setShowModal(false); setEditRaw(null); setItemPurchaseHistory([]) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Edit Raw Material</h2>
             {([['Item #', 'item_no'], ['Name', 'name'], ['Cost (CAD)', 'cost_per_unit_cad'], ['Current Stock', 'current_stock'], ['Reorder Threshold', 'reorder_threshold'], ['Max Capacity', 'max_capacity']] as [string, string][]).map(([label, key]) => (
@@ -775,10 +821,64 @@ function InventoryContent() {
                 <option value='ml'>ml</option><option value='g'>g</option><option value='kg'>kg</option><option value='L'>L</option>
               </select>
             </div>
+            <div style={{ marginBottom: '20px' }}>
+              <label style={lbl}>Preferred Supplier</label>
+              <select value={editRawForm.preferred_supplier_id} onChange={e => setEditRawForm({ ...editRawForm, preferred_supplier_id: e.target.value })} style={inp}>
+                <option value=''>None</option>
+                {inventorySuppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Purchase History</span>
+                {!loadingItemHistory && itemPurchaseHistory.length > 0 && (() => {
+                  const received = itemPurchaseHistory.filter(h => h.status === 'received' && h.qty_ordered > 0)
+                  const totalCost = received.reduce((s, h) => s + h.cost_total_cad, 0)
+                  const totalQty = received.reduce((s, h) => s + h.qty_ordered, 0)
+                  const avg = totalQty > 0 ? totalCost / totalQty : null
+                  return avg != null ? (
+                    <span style={{ fontSize: '12px', color: '#64748b' }}>Avg unit price (received): <strong>${avg.toFixed(4)}</strong></span>
+                  ) : null
+                })()}
+              </div>
+              {loadingItemHistory ? (
+                <div style={{ fontSize: '13px', color: '#94a3b8', textAlign: 'center', padding: '12px' }}>Loading...</div>
+              ) : itemPurchaseHistory.length === 0 ? (
+                <div style={{ fontSize: '13px', color: '#94a3b8', textAlign: 'center', padding: '12px' }}>No purchase history</div>
+              ) : (
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc' }}>
+                        {['Supplier', 'Date', 'Qty', 'Unit Cost', 'Status'].map(h => (
+                          <th key={h} style={{ padding: '7px 10px', fontSize: '11px', fontWeight: '600', color: '#64748b', textAlign: 'left', textTransform: 'uppercase' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {itemPurchaseHistory.map((h, i) => {
+                        const unitCost = h.qty_ordered > 0 ? h.cost_total_cad / h.qty_ordered : 0
+                        return (
+                          <tr key={h.id} style={{ borderTop: i > 0 ? '1px solid #f1f5f9' : undefined, background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#374151' }}>{h.suppliers?.name || '—'}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{h.ordered_at ? new Date(h.ordered_at).toLocaleDateString('en-CA') : '—'}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#1e293b', fontWeight: '500' }}>{h.qty_ordered?.toLocaleString()}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#1e293b' }}>${unitCost.toFixed(4)}</td>
+                            <td style={{ padding: '7px 10px' }}>
+                              <span style={{ background: h.status === 'received' ? '#f0fdf4' : h.status === 'ordered' ? '#eff6ff' : '#f8fafc', color: h.status === 'received' ? '#16a34a' : h.status === 'ordered' ? '#2563eb' : '#64748b', padding: '2px 6px', borderRadius: '10px', fontSize: '11px', fontWeight: '500' }}>{h.status}</span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
               <button onClick={handleDeleteRaw} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>Delete</button>
               <div style={{ display: 'flex', gap: '12px' }}>
-                <button onClick={() => setEditRaw(null)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                <button onClick={() => { setEditRaw(null); setItemPurchaseHistory([]) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
                 <button onClick={handleUpdateRaw} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Save Changes</button>
               </div>
             </div>
@@ -788,7 +888,7 @@ function InventoryContent() {
 
       {/* Edit Packaging Modal */}
       {editPack && (
-        <div className="modal-overlay" onClick={() => { setShowModal(false); setEditPack(null) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
+        <div className="modal-overlay" onClick={() => { setShowModal(false); setEditPack(null); setItemPurchaseHistory([]) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Edit Packaging</h2>
             {([['Item #', 'item_no'], ['Name', 'name'], ['Size (oz)', 'size_oz'], ['Cost (CAD)', 'cost_cad'], ['Current Stock', 'current_stock'], ['Reorder Threshold', 'reorder_threshold'], ['Max Capacity', 'max_capacity']] as [string, string][]).map(([label, key]) => (
@@ -808,10 +908,64 @@ function InventoryContent() {
                 <option value='box'>Box</option><option value='shrink_band'>Shrink Band</option><option value='label'>Label</option>
               </select>
             </div>
+            <div style={{ marginBottom: '20px' }}>
+              <label style={lbl}>Preferred Supplier</label>
+              <select value={editPackForm.preferred_supplier_id} onChange={e => setEditPackForm({ ...editPackForm, preferred_supplier_id: e.target.value })} style={inp}>
+                <option value=''>None</option>
+                {inventorySuppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Purchase History</span>
+                {!loadingItemHistory && itemPurchaseHistory.length > 0 && (() => {
+                  const received = itemPurchaseHistory.filter(h => h.status === 'received' && h.qty_ordered > 0)
+                  const totalCost = received.reduce((s, h) => s + h.cost_total_cad, 0)
+                  const totalQty = received.reduce((s, h) => s + h.qty_ordered, 0)
+                  const avg = totalQty > 0 ? totalCost / totalQty : null
+                  return avg != null ? (
+                    <span style={{ fontSize: '12px', color: '#64748b' }}>Avg unit price (received): <strong>${avg.toFixed(4)}</strong></span>
+                  ) : null
+                })()}
+              </div>
+              {loadingItemHistory ? (
+                <div style={{ fontSize: '13px', color: '#94a3b8', textAlign: 'center', padding: '12px' }}>Loading...</div>
+              ) : itemPurchaseHistory.length === 0 ? (
+                <div style={{ fontSize: '13px', color: '#94a3b8', textAlign: 'center', padding: '12px' }}>No purchase history</div>
+              ) : (
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc' }}>
+                        {['Supplier', 'Date', 'Qty', 'Unit Cost', 'Status'].map(h => (
+                          <th key={h} style={{ padding: '7px 10px', fontSize: '11px', fontWeight: '600', color: '#64748b', textAlign: 'left', textTransform: 'uppercase' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {itemPurchaseHistory.map((h, i) => {
+                        const unitCost = h.qty_ordered > 0 ? h.cost_total_cad / h.qty_ordered : 0
+                        return (
+                          <tr key={h.id} style={{ borderTop: i > 0 ? '1px solid #f1f5f9' : undefined, background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#374151' }}>{h.suppliers?.name || '—'}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{h.ordered_at ? new Date(h.ordered_at).toLocaleDateString('en-CA') : '—'}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#1e293b', fontWeight: '500' }}>{h.qty_ordered?.toLocaleString()}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#1e293b' }}>${unitCost.toFixed(4)}</td>
+                            <td style={{ padding: '7px 10px' }}>
+                              <span style={{ background: h.status === 'received' ? '#f0fdf4' : h.status === 'ordered' ? '#eff6ff' : '#f8fafc', color: h.status === 'received' ? '#16a34a' : h.status === 'ordered' ? '#2563eb' : '#64748b', padding: '2px 6px', borderRadius: '10px', fontSize: '11px', fontWeight: '500' }}>{h.status}</span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
               <button onClick={handleDeletePack} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>Delete</button>
               <div style={{ display: 'flex', gap: '12px' }}>
-                <button onClick={() => setEditPack(null)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                <button onClick={() => { setEditPack(null); setItemPurchaseHistory([]) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
                 <button onClick={handleUpdatePack} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Save Changes</button>
               </div>
             </div>

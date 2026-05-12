@@ -125,6 +125,7 @@ export default function Purchasing() {
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null)
   const invoiceInputRef = useRef<HTMLInputElement>(null)
   const editInvoiceInputRef = useRef<HTMLInputElement>(null)
+  const [labelQtys, setLabelQtys] = useState<Record<string, string>>({})
 
   // Detail/Edit modal
   const [showDetail, setShowDetail] = useState(false)
@@ -246,28 +247,60 @@ export default function Purchasing() {
     setCreateError('')
     if (!form.supplier_id) { setCreateError('Please select a supplier.'); return }
     if (!form.ordered_at) { setCreateError('Please enter an order date.'); return }
+
+    // Upload invoice helper (shared for both paths)
+    async function uploadInvoice(): Promise<string | null> {
+      if (!invoiceFile) return null
+      const ext = invoiceFile.name.split('.').pop()
+      const path = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
+      const { error: uploadErr } = await supabase.storage.from('purchase-invoices').upload(path, invoiceFile)
+      if (uploadErr) { console.error('Invoice upload error:', uploadErr); return null }
+      const { data: urlData } = supabase.storage.from('purchase-invoices').getPublicUrl(path)
+      return urlData.publicUrl
+    }
+
+    if (isDigitalLabels) {
+      const itemsToCreate = labelItems.filter(item => parseFloat(labelQtys[item.id] || '0') > 0)
+      if (itemsToCreate.length === 0) { setCreateError('Please enter a quantity for at least one label item.'); return }
+      setSaving(true)
+      const invoice_url = await uploadInvoice()
+      let failCount = 0
+      for (const item of itemsToCreate) {
+        const { error } = await supabase.from('purchase_orders').insert([{
+          supplier_id: form.supplier_id,
+          item_type: 'packaging',
+          raw_material_id: null,
+          packaging_id: item.id,
+          qty_ordered: parseFloat(labelQtys[item.id]),
+          qty_received: null,
+          unit: 'ea',
+          cost_total_cad: 0,
+          status: 'ordered',
+          ordered_at: form.ordered_at,
+          notes: form.notes || null,
+          invoice_url,
+        }])
+        if (error) { console.error('Label PO insert error:', error); failCount++ }
+      }
+      if (failCount > 0) { setCreateError(`${failCount} PO(s) failed to create.`); setSaving(false); return }
+      setSaving(false)
+      setShowCreate(false)
+      setCreateError('')
+      setForm({ ...emptyForm })
+      setLabelQtys({})
+      setInvoiceFile(null)
+      fetchAll()
+      return
+    }
+
+    // Normal single-item validation
     if (!form.qty_ordered || parseFloat(form.qty_ordered) <= 0) { setCreateError('Please enter a valid quantity.'); return }
     if (!form.cost_total_cad || parseFloat(form.cost_total_cad) < 0) { setCreateError('Please enter the total cost.'); return }
     if (form.item_type === 'raw_material' && !form.raw_material_id) { setCreateError('Please select a raw material.'); return }
     if (form.item_type === 'packaging' && !form.packaging_id) { setCreateError('Please select a packaging item.'); return }
 
     setSaving(true)
-
-    // Upload invoice if provided
-    let invoice_url: string | null = null
-    if (invoiceFile) {
-      const ext = invoiceFile.name.split('.').pop()
-      const path = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
-      const { error: uploadErr } = await supabase.storage.from('purchase-invoices').upload(path, invoiceFile)
-      if (uploadErr) {
-        console.error('Invoice upload error:', uploadErr)
-        // Non-blocking — PO will be created without invoice
-      } else {
-        const { data: urlData } = supabase.storage.from('purchase-invoices').getPublicUrl(path)
-        invoice_url = urlData.publicUrl
-      }
-    }
-
+    const invoice_url = await uploadInvoice()
     const exchangeRate = form.amount_usd && form.amount_cad
       ? parseFloat(form.amount_cad) / parseFloat(form.amount_usd)
       : null
@@ -576,6 +609,10 @@ export default function Purchasing() {
     ? rawMaterials.map(m => ({ id: m.id, label: `${m.item_no} — ${m.name}${m.unit ? ` (${m.unit})` : ''}` }))
     : packaging.map(p => ({ id: p.id, label: `${p.item_no} — ${p.name}${p.type ? ` [${p.type}]` : ''}` }))
 
+  const selectedSupplierName = suppliers.find(s => s.id === form.supplier_id)?.name || ''
+  const isDigitalLabels = selectedSupplierName === 'Digital Labels'
+  const labelItems = packaging.filter(p => p.item_no.startsWith('LABEL-'))
+
   const isReadOnly = detail?.status !== 'ordered' && detail?.status !== 'shipped'
 
   // USD/CAD exchange rate calculation (live)
@@ -742,76 +779,110 @@ export default function Purchasing() {
               </div>
             </div>
 
-            {/* Item Type + Material */}
-            <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-              <div>
-                <label style={lbl}>Item Type *</label>
-                <select value={form.item_type} onChange={e => setForm(f => ({ ...f, item_type: e.target.value as 'raw_material' | 'packaging', raw_material_id: '', packaging_id: '' }))} style={inp}>
-                  <option value='raw_material'>Raw Material</option>
-                  <option value='packaging'>Packaging</option>
-                </select>
-              </div>
-              <div>
-                <label style={lbl}>Material *</label>
-                <select value={form.item_type === 'raw_material' ? form.raw_material_id : form.packaging_id} onChange={e => handleMaterialSelect(e.target.value, false)} style={inp}>
-                  <option value=''>Select material...</option>
-                  {createMatOpts.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                </select>
-              </div>
-            </div>
-
-            {/* Qty + Unit */}
-            <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-              <div>
-                <label style={lbl}>Qty Ordered *</label>
-                <input type='number' min='0' step='any' value={form.qty_ordered} onChange={e => setForm(f => ({ ...f, qty_ordered: e.target.value }))} placeholder='0' style={numInp} />
-              </div>
-              <div>
-                <label style={lbl}>Unit</label>
-                {UNIT_SELECT(form.unit, v => setForm(f => ({ ...f, unit: v })), inp)}
-              </div>
-            </div>
-
-            {/* USD / CAD section */}
-            <div style={{ marginBottom: '14px', padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-              <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>USD Purchase (optional)</div>
-              <div className="modal-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                <div>
-                  <label style={lbl}>Amount (USD)</label>
-                  <input type='number' min='0' step='0.01' value={form.amount_usd} onChange={e => setForm(f => ({ ...f, amount_usd: e.target.value }))} placeholder='0.00' style={numInp} />
+            {/* Item selection: Digital Labels multi-item grid OR normal single-item form */}
+            {isDigitalLabels ? (
+              <div style={{ marginBottom: '14px' }}>
+                <label style={lbl}>Label Items — enter qty for each item to order</label>
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', maxHeight: '280px', overflowY: 'auto' }}>
+                  {labelItems.length === 0 ? (
+                    <div style={{ padding: '16px', color: '#94a3b8', fontSize: '13px', textAlign: 'center' }}>No LABEL- items found in packaging.</div>
+                  ) : labelItems.map((item, i) => (
+                    <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', borderBottom: i < labelItems.length - 1 ? '1px solid #f1f5f9' : 'none', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                      <div style={{ flex: 1, fontSize: '13px' }}>
+                        <span style={{ fontWeight: '600', color: '#2563eb' }}>{item.item_no}</span>
+                        <span style={{ color: '#64748b', marginLeft: '8px' }}>{item.name}</span>
+                      </div>
+                      <input
+                        type='number'
+                        min='0'
+                        step='1'
+                        value={labelQtys[item.id] || ''}
+                        onChange={e => setLabelQtys(q => ({ ...q, [item.id]: e.target.value }))}
+                        placeholder='Qty'
+                        style={{ ...numInp, width: '90px' }}
+                      />
+                      <span style={{ fontSize: '12px', color: '#94a3b8', width: '18px', flexShrink: 0 }}>ea</span>
+                    </div>
+                  ))}
                 </div>
-                <div>
-                  <label style={lbl}>Amount (CAD)</label>
-                  <input type='number' min='0' step='0.01' value={form.amount_cad}
-                    onChange={e => setForm(f => ({ ...f, amount_cad: e.target.value, cost_total_cad: e.target.value }))}
-                    placeholder='0.00' style={numInp} />
-                </div>
-                <div>
-                  <label style={lbl}>Exchange Rate</label>
-                  <input readOnly value={createExchangeRate ?? ''} placeholder='auto' style={{ ...roInp, textAlign: 'right' }} />
+                <div style={{ marginTop: '6px', fontSize: '12px', color: '#64748b' }}>
+                  {Object.values(labelQtys).filter(q => parseFloat(q || '0') > 0).length} item(s) with quantity &gt; 0 will create separate POs.
                 </div>
               </div>
-            </div>
+            ) : (
+              <>
+                {/* Item Type + Material */}
+                <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                  <div>
+                    <label style={lbl}>Item Type *</label>
+                    <select value={form.item_type} onChange={e => setForm(f => ({ ...f, item_type: e.target.value as 'raw_material' | 'packaging', raw_material_id: '', packaging_id: '' }))} style={inp}>
+                      <option value='raw_material'>Raw Material</option>
+                      <option value='packaging'>Packaging</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={lbl}>Material *</label>
+                    <select value={form.item_type === 'raw_material' ? form.raw_material_id : form.packaging_id} onChange={e => handleMaterialSelect(e.target.value, false)} style={inp}>
+                      <option value=''>Select material...</option>
+                      {createMatOpts.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                    </select>
+                  </div>
+                </div>
 
-            {/* Cost fields */}
-            <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-              <div>
-                <label style={lbl}>Cost Total (CAD) *</label>
-                <input type='number' min='0' step='0.01' value={form.cost_total_cad} onChange={e => setForm(f => ({ ...f, cost_total_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-              </div>
-              <div>
-                <label style={lbl}>Shipping (CAD)</label>
-                <input type='number' min='0' step='0.01' value={form.shipping_cad} onChange={e => setForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-              </div>
-              <div>
-                <label style={lbl}>Brokerage (CAD)</label>
-                <input type='number' min='0' step='0.01' value={form.brokerage_cad} onChange={e => setForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-              </div>
-              <div>
-                <label style={lbl}>Duty (CAD)</label>
-                <input type='number' min='0' step='0.01' value={form.duty_cad} onChange={e => setForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-              </div>
-            </div>
+                {/* Qty + Unit */}
+                <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                  <div>
+                    <label style={lbl}>Qty Ordered *</label>
+                    <input type='number' min='0' step='any' value={form.qty_ordered} onChange={e => setForm(f => ({ ...f, qty_ordered: e.target.value }))} placeholder='0' style={numInp} />
+                  </div>
+                  <div>
+                    <label style={lbl}>Unit</label>
+                    {UNIT_SELECT(form.unit, v => setForm(f => ({ ...f, unit: v })), inp)}
+                  </div>
+                </div>
+
+                {/* USD / CAD section */}
+                <div style={{ marginBottom: '14px', padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>USD Purchase (optional)</div>
+                  <div className="modal-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label style={lbl}>Amount (USD)</label>
+                      <input type='number' min='0' step='0.01' value={form.amount_usd} onChange={e => setForm(f => ({ ...f, amount_usd: e.target.value }))} placeholder='0.00' style={numInp} />
+                    </div>
+                    <div>
+                      <label style={lbl}>Amount (CAD)</label>
+                      <input type='number' min='0' step='0.01' value={form.amount_cad}
+                        onChange={e => setForm(f => ({ ...f, amount_cad: e.target.value, cost_total_cad: e.target.value }))}
+                        placeholder='0.00' style={numInp} />
+                    </div>
+                    <div>
+                      <label style={lbl}>Exchange Rate</label>
+                      <input readOnly value={createExchangeRate ?? ''} placeholder='auto' style={{ ...roInp, textAlign: 'right' }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cost fields */}
+                <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                  <div>
+                    <label style={lbl}>Cost Total (CAD) *</label>
+                    <input type='number' min='0' step='0.01' value={form.cost_total_cad} onChange={e => setForm(f => ({ ...f, cost_total_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                  </div>
+                  <div>
+                    <label style={lbl}>Shipping (CAD)</label>
+                    <input type='number' min='0' step='0.01' value={form.shipping_cad} onChange={e => setForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                  </div>
+                  <div>
+                    <label style={lbl}>Brokerage (CAD)</label>
+                    <input type='number' min='0' step='0.01' value={form.brokerage_cad} onChange={e => setForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                  </div>
+                  <div>
+                    <label style={lbl}>Duty (CAD)</label>
+                    <input type='number' min='0' step='0.01' value={form.duty_cad} onChange={e => setForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Notes + Invoice upload */}
             <div style={{ marginBottom: '14px' }}>
