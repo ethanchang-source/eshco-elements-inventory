@@ -63,17 +63,25 @@ export default function ActivityLog() {
   const [dateTo, setDateTo]         = useState('')
   const [restoring, setRestoring]   = useState<string | null>(null)
   const [restoreMsg, setRestoreMsg] = useState('')
+  const [fetchError, setFetchError] = useState('')
 
   useEffect(() => { fetchLogs() }, [])
 
   async function fetchLogs() {
     setLoading(true)
-    const { data } = await supabase
+    setFetchError('')
+    const { data, error } = await supabase
       .from('activity_log')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(500)
-    setEntries(data || [])
+    if (error) {
+      console.error('activity_log fetch error:', error)
+      setFetchError(error.message || 'Failed to load activity log')
+      setEntries([])
+    } else {
+      setEntries(data || [])
+    }
     setLoading(false)
   }
 
@@ -186,9 +194,22 @@ export default function ActivityLog() {
         </div>
       </div>
 
+      {fetchError && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', padding: '14px 18px', marginBottom: '16px', fontSize: '13px', color: '#dc2626' }}>
+          <strong>Error loading activity log:</strong> {fetchError}
+          <br />
+          <span style={{ color: '#7f1d1d', fontSize: '12px' }}>
+            This is likely an RLS issue. Run in Supabase SQL Editor:{' '}
+            <code style={{ background: '#fee2e2', padding: '1px 6px', borderRadius: '4px' }}>
+              ALTER TABLE activity_log DISABLE ROW LEVEL SECURITY;
+            </code>
+          </span>
+        </div>
+      )}
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: '48px', color: '#94a3b8' }}>Loading...</div>
-      ) : filtered.length === 0 ? (
+      ) : filtered.length === 0 && !fetchError ? (
         <div style={{ textAlign: 'center', padding: '48px', color: '#94a3b8', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
           <History size={32} color='#e2e8f0' style={{ display: 'block', margin: '0 auto 8px' }} />
           No activity yet
