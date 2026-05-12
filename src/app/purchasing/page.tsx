@@ -158,6 +158,8 @@ export default function Purchasing() {
   const invoiceInputRef = useRef<HTMLInputElement>(null)
   const editInvoiceInputRef = useRef<HTMLInputElement>(null)
   const [labelQtys, setLabelQtys] = useState<Record<string, string>>({})
+  const [labelPrices, setLabelPrices] = useState<Record<string, string>>({})
+  const [detailLineItemEdits, setDetailLineItemEdits] = useState<Record<string, { quantity: string; unit_price: string }>>({})
 
   const [showDetail, setShowDetail] = useState(false)
   const [detail, setDetail] = useState<PO | null>(null)
@@ -194,6 +196,20 @@ export default function Purchasing() {
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [])
+
+  useEffect(() => {
+    const selectedName = suppliers.find(s => s.id === createForm.supplier_id)?.name || ''
+    if (selectedName === 'Digital Labels') {
+      const items = packaging.filter(p => p.item_no.startsWith('LABEL-'))
+      setLabelPrices(prev => {
+        const next = { ...prev }
+        for (const item of items) {
+          if (!(item.id in next)) next[item.id] = item.cost_cad != null ? String(item.cost_cad) : ''
+        }
+        return next
+      })
+    }
+  }, [createForm.supplier_id, suppliers, packaging])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -311,6 +327,11 @@ export default function Purchasing() {
       amount_usd: po.amount_usd != null ? String(po.amount_usd) : '',
       amount_cad: '',
     })
+    const editMap: Record<string, { quantity: string; unit_price: string }> = {}
+    for (const item of (poItems[po.id] || [])) {
+      editMap[item.id] = { quantity: String(item.quantity), unit_price: String(item.unit_price ?? 0) }
+    }
+    setDetailLineItemEdits(editMap)
     setUpdateError('')
     setShowDetail(true)
   }
@@ -338,7 +359,7 @@ export default function Purchasing() {
       if (filtered.length === 0) { setCreateError('Please enter a quantity for at least one label item.'); return }
       itemsToInsert = filtered.map(item => {
         const qty = parseFloat(labelQtys[item.id])
-        const unitPrice = item.cost_cad || 0
+        const unitPrice = parseFloat(labelPrices[item.id] || '0') || (item.cost_cad || 0)
         return { material_type: 'packaging', material_id: item.id, quantity: qty, unit_price: unitPrice }
       })
     } else {
@@ -406,6 +427,7 @@ export default function Purchasing() {
     setCreateForm({ ...emptyCreateForm })
     setLineItems([{ ...emptyLineItem }])
     setLabelQtys({})
+    setLabelPrices({})
     setInvoiceFile(null)
     fetchAll()
   }
@@ -443,7 +465,19 @@ export default function Purchasing() {
 
     if (isMultiItem) {
       const items = poItems[detail.id] || []
-      const itemsSubtotal = items.reduce((s, i) => s + i.line_total, 0)
+      for (const item of items) {
+        const edits = detailLineItemEdits[item.id]
+        if (edits) {
+          const qty = parseFloat(edits.quantity || '0')
+          const price = parseFloat(edits.unit_price || '0')
+          await supabase.from('purchase_order_items').update({ quantity: qty, unit_price: price }).eq('id', item.id)
+        }
+      }
+      const itemsSubtotal = items.reduce((s, i) => {
+        const edits = detailLineItemEdits[i.id]
+        if (edits) return s + parseFloat(edits.quantity || '0') * parseFloat(edits.unit_price || '0')
+        return s + i.line_total
+      }, 0)
       const shippingCad = editForm.shipping_cad ? parseFloat(editForm.shipping_cad) : 0
       const brokerageCad = editForm.brokerage_cad ? parseFloat(editForm.brokerage_cad) : 0
       const dutyCad = editForm.duty_cad ? parseFloat(editForm.duty_cad) : 0
@@ -721,7 +755,11 @@ export default function Purchasing() {
   const createDuty = parseFloat(createForm.duty_cad || '0') || 0
   const createGrandTotal = lineItemsSubtotal + createShipping + createBrokerage + createDuty
 
-  const labelSubtotal = labelItems.reduce((s, item) => s + parseFloat(labelQtys[item.id] || '0') * (item.cost_cad || 0), 0)
+  const labelSubtotal = labelItems.reduce((s, item) => {
+    const qty = parseFloat(labelQtys[item.id] || '0')
+    const price = parseFloat(labelPrices[item.id] ?? String(item.cost_cad || 0))
+    return s + qty * price
+  }, 0)
 
   const createExchangeRate = createForm.amount_usd && createForm.amount_cad && parseFloat(createForm.amount_usd) > 0
     ? (parseFloat(createForm.amount_cad) / parseFloat(createForm.amount_usd)).toFixed(4)
@@ -765,7 +803,7 @@ export default function Purchasing() {
             <Download size={14} /> Export Excel
           </button>
           <button
-            onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ ...emptyCreateForm }); setLineItems([{ ...emptyLineItem }]); setLabelQtys({}); setInvoiceFile(null) }}
+            onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ ...emptyCreateForm }); setLineItems([{ ...emptyLineItem }]); setLabelQtys({}); setLabelPrices({}); setInvoiceFile(null) }}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}
           >
             <Plus size={16} /> New PO
@@ -893,24 +931,42 @@ export default function Purchasing() {
               <div style={{ marginBottom: '20px' }}>
                 <label style={lbl}>Label Items — enter qty for each item to include in this PO</label>
                 <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', maxHeight: '280px', overflowY: 'auto' }}>
+                  {/* Header */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px 90px', gap: '0', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '7px 14px', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <span>Item</span><span style={{ textAlign: 'right' }}>Qty</span><span style={{ textAlign: 'right' }}>Unit Price</span><span style={{ textAlign: 'right' }}>Total</span>
+                  </div>
                   {labelItems.length === 0 ? (
                     <div style={{ padding: '16px', color: '#94a3b8', fontSize: '13px', textAlign: 'center' }}>No LABEL- items found in packaging.</div>
-                  ) : labelItems.map((item, i) => (
-                    <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', borderBottom: i < labelItems.length - 1 ? '1px solid #f1f5f9' : 'none', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                      <div style={{ flex: 1, fontSize: '13px' }}>
-                        <span style={{ fontWeight: '600', color: '#2563eb' }}>{item.item_no}</span>
-                        <span style={{ color: '#64748b', marginLeft: '8px' }}>{item.name}</span>
+                  ) : labelItems.map((item, i) => {
+                    const qty = parseFloat(labelQtys[item.id] || '0')
+                    const price = parseFloat(labelPrices[item.id] ?? String(item.cost_cad || 0))
+                    const lineTotal = qty * price
+                    return (
+                      <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px 90px', gap: '0', alignItems: 'center', padding: '8px 14px', borderBottom: i < labelItems.length - 1 ? '1px solid #f1f5f9' : 'none', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                        <div style={{ fontSize: '13px' }}>
+                          <span style={{ fontWeight: '600', color: '#2563eb' }}>{item.item_no}</span>
+                          <span style={{ color: '#64748b', marginLeft: '8px' }}>{item.name}</span>
+                        </div>
+                        <input
+                          type='number' min='0' step='1'
+                          value={labelQtys[item.id] || ''}
+                          onChange={e => setLabelQtys(q => ({ ...q, [item.id]: e.target.value }))}
+                          placeholder='0'
+                          style={{ ...numInp, padding: '5px 7px', fontSize: '12px' }}
+                        />
+                        <input
+                          type='number' min='0' step='0.01'
+                          value={labelPrices[item.id] ?? ''}
+                          onChange={e => setLabelPrices(p => ({ ...p, [item.id]: e.target.value }))}
+                          placeholder='0.00'
+                          style={{ ...numInp, padding: '5px 7px', fontSize: '12px', marginLeft: '6px' }}
+                        />
+                        <div style={{ textAlign: 'right', fontSize: '12px', fontWeight: '500', color: qty > 0 && price > 0 ? '#1e293b' : '#94a3b8', paddingRight: '2px' }}>
+                          {qty > 0 && price > 0 ? `$${formatCurrency(lineTotal)}` : '—'}
+                        </div>
                       </div>
-                      <input
-                        type='number' min='0' step='1'
-                        value={labelQtys[item.id] || ''}
-                        onChange={e => setLabelQtys(q => ({ ...q, [item.id]: e.target.value }))}
-                        placeholder='Qty'
-                        style={{ ...numInp, width: '90px' }}
-                      />
-                      <span style={{ fontSize: '12px', color: '#94a3b8', width: '18px', flexShrink: 0 }}>ea</span>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
                 <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '12px', color: '#64748b' }}>
@@ -1254,14 +1310,35 @@ export default function Purchasing() {
                           </tr>
                         </thead>
                         <tbody>
-                          {detailItems.map(item => (
-                            <tr key={item.id} style={{ borderTop: '1px solid #f1f5f9' }}>
-                              <td style={{ padding: '8px 12px', color: '#374151' }}>{getLineItemLabel(item)}</td>
-                              <td style={{ padding: '8px 12px', textAlign: 'right', color: '#374151' }}>{item.quantity}</td>
-                              <td style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b' }}>${formatCurrency(item.unit_price || 0)}</td>
-                              <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '500' }}>${formatCurrency(item.line_total || 0)}</td>
-                            </tr>
-                          ))}
+                          {detailItems.map(item => {
+                            const edits = detailLineItemEdits[item.id]
+                            const qty = parseFloat(edits?.quantity ?? String(item.quantity))
+                            const price = parseFloat(edits?.unit_price ?? String(item.unit_price || 0))
+                            return (
+                              <tr key={item.id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '8px 12px', color: '#374151' }}>{getLineItemLabel(item)}</td>
+                                <td style={{ padding: '6px 12px', textAlign: 'right' }}>
+                                  <input
+                                    type='number' min='0' step='any'
+                                    value={edits?.quantity ?? String(item.quantity)}
+                                    onChange={e => setDetailLineItemEdits(prev => ({ ...prev, [item.id]: { ...prev[item.id], quantity: e.target.value } }))}
+                                    style={{ ...numInp, padding: '4px 6px', fontSize: '12px', width: '70px' }}
+                                  />
+                                </td>
+                                <td style={{ padding: '6px 12px', textAlign: 'right' }}>
+                                  <input
+                                    type='number' min='0' step='0.01'
+                                    value={edits?.unit_price ?? String(item.unit_price || 0)}
+                                    onChange={e => setDetailLineItemEdits(prev => ({ ...prev, [item.id]: { ...prev[item.id], unit_price: e.target.value } }))}
+                                    style={{ ...numInp, padding: '4px 6px', fontSize: '12px', width: '80px' }}
+                                  />
+                                </td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '500', color: '#1e293b' }}>
+                                  ${formatCurrency(qty * price)}
+                                </td>
+                              </tr>
+                            )
+                          })}
                         </tbody>
                       </table>
                     </div>
