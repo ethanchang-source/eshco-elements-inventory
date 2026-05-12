@@ -324,6 +324,33 @@ export default function Products() {
         </table>
       </div>
 
+      {!loading && filtered.length > 0 && (() => {
+        const mfgValue = filtered.reduce((s, p) => s + (p.unit_cost_cad || 0) * (p.current_stock || 0), 0)
+        const whsValue = filtered.reduce((s, p) => s + (p.price_whs_cad || 0) * (p.current_stock || 0), 0)
+        const grossMargin = whsValue - mfgValue
+        const marginPct = whsValue > 0 ? grossMargin / whsValue * 100 : 0
+        const fmt = (n: number) => '$' + n.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginTop: '16px' }}>
+            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px' }}>
+              <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Total MFG Cost Value (CAD)</div>
+              <div style={{ fontSize: '22px', fontWeight: '700', color: '#1e293b' }}>{fmt(mfgValue)}</div>
+              <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>Current inventory at manufacturing cost</div>
+            </div>
+            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px' }}>
+              <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>WHS Revenue Potential (CAD)</div>
+              <div style={{ fontSize: '22px', fontWeight: '700', color: '#1e293b' }}>{fmt(whsValue)}</div>
+              <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>If all inventory sold at WHS price</div>
+            </div>
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '20px' }}>
+              <div style={{ fontSize: '11px', fontWeight: '600', color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Gross Margin Potential (CAD)</div>
+              <div style={{ fontSize: '22px', fontWeight: '700', color: '#16a34a' }}>{fmt(grossMargin)}</div>
+              <div style={{ fontSize: '12px', color: '#16a34a', marginTop: '4px', opacity: 0.8 }}>{marginPct.toFixed(1)}% margin on WHS revenue</div>
+            </div>
+          </div>
+        )
+      })()}
+
       {showImportConfirm && (
         <div className="modal-overlay" onClick={() => { setShowImportConfirm(false); setPendingFile(null) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, overflowY: 'auto' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '440px', margin: '20px auto' }}>

@@ -591,6 +591,53 @@ function InventoryContent() {
               ))
             )}
           </tbody>
+          <tfoot>
+            {tab === 'raw' && !loading && filteredRaw.length > 0 && (() => {
+              const listVal = filteredRaw.reduce((s, r) => s + (r.cost_per_unit_cad || 0) * (r.current_stock || 0), 0)
+              const avgVal = filteredRaw.filter(r => r.avg_cost_cad != null).reduce((s, r) => s + r.avg_cost_cad! * (r.current_stock || 0), 0)
+              const fmt = (n: number) => '$' + n.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+              return (
+                <tr style={{ background: '#eff6ff', borderTop: '2px solid #bfdbfe' }}>
+                  <td colSpan={8} style={{ padding: '12px 16px' }}>
+                    <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '12px', color: '#1e40af', fontWeight: '600' }}>Total Inventory Value: <strong>{fmt(listVal)}</strong></span>
+                      <span style={{ fontSize: '12px', color: '#1e40af', fontWeight: '600' }}>Total Avg Cost Value: <strong>{fmt(avgVal)}</strong></span>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })()}
+            {tab === 'packaging' && !loading && filteredPack.length > 0 && (() => {
+              const listVal = filteredPack.reduce((s, p) => s + (p.cost_cad || 0) * (p.current_stock || 0), 0)
+              const avgVal = filteredPack.filter(p => p.avg_cost_cad != null).reduce((s, p) => s + p.avg_cost_cad! * (p.current_stock || 0), 0)
+              const fmt = (n: number) => '$' + n.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+              return (
+                <tr style={{ background: '#eff6ff', borderTop: '2px solid #bfdbfe' }}>
+                  <td colSpan={9} style={{ padding: '12px 16px' }}>
+                    <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '12px', color: '#1e40af', fontWeight: '600' }}>Total Inventory Value: <strong>{fmt(listVal)}</strong></span>
+                      <span style={{ fontSize: '12px', color: '#1e40af', fontWeight: '600' }}>Total Avg Cost Value: <strong>{fmt(avgVal)}</strong></span>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })()}
+            {tab === 'finished' && !loading && filteredProducts.length > 0 && (() => {
+              const mfgVal = filteredProducts.reduce((s, p) => s + (p.unit_cost_cad || 0) * (p.current_stock || 0), 0)
+              const whsVal = filteredProducts.reduce((s, p) => s + (p.whs_price_cad || 0) * (p.current_stock || 0), 0)
+              const fmt = (n: number) => '$' + n.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+              return (
+                <tr style={{ background: '#eff6ff', borderTop: '2px solid #bfdbfe' }}>
+                  <td colSpan={7} style={{ padding: '12px 16px' }}>
+                    <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '12px', color: '#1e40af', fontWeight: '600' }}>Total MFG Cost Value: <strong>{fmt(mfgVal)}</strong></span>
+                      <span style={{ fontSize: '12px', color: '#1e40af', fontWeight: '600' }}>Total WHS Revenue Potential: <strong>{fmt(whsVal)}</strong></span>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })()}
+          </tfoot>
         </table>
       </div>
 
