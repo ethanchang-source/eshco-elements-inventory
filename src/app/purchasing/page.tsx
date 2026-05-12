@@ -330,7 +330,7 @@ export default function Purchasing() {
       return urlData.publicUrl
     }
 
-    type ItemInsert = { material_type: string; material_id: string; quantity: number; unit_price: number; line_total: number }
+    type ItemInsert = { material_type: string; material_id: string; quantity: number; unit_price: number }
     let itemsToInsert: ItemInsert[]
 
     if (isDigitalLabels) {
@@ -339,7 +339,7 @@ export default function Purchasing() {
       itemsToInsert = filtered.map(item => {
         const qty = parseFloat(labelQtys[item.id])
         const unitPrice = item.cost_cad || 0
-        return { material_type: 'packaging', material_id: item.id, quantity: qty, unit_price: unitPrice, line_total: qty * unitPrice }
+        return { material_type: 'packaging', material_id: item.id, quantity: qty, unit_price: unitPrice }
       })
     } else {
       const valid = lineItems.filter(li => li.material_id && parseFloat(li.quantity || '0') > 0)
@@ -347,11 +347,11 @@ export default function Purchasing() {
       itemsToInsert = valid.map(li => {
         const qty = parseFloat(li.quantity)
         const unitPrice = parseFloat(li.unit_price || '0')
-        return { material_type: li.material_type, material_id: li.material_id, quantity: qty, unit_price: unitPrice, line_total: qty * unitPrice }
+        return { material_type: li.material_type, material_id: li.material_id, quantity: qty, unit_price: unitPrice }
       })
     }
 
-    const itemsSubtotal = itemsToInsert.reduce((s, i) => s + i.line_total, 0)
+    const itemsSubtotal = itemsToInsert.reduce((s, i) => s + i.quantity * i.unit_price, 0)
     const shippingCad = parseFloat(createForm.shipping_cad || '0') || 0
     const brokerageCad = parseFloat(createForm.brokerage_cad || '0') || 0
     const dutyCad = parseFloat(createForm.duty_cad || '0') || 0
@@ -624,8 +624,8 @@ export default function Purchasing() {
         await supabase.from('purchase_orders').upsert([poRow])
         if (isMultiItem && items.length > 0) {
           await supabase.from('purchase_order_items').insert(
-            items.map(({ id, po_id, material_type, material_id, quantity, unit_price, line_total }) =>
-              ({ id, po_id, material_type, material_id, quantity, unit_price, line_total }))
+            items.map(({ id, po_id, material_type, material_id, quantity, unit_price }) =>
+              ({ id, po_id, material_type, material_id, quantity, unit_price }))
           )
         }
         if (wasReceived) {
