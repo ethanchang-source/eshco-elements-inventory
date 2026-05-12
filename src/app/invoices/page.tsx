@@ -151,6 +151,7 @@ function InvoicesContent() {
   const usImportFileRef = useRef<HTMLInputElement>(null)
 
   const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
+  const [invoiceError, setInvoiceError] = useState('')
 
   const [editInvoice, setEditInvoice] = useState<Invoice | null>(null)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
@@ -184,7 +185,7 @@ function InvoicesContent() {
       if (showAppliedModal) { setShowAppliedModal(false); setAppliedError(''); return }
       if (showCmModal) { setShowCmModal(false); setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null); setCmError(''); return }
       if (showUsImportModal) { setShowUsImportModal(false); return }
-      if (showModal) { setShowModal(false); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null) }
+      if (showModal) { setShowModal(false); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null); setInvoiceError('') }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -329,7 +330,7 @@ function InvoicesContent() {
       )
     } else {
       // 신규 생성
-      const { data: invoice } = await supabase.from('invoices').insert([{
+      const { data: invoice, error: insertError } = await supabase.from('invoices').insert([{
         customer_id: form.customer_id,
         issued_at: form.issued_at,
         status: 'draft',
@@ -345,6 +346,12 @@ function InvoicesContent() {
         received_amount: invoiceCurrency === 'USD' ? receivedAmount : null,
       }]).select().single()
 
+      if (insertError) {
+        console.error('invoice insert error:', insertError)
+        setInvoiceError(insertError.message)
+        return
+      }
+
       if (invoice) {
         await supabase.from('invoice_items').insert(
           activeItems.map(item => ({
@@ -358,6 +365,7 @@ function InvoicesContent() {
       }
     }
 
+    setInvoiceError('')
     setShowModal(false)
     setEditInvoice(null)
     setLineItems([])
@@ -1911,10 +1919,10 @@ function InvoicesContent() {
       )}
 
       {showModal && (
-        <div className="modal-overlay" onClick={() => { setShowModal(false); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
+        <div className="modal-overlay" onClick={() => { setShowModal(false); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null); setInvoiceError('') }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '780px', maxHeight: '92vh', overflowY: 'auto', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>
-              {editInvoice ? `Edit Invoice ${editInvoice.invoice_no}` : 'New Invoice'}
+              {editInvoice ? `Edit Invoice ${editInvoice.invoice_no}` : `New Invoice (${invoiceCurrency})`}
             </h2>
 
             <div className="modal-grid-3" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
@@ -2019,8 +2027,14 @@ function InvoicesContent() {
               </div>
             </div>
 
+            {invoiceError && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '10px 14px', marginBottom: '12px', fontSize: '13px', color: '#dc2626' }}>
+                {invoiceError}
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button onClick={() => { setShowModal(false); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={() => { setShowModal(false); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null); setInvoiceError('') }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
               <button onClick={handleSubmit} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>
                 {editInvoice ? 'Update Invoice' : 'Create Invoice'}
               </button>
