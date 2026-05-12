@@ -193,11 +193,11 @@ function InvoicesContent() {
 
   async function fetchAll() {
     const [cad, usd, cust, prod, cm] = await Promise.all([
-      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').eq('currency', 'CAD').is('deleted_at', null).order('invoice_no', { ascending: false }),
-      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').eq('currency', 'USD').is('deleted_at', null).order('invoice_no', { ascending: false }),
-      supabase.from('customers').select('*').is('deleted_at', null).order('company_name'),
-      supabase.from('products').select('*').eq('is_active', true).is('deleted_at', null).order('sku'),
-      supabase.from('credit_memos').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').is('deleted_at', null).order('memo_no', { ascending: false }),
+      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').eq('currency', 'CAD').order('invoice_no', { ascending: false }),
+      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').eq('currency', 'USD').order('invoice_no', { ascending: false }),
+      supabase.from('customers').select('*').order('company_name'),
+      supabase.from('products').select('*').eq('is_active', true).order('sku'),
+      supabase.from('credit_memos').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').order('memo_no', { ascending: false }),
     ])
     setCadInvoices(cad.data || [])
     setUsdInvoices(usd.data || [])
