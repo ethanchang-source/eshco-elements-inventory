@@ -154,14 +154,14 @@ export default function Customers() {
     if (!confirm(`Delete customer "${editCustomer.company_name}"?`)) return
     const old = { ...editCustomer }
     await logActivity(supabase, 'customers', old.id, 'DELETE', old)
-    await supabase.from('customers').update({ deleted_at: new Date().toISOString() }).eq('id', old.id)
+    await supabase.from('customers').delete().eq('id', old.id)
     setShowModal(false)
     setEditCustomer(null)
     fetchCustomers()
     setUndoToast({
       message: `"${old.company_name}" deleted.`,
       onUndo: async () => {
-        await supabase.from('customers').update({ deleted_at: null }).eq('id', old.id)
+        await supabase.from('customers').upsert([old])
         await logActivity(supabase, 'customers', old.id, 'UPDATE', null, old)
         setUndoToast(null)
         fetchCustomers()

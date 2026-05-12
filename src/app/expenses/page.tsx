@@ -364,14 +364,14 @@ export default function Expenses() {
     if (!confirm('Delete this expense?')) return
     const old = { ...editExpense }
     await logActivity(supabase, 'expenses', old.id, 'DELETE', old)
-    await supabase.from('expenses').update({ deleted_at: new Date().toISOString() }).eq('id', old.id)
+    await supabase.from('expenses').delete().eq('id', old.id)
     setShowModal(false)
     setEditExpense(null)
     fetchExpenses(activeYear)
     setUndoToast({
       message: `Expense "${old.payee || old.category || old.id.slice(0, 8)}" deleted.`,
       onUndo: async () => {
-        await supabase.from('expenses').update({ deleted_at: null }).eq('id', old.id)
+        await supabase.from('expenses').upsert([old])
         await logActivity(supabase, 'expenses', old.id, 'UPDATE', null, old)
         setUndoToast(null)
         fetchExpenses(activeYear)

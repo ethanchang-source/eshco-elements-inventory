@@ -145,14 +145,14 @@ export default function Suppliers() {
     if (!confirm(`"${editSupplier.name}" 공급업체를 삭제하시겠습니까?`)) return
     const old = { ...editSupplier }
     await logActivity(supabase, 'suppliers', old.id, 'DELETE', old)
-    await supabase.from('suppliers').update({ deleted_at: new Date().toISOString() }).eq('id', old.id)
+    await supabase.from('suppliers').delete().eq('id', old.id)
     setShowModal(false)
     setEditSupplier(null)
     fetchSuppliers()
     setUndoToast({
       message: `"${old.name}" deleted.`,
       onUndo: async () => {
-        await supabase.from('suppliers').update({ deleted_at: null }).eq('id', old.id)
+        await supabase.from('suppliers').upsert([old])
         await logActivity(supabase, 'suppliers', old.id, 'UPDATE', null, old)
         setUndoToast(null)
         fetchSuppliers()

@@ -466,7 +466,7 @@ export default function Purchasing() {
     }
 
     await logActivity(supabase, 'purchase_orders', old.id, 'DELETE', old)
-    const { error } = await supabase.from('purchase_orders').update({ deleted_at: new Date().toISOString() }).eq('id', old.id)
+    const { error } = await supabase.from('purchase_orders').delete().eq('id', old.id)
     if (error) { setDeleteError(error.message || 'Failed to delete purchase order.'); setDeleting(false); return }
 
     setDeleting(false)
@@ -476,7 +476,8 @@ export default function Purchasing() {
     setUndoToast({
       message: `PO "${old.po_number || old.id.slice(0, 8)}" deleted.`,
       onUndo: async () => {
-        await supabase.from('purchase_orders').update({ deleted_at: null }).eq('id', old.id)
+        const { suppliers: _s, raw_materials: _r, packaging: _p, ...poRow } = old
+        await supabase.from('purchase_orders').upsert([poRow])
         if (wasReceived) {
           if (old.item_type === 'raw_material' && old.raw_material_id) {
             const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', old.raw_material_id).single()

@@ -109,13 +109,13 @@ export default function Products() {
     if (!confirm(`Delete "${editProduct.sku} – ${editProduct.name}"?`)) return
     const old = { ...editProduct }
     await logActivity(supabase, 'products', old.id, 'DELETE', old)
-    await supabase.from('products').update({ deleted_at: new Date().toISOString() }).eq('id', old.id)
+    await supabase.from('products').delete().eq('id', old.id)
     setEditProduct(null)
     fetchProducts()
     setUndoToast({
       message: `"${old.sku}" deleted.`,
       onUndo: async () => {
-        await supabase.from('products').update({ deleted_at: null }).eq('id', old.id)
+        await supabase.from('products').upsert([old])
         await logActivity(supabase, 'products', old.id, 'UPDATE', null, old)
         setUndoToast(null)
         fetchProducts()

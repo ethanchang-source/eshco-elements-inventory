@@ -420,12 +420,13 @@ function InvoicesContent() {
     if (!inv) return
     const old = { ...inv }
     await logActivity(supabase, 'invoices', invoiceId, 'DELETE', old)
-    await supabase.from('invoices').update({ deleted_at: new Date().toISOString() }).eq('id', invoiceId)
+    await supabase.from('invoices').delete().eq('id', invoiceId)
     fetchAll()
     setUndoToast({
       message: `Invoice "${old.invoice_no}" deleted.`,
       onUndo: async () => {
-        await supabase.from('invoices').update({ deleted_at: null }).eq('id', invoiceId)
+        const { customers: _c, ...invoiceRow } = old
+        await supabase.from('invoices').upsert([invoiceRow])
         await logActivity(supabase, 'invoices', invoiceId, 'UPDATE', null, old)
         setUndoToast(null)
         fetchAll()
@@ -1137,12 +1138,13 @@ function InvoicesContent() {
     if (!cm) return
     const old = { ...cm }
     await logActivity(supabase, 'credit_memos', id, 'DELETE', old)
-    await supabase.from('credit_memos').update({ deleted_at: new Date().toISOString() }).eq('id', id)
+    await supabase.from('credit_memos').delete().eq('id', id)
     fetchAll()
     setUndoToast({
       message: `Credit memo "${old.memo_no}" deleted.`,
       onUndo: async () => {
-        await supabase.from('credit_memos').update({ deleted_at: null }).eq('id', id)
+        const { customers: _c, ...memoRow } = old
+        await supabase.from('credit_memos').upsert([memoRow])
         await logActivity(supabase, 'credit_memos', id, 'UPDATE', null, old)
         setUndoToast(null)
         fetchAll()
