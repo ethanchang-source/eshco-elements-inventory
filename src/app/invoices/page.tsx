@@ -330,6 +330,7 @@ function InvoicesContent() {
       )
     } else {
       // 신규 생성
+      const invoice_no = await generateInvoiceNo(invoiceCurrency)
       const { data: invoice, error: insertError } = await supabase.from('invoices').insert([{
         customer_id: form.customer_id,
         issued_at: form.issued_at,
@@ -341,7 +342,7 @@ function InvoicesContent() {
         currency: invoiceCurrency,
         notes,
         po_number: form.po_number || '',
-        invoice_no: '',
+        invoice_no,
         wire_fee: invoiceCurrency === 'USD' ? wireFee : null,
         received_amount: invoiceCurrency === 'USD' ? receivedAmount : null,
       }]).select().single()
@@ -875,6 +876,35 @@ function InvoicesContent() {
   const cmSubtotal = cmActiveItems.reduce((s, i) => s + i.total, 0)
   const cmTaxAmount = cmSubtotal * (parseFloat(cmForm.tax_rate) / 100)
   const cmTotal = cmSubtotal + cmTaxAmount
+
+  async function generateInvoiceNo(currency: 'CAD' | 'USD'): Promise<string> {
+    const yr = new Date().getFullYear().toString().slice(2)
+    if (currency === 'USD') {
+      const { data } = await supabase
+        .from('invoices')
+        .select('invoice_no')
+        .like('invoice_no', `${yr}-U%`)
+        .order('invoice_no', { ascending: false })
+        .limit(1)
+      const last = data?.[0]?.invoice_no || ''
+      const match = last.match(/U(\d+)$/)
+      const next = match ? parseInt(match[1]) + 1 : 1
+      return `${yr}-U${String(next).padStart(4, '0')}`
+    } else {
+      const { data } = await supabase
+        .from('invoices')
+        .select('invoice_no')
+        .eq('currency', 'CAD')
+        .like('invoice_no', `${yr}-%`)
+        .not('invoice_no', 'like', `${yr}-U%`)
+        .order('invoice_no', { ascending: false })
+        .limit(1)
+      const last = data?.[0]?.invoice_no || ''
+      const match = last.match(/(\d+)$/)
+      const next = match ? parseInt(match[1]) + 1 : 1
+      return `${yr}-${String(next).padStart(5, '0')}`
+    }
+  }
 
   async function generateMemoNo(): Promise<string> {
     const yr = new Date().getFullYear().toString().slice(2)
