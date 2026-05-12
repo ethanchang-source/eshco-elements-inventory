@@ -224,7 +224,7 @@ function InventoryContent() {
       item_no: editPackForm.item_no.trim(),
       name: editPackForm.name.trim(),
       type: editPackForm.type,
-      size_oz: parseFloat(editPackForm.size_oz) || 0,
+      size_oz: editPackForm.size_oz,
       cost_cad: parseFloat(editPackForm.cost_cad) || 0,
       current_stock: parseInt(editPackForm.current_stock) || 0,
       reorder_threshold: parseInt(editPackForm.reorder_threshold) || 0,
@@ -891,12 +891,22 @@ function InventoryContent() {
         <div className="modal-overlay" onClick={() => { setShowModal(false); setEditPack(null); setItemPurchaseHistory([]) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Edit Packaging</h2>
-            {([['Item #', 'item_no'], ['Name', 'name'], ['Size (oz)', 'size_oz'], ['Cost (CAD)', 'cost_cad'], ['Current Stock', 'current_stock'], ['Reorder Threshold', 'reorder_threshold'], ['Max Capacity', 'max_capacity']] as [string, string][]).map(([label, key]) => (
+            {([['Item #', 'item_no'], ['Name', 'name'], ['Cost (CAD)', 'cost_cad'], ['Current Stock', 'current_stock'], ['Reorder Threshold', 'reorder_threshold'], ['Max Capacity', 'max_capacity']] as [string, string][]).map(([label, key]) => (
               <div key={key} style={{ marginBottom: '16px' }}>
                 <label style={lbl}>{label}</label>
                 <input value={editPackForm[key as keyof typeof editPackForm]} onChange={e => setEditPackForm({ ...editPackForm, [key]: e.target.value })} style={inp} />
               </div>
             ))}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={lbl}>Unit</label>
+              <select value={editPackForm.size_oz} onChange={e => setEditPackForm({ ...editPackForm, size_oz: e.target.value })} style={inp}>
+                <option value='ea'>ea</option>
+                <option value='box'>box</option>
+                <option value='roll'>roll</option>
+                <option value='pack'>pack</option>
+                <option value='bottle'>bottle</option>
+              </select>
+            </div>
             <div style={{ marginBottom: '16px' }}>
               <label style={lbl}>Cost (Avg) <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '400' }}>(auto-calculated from purchases)</span></label>
               <input readOnly value={editPack?.avg_cost_cad != null ? editPack.avg_cost_cad.toFixed(4) : ''} placeholder='—' style={{ ...inp, background: '#f8fafc', color: '#64748b', cursor: 'default' }} />
