@@ -168,6 +168,15 @@ function InvoicesContent() {
   useEffect(() => { fetchAll() }, [])
 
   useEffect(() => {
+    const channel = supabase
+      .channel('invoices-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' }, () => fetchAll())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'credit_memos' }, () => fetchAll())
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       if (showDeliveryModal) { setShowDeliveryModal(false); return }

@@ -160,6 +160,14 @@ export default function Purchasing() {
   useEffect(() => { fetchAll() }, [])
 
   useEffect(() => {
+    const channel = supabase
+      .channel('purchasing-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'purchase_orders' }, () => fetchAll())
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       if (showHistory) { setShowHistory(false); return }

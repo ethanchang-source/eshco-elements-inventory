@@ -48,6 +48,14 @@ export default function Products() {
 
   useEffect(() => { fetchProducts() }, [])
 
+  useEffect(() => {
+    const channel = supabase
+      .channel('products-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => fetchProducts())
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
   async function fetchProducts() {
     const { data } = await supabase.from('products').select('*').is('deleted_at', null).order('sku')
     setProducts(data || [])

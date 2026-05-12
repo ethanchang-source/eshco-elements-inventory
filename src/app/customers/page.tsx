@@ -70,6 +70,14 @@ export default function Customers() {
   useEffect(() => { fetchCustomers(); fetchProducts() }, [])
 
   useEffect(() => {
+    const channel = supabase
+      .channel('customers-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, () => fetchCustomers())
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && showModal) { setShowModal(false); setEditCustomer(null) }
     }

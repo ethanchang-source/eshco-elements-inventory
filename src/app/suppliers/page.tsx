@@ -54,6 +54,14 @@ export default function Suppliers() {
   useEffect(() => { fetchSuppliers() }, [])
 
   useEffect(() => {
+    const channel = supabase
+      .channel('suppliers-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'suppliers' }, () => fetchSuppliers())
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       if (showImportConfirm) { setShowImportConfirm(false); setPendingFile(null); return }

@@ -136,6 +136,14 @@ export default function Expenses() {
   useEffect(() => { fetchExpenses(activeYear) }, [activeYear])
 
   useEffect(() => {
+    const channel = supabase
+      .channel('expenses-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => fetchExpenses(activeYear))
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [activeYear])
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       if (receiptViewUrls) { setReceiptViewUrls(null); return }
