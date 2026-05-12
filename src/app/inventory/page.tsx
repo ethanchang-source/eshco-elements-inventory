@@ -20,6 +20,7 @@ interface RawMaterial {
   avg_cost_cad: number | null
   current_stock: number
   reorder_threshold: number
+  max_capacity?: number | null
   notes?: string | null
 }
 
@@ -33,6 +34,7 @@ interface Packaging {
   avg_cost_cad: number | null
   current_stock: number
   reorder_threshold: number
+  max_capacity?: number | null
   notes?: string | null
 }
 
@@ -44,6 +46,7 @@ interface Product {
   unit_cost_cad: number
   current_stock: number
   reorder_threshold: number
+  max_capacity?: number | null
   is_active: boolean
   barcode_upc?: string | null
   barcode_itf14?: string | null
@@ -77,15 +80,16 @@ function InventoryContent() {
   const [snapshotPack, setSnapshotPack] = useState<Packaging[] | null>(null)
   const [snapshotFinished, setSnapshotFinished] = useState<Product[] | null>(null)
   const [undoRestoring, setUndoRestoring] = useState(false)
-  const [rawForm, setRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '' })
-  const [packForm, setPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '' })
+  const [rawForm, setRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '' })
+  const [packForm, setPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '' })
 
   const [editRaw, setEditRaw] = useState<RawMaterial | null>(null)
   const [editPack, setEditPack] = useState<Packaging | null>(null)
   const [editFinished, setEditFinished] = useState<Product | null>(null)
-  const [editRawForm, setEditRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '' })
-  const [editPackForm, setEditPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '' })
+  const [editRawForm, setEditRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '' })
+  const [editPackForm, setEditPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '' })
   const [editFinishedStock, setEditFinishedStock] = useState('')
+  const [editFinishedMaxCapacity, setEditFinishedMaxCapacity] = useState('')
   const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
 
   useEffect(() => { fetchAll() }, [])
@@ -111,6 +115,7 @@ function InventoryContent() {
       cost_per_unit_cad: String(r.cost_per_unit_cad ?? ''),
       current_stock: String(r.current_stock ?? ''),
       reorder_threshold: String(r.reorder_threshold ?? ''),
+      max_capacity: String(r.max_capacity ?? ''),
     })
   }
 
@@ -124,12 +129,14 @@ function InventoryContent() {
       cost_cad: String(p.cost_cad ?? ''),
       current_stock: String(p.current_stock ?? ''),
       reorder_threshold: String(p.reorder_threshold ?? ''),
+      max_capacity: String(p.max_capacity ?? ''),
     })
   }
 
   function openEditFinished(p: Product) {
     setEditFinished(p)
     setEditFinishedStock(String(p.current_stock != null ? Math.round(p.current_stock / 36) : ''))
+    setEditFinishedMaxCapacity(String(p.max_capacity ?? ''))
   }
 
   async function handleUpdateRaw() {
@@ -141,6 +148,7 @@ function InventoryContent() {
       cost_per_unit_cad: parseFloat(editRawForm.cost_per_unit_cad) || 0,
       current_stock: parseFloat(editRawForm.current_stock) || 0,
       reorder_threshold: parseFloat(editRawForm.reorder_threshold) || 0,
+      max_capacity: editRawForm.max_capacity !== '' ? parseFloat(editRawForm.max_capacity) : null,
     }).eq('id', editRaw.id)
     if (error) console.error('raw_material update error:', error)
     setEditRaw(null)
@@ -177,6 +185,7 @@ function InventoryContent() {
       cost_cad: parseFloat(editPackForm.cost_cad) || 0,
       current_stock: parseInt(editPackForm.current_stock) || 0,
       reorder_threshold: parseInt(editPackForm.reorder_threshold) || 0,
+      max_capacity: editPackForm.max_capacity !== '' ? parseInt(editPackForm.max_capacity) : null,
     }).eq('id', editPack.id)
     if (error) console.error('packaging update error:', error)
     setEditPack(null)
@@ -205,7 +214,10 @@ function InventoryContent() {
 
   async function handleUpdateFinished() {
     if (!editFinished) return
-    const { error } = await supabase.from('products').update({ current_stock: (parseInt(editFinishedStock) || 0) * 36 }).eq('id', editFinished.id)
+    const { error } = await supabase.from('products').update({
+      current_stock: (parseInt(editFinishedStock) || 0) * 36,
+      max_capacity: editFinishedMaxCapacity !== '' ? (parseInt(editFinishedMaxCapacity) || 0) * 36 : null,
+    }).eq('id', editFinished.id)
     if (error) console.error('finished product update error:', error)
     setEditFinished(null)
     fetchAll()
@@ -236,9 +248,10 @@ function InventoryContent() {
       cost_per_unit_cad: parseFloat(rawForm.cost_per_unit_cad),
       current_stock: parseFloat(rawForm.current_stock),
       reorder_threshold: parseFloat(rawForm.reorder_threshold),
+      max_capacity: rawForm.max_capacity !== '' ? parseFloat(rawForm.max_capacity) : null,
     }])
     setShowModal(false)
-    setRawForm({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '' })
+    setRawForm({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '' })
     fetchAll()
   }
 
@@ -248,9 +261,10 @@ function InventoryContent() {
       size_oz: parseFloat(packForm.size_oz), cost_cad: parseFloat(packForm.cost_cad),
       current_stock: parseInt(packForm.current_stock),
       reorder_threshold: parseInt(packForm.reorder_threshold),
+      max_capacity: packForm.max_capacity !== '' ? parseInt(packForm.max_capacity) : null,
     }])
     setShowModal(false)
-    setPackForm({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '' })
+    setPackForm({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '' })
     fetchAll()
   }
 
@@ -510,7 +524,7 @@ function InventoryContent() {
               {tab === 'raw' && ['Item #', 'Name', 'Unit', 'Cost (CAD)', 'Cost (Avg)', 'Current Stock', 'Reorder At', 'Status'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
-              {tab === 'packaging' && ['Item #', 'Name', 'Type', 'Size', 'Cost (CAD)', 'Cost (Avg)', 'Current Stock', 'Reorder At', 'Status'].map(h => (
+              {tab === 'packaging' && ['Item #', 'Name', 'Type', 'Unit', 'Cost (CAD)', 'Cost (Avg)', 'Current Stock', 'Reorder At', 'Status'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
               {tab === 'finished' && ['SKU', 'Name', 'Size', 'MFG Cost (CAD)', 'Current Stock', 'Reorder At', 'Status'].map(h => (
@@ -527,14 +541,24 @@ function InventoryContent() {
                   <FlaskConical size={32} color='#e2e8f0' style={{ display: 'block', margin: '0 auto 8px' }} />
                   No raw materials yet
                 </td></tr>
-              ) : filteredRaw.map(r => (
+              ) : filteredRaw.map(r => {
+                const rawPct = r.max_capacity ? Math.min(100, (r.current_stock / r.max_capacity) * 100) : null
+                const rawBarColor = rawPct === null ? '#94a3b8' : rawPct >= 80 ? '#16a34a' : rawPct >= 50 ? '#f59e0b' : '#dc2626'
+                return (
                 <tr key={r.id} onClick={() => openEditRaw(r)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }} {...rowHover}>
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{r.item_no}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{r.name}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.unit}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${r.cost_per_unit_cad?.toFixed(4)}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.avg_cost_cad != null ? `$${r.avg_cost_cad.toFixed(4)}` : '—'}</td>
-                  <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: r.current_stock <= r.reorder_threshold ? '#dc2626' : '#16a34a' }}>{r.current_stock?.toLocaleString()} {r.unit}</td>
+                  <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: r.current_stock <= r.reorder_threshold ? '#dc2626' : '#16a34a' }}>
+                    <div>{r.current_stock?.toLocaleString()} {r.unit}{r.max_capacity != null ? ` / ${r.max_capacity.toLocaleString()}` : ''}</div>
+                    {rawPct !== null && (
+                      <div style={{ marginTop: '4px', height: '4px', background: '#e2e8f0', borderRadius: '2px', width: '80px' }}>
+                        <div style={{ height: '100%', width: `${rawPct}%`, background: rawBarColor, borderRadius: '2px', transition: 'width 0.3s' }} />
+                      </div>
+                    )}
+                  </td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.reorder_threshold?.toLocaleString()} {r.unit}</td>
                   <td style={{ padding: '12px 16px' }}>
                     <span style={{ background: r.current_stock <= r.reorder_threshold ? '#fef2f2' : '#f0fdf4', color: r.current_stock <= r.reorder_threshold ? '#dc2626' : '#16a34a', padding: '2px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '500' }}>
@@ -542,14 +566,18 @@ function InventoryContent() {
                     </span>
                   </td>
                 </tr>
-              ))
+                )
+              })
             ) : tab === 'packaging' ? (
               filteredPack.length === 0 ? (
                 <tr><td colSpan={8} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
                   <Package size={32} color='#e2e8f0' style={{ display: 'block', margin: '0 auto 8px' }} />
                   No packaging items yet
                 </td></tr>
-              ) : filteredPack.map(p => (
+              ) : filteredPack.map(p => {
+                const packPct = p.max_capacity ? Math.min(100, (p.current_stock / p.max_capacity) * 100) : null
+                const packBarColor = packPct === null ? '#94a3b8' : packPct >= 80 ? '#16a34a' : packPct >= 50 ? '#f59e0b' : '#dc2626'
+                return (
                 <tr key={p.id} onClick={() => openEditPack(p)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }} {...rowHover}>
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{p.item_no}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{p.name}</td>
@@ -557,7 +585,14 @@ function InventoryContent() {
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.size_oz} oz</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.cost_cad?.toFixed(4)}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.avg_cost_cad != null ? `$${p.avg_cost_cad.toFixed(4)}` : '—'}</td>
-                  <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a' }}>{p.current_stock?.toLocaleString()}</td>
+                  <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a' }}>
+                    <div>{p.current_stock?.toLocaleString()}{p.max_capacity != null ? ` / ${p.max_capacity.toLocaleString()}` : ''}</div>
+                    {packPct !== null && (
+                      <div style={{ marginTop: '4px', height: '4px', background: '#e2e8f0', borderRadius: '2px', width: '80px' }}>
+                        <div style={{ height: '100%', width: `${packPct}%`, background: packBarColor, borderRadius: '2px', transition: 'width 0.3s' }} />
+                      </div>
+                    )}
+                  </td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.reorder_threshold?.toLocaleString()}</td>
                   <td style={{ padding: '12px 16px' }}>
                     <span style={{ background: p.current_stock <= p.reorder_threshold ? '#fef2f2' : '#f0fdf4', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a', padding: '2px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '500' }}>
@@ -565,21 +600,33 @@ function InventoryContent() {
                     </span>
                   </td>
                 </tr>
-              ))
+                )
+              })
             ) : (
               filteredProducts.length === 0 ? (
                 <tr><td colSpan={7} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
                   <Package size={32} color='#e2e8f0' style={{ display: 'block', margin: '0 auto 8px' }} />
                   No finished goods yet
                 </td></tr>
-              ) : filteredProducts.map(p => (
+              ) : filteredProducts.map(p => {
+                const fgPct = p.max_capacity ? Math.min(100, (p.current_stock / p.max_capacity) * 100) : null
+                const fgBarColor = fgPct === null ? '#94a3b8' : fgPct >= 80 ? '#16a34a' : fgPct >= 50 ? '#f59e0b' : '#dc2626'
+                return (
                 <tr key={p.id} onClick={() => openEditFinished(p)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }} {...rowHover}>
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{p.sku}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{p.name}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.size_oz} oz</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${formatCurrency(p.unit_cost_cad)}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a' }}>
-                    {p.current_stock?.toLocaleString()} units ({Math.round((p.current_stock || 0) / 36)} boxes)
+                    <div>
+                      {p.current_stock?.toLocaleString()} units ({Math.round((p.current_stock || 0) / 36)} boxes)
+                      {p.max_capacity != null && ` / ${p.max_capacity.toLocaleString()} units (${Math.round(p.max_capacity / 36)} boxes)`}
+                    </div>
+                    {fgPct !== null && (
+                      <div style={{ marginTop: '4px', height: '4px', background: '#e2e8f0', borderRadius: '2px', width: '120px' }}>
+                        <div style={{ height: '100%', width: `${fgPct}%`, background: fgBarColor, borderRadius: '2px', transition: 'width 0.3s' }} />
+                      </div>
+                    )}
                   </td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.reorder_threshold?.toLocaleString()}</td>
                   <td style={{ padding: '12px 16px' }}>
@@ -588,7 +635,8 @@ function InventoryContent() {
                     </span>
                   </td>
                 </tr>
-              ))
+                )
+              })
             )}
           </tbody>
           <tfoot>
@@ -668,7 +716,7 @@ function InventoryContent() {
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Add {tab === 'raw' ? 'Raw Material' : 'Packaging Item'}</h2>
             {tab === 'raw' ? (
               <>
-                {([['Item #', 'item_no', 'EE-R001'], ['Name', 'name', 'Black Castor Oil - Organic'], ['Cost per unit (CAD)', 'cost_per_unit_cad', '0.0140'], ['Current Stock', 'current_stock', '200000'], ['Reorder Threshold', 'reorder_threshold', '10000']] as [string, string, string][]).map(([label, key, placeholder]) => (
+                {([['Item #', 'item_no', 'EE-R001'], ['Name', 'name', 'Black Castor Oil - Organic'], ['Cost per unit (CAD)', 'cost_per_unit_cad', '0.0140'], ['Current Stock', 'current_stock', '200000'], ['Reorder Threshold', 'reorder_threshold', '10000'], ['Max Capacity', 'max_capacity', '500000']] as [string, string, string][]).map(([label, key, placeholder]) => (
                   <div key={key} style={{ marginBottom: '16px' }}>
                     <label style={lbl}>{label}</label>
                     <input value={rawForm[key as keyof typeof rawForm]} onChange={e => setRawForm({ ...rawForm, [key]: e.target.value })} placeholder={placeholder} style={inp} />
@@ -683,7 +731,7 @@ function InventoryContent() {
               </>
             ) : (
               <>
-                {([['Item #', 'item_no', 'EE-P001'], ['Name', 'name', '2oz Amber Boston Bottle'], ['Size (oz)', 'size_oz', '2'], ['Cost (CAD)', 'cost_cad', '0.28'], ['Current Stock (qty)', 'current_stock', '1000'], ['Reorder Threshold (qty)', 'reorder_threshold', '200']] as [string, string, string][]).map(([label, key, placeholder]) => (
+                {([['Item #', 'item_no', 'EE-P001'], ['Name', 'name', '2oz Amber Boston Bottle'], ['Size (oz)', 'size_oz', '2'], ['Cost (CAD)', 'cost_cad', '0.28'], ['Current Stock (qty)', 'current_stock', '1000'], ['Reorder Threshold (qty)', 'reorder_threshold', '200'], ['Max Capacity (qty)', 'max_capacity', '5000']] as [string, string, string][]).map(([label, key, placeholder]) => (
                   <div key={key} style={{ marginBottom: '16px' }}>
                     <label style={lbl}>{label}</label>
                     <input value={packForm[key as keyof typeof packForm]} onChange={e => setPackForm({ ...packForm, [key]: e.target.value })} placeholder={placeholder} style={inp} />
@@ -711,7 +759,7 @@ function InventoryContent() {
         <div className="modal-overlay" onClick={() => { setShowModal(false); setEditRaw(null) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Edit Raw Material</h2>
-            {([['Item #', 'item_no'], ['Name', 'name'], ['Cost (CAD)', 'cost_per_unit_cad'], ['Current Stock', 'current_stock'], ['Reorder Threshold', 'reorder_threshold']] as [string, string][]).map(([label, key]) => (
+            {([['Item #', 'item_no'], ['Name', 'name'], ['Cost (CAD)', 'cost_per_unit_cad'], ['Current Stock', 'current_stock'], ['Reorder Threshold', 'reorder_threshold'], ['Max Capacity', 'max_capacity']] as [string, string][]).map(([label, key]) => (
               <div key={key} style={{ marginBottom: '16px' }}>
                 <label style={lbl}>{label}</label>
                 <input value={editRawForm[key as keyof typeof editRawForm]} onChange={e => setEditRawForm({ ...editRawForm, [key]: e.target.value })} style={inp} />
@@ -743,7 +791,7 @@ function InventoryContent() {
         <div className="modal-overlay" onClick={() => { setShowModal(false); setEditPack(null) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Edit Packaging</h2>
-            {([['Item #', 'item_no'], ['Name', 'name'], ['Size (oz)', 'size_oz'], ['Cost (CAD)', 'cost_cad'], ['Current Stock', 'current_stock'], ['Reorder Threshold', 'reorder_threshold']] as [string, string][]).map(([label, key]) => (
+            {([['Item #', 'item_no'], ['Name', 'name'], ['Size (oz)', 'size_oz'], ['Cost (CAD)', 'cost_cad'], ['Current Stock', 'current_stock'], ['Reorder Threshold', 'reorder_threshold'], ['Max Capacity', 'max_capacity']] as [string, string][]).map(([label, key]) => (
               <div key={key} style={{ marginBottom: '16px' }}>
                 <label style={lbl}>{label}</label>
                 <input value={editPackForm[key as keyof typeof editPackForm]} onChange={e => setEditPackForm({ ...editPackForm, [key]: e.target.value })} style={inp} />
@@ -783,6 +831,15 @@ function InventoryContent() {
               {editFinishedStock !== '' && (
                 <div style={{ marginTop: '6px', fontSize: '13px', color: '#2563eb', fontWeight: '500' }}>
                   {parseInt(editFinishedStock) || 0} boxes = {(parseInt(editFinishedStock) || 0) * 36} units
+                </div>
+              )}
+            </div>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={lbl}>Max Capacity (boxes)</label>
+              <input type='number' value={editFinishedMaxCapacity} onChange={e => setEditFinishedMaxCapacity(e.target.value)} style={inp} placeholder='0' />
+              {editFinishedMaxCapacity !== '' && (
+                <div style={{ marginTop: '6px', fontSize: '13px', color: '#64748b', fontWeight: '500' }}>
+                  {parseInt(editFinishedMaxCapacity) || 0} boxes = {(parseInt(editFinishedMaxCapacity) || 0) * 36} units
                 </div>
               )}
             </div>
