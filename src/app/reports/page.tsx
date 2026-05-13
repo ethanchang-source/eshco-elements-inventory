@@ -97,7 +97,7 @@ export default function Reports() {
           monthlyMap[month].invoice_count += 1
         }
       })
-      setMonthlySales(Object.values(monthlyMap))
+      setMonthlySales(monthNames.map((m, i) => monthlyMap[String(i + 1).padStart(2, '0')]))
 
       const productMap: { [key: string]: TopProduct } = {}
       invoices.flatMap(inv => inv.invoice_items || []).forEach((item: {product_id?: string, qty?: number, line_total_cad?: number, products?: {sku?: string, name?: string}}) => {
