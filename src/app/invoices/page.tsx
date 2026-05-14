@@ -126,7 +126,7 @@ function InvoicesContent() {
   const [editCm, setEditCm] = useState<CreditMemo | null>(null)
   const [cmSelectedCustomer, setCmSelectedCustomer] = useState<Customer | null>(null)
   const [cmLineItems, setCmLineItems] = useState<InvoiceLineItem[]>([])
-  const [cmForm, setCmForm] = useState({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '', applied_date: '' })
+  const [cmForm, setCmForm] = useState({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '', applied_date: '', memo_no: '' })
 
   const [showImportModal, setShowImportModal] = useState(false)
   const [importRows, setImportRows] = useState<any[]>([])
@@ -164,6 +164,7 @@ function InvoicesContent() {
     tax_rate: '13',
     notes: '',
     wire_fee: '0',
+    invoice_no: '',
   })
 
   useEffect(() => { fetchAll() }, [])
@@ -241,6 +242,7 @@ function InvoicesContent() {
       tax_rate: String(Math.round(invoice.tax_rate * 100)),
       notes: invoice.notes || '',
       wire_fee: String(invoice.wire_fee || 0),
+      invoice_no: invoice.invoice_no,
     })
     const [{ data: items }, { data: custPrices }] = await Promise.all([
       supabase.from('invoice_items').select('*, products(id, sku, name, size_oz, price_whs_cad)').eq('invoice_id', invoice.id),
@@ -296,6 +298,27 @@ function InvoicesContent() {
   const receivedAmount = total - wireFee
   const totalBoxes = Math.ceil(activeItems.reduce((sum, item) => sum + item.qty, 0) / 36)
 
+  async function openNewInvoiceModal(currency: 'CAD' | 'USD') {
+    setInvoiceCurrency(currency)
+    setEditInvoice(null)
+    setLineItems([])
+    setSelectedCustomer(null)
+    const invoice_no = await generateInvoiceNo(currency)
+    setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: currency === 'USD' ? '0' : '13', notes: '', wire_fee: '0', invoice_no })
+    setInvoiceError('')
+    setShowModal(true)
+  }
+
+  async function openNewCmModal() {
+    setEditCm(null)
+    setCmLineItems([])
+    setCmSelectedCustomer(null)
+    const memo_no = await generateMemoNo()
+    setCmForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '', applied_date: '', memo_no })
+    setCmError('')
+    setShowCmModal(true)
+  }
+
   async function handleSubmit() {
     if (!form.customer_id || activeItems.length === 0) {
       alert('Please select a customer and add at least one item with quantity.')
@@ -303,9 +326,20 @@ function InvoicesContent() {
     }
     const notes = form.notes || ''
 
+    const invoice_no = form.invoice_no.trim()
+    if (!invoice_no) {
+      setInvoiceError('Invoice number is required.')
+      return
+    }
+
     if (editInvoice) {
       // 수정 모드
+      if (invoice_no !== editInvoice.invoice_no) {
+        const { data: dup } = await supabase.from('invoices').select('id').eq('invoice_no', invoice_no).maybeSingle()
+        if (dup) { setInvoiceError('Invoice number already exists.'); return }
+      }
       await supabase.from('invoices').update({
+        invoice_no,
         customer_id: form.customer_id,
         issued_at: form.issued_at,
         subtotal_cad: subtotal,
@@ -330,7 +364,9 @@ function InvoicesContent() {
       )
     } else {
       // 신규 생성
-      const invoice_no = await generateInvoiceNo(invoiceCurrency)
+      const { data: dup } = await supabase.from('invoices').select('id').eq('invoice_no', invoice_no).maybeSingle()
+      if (dup) { setInvoiceError('Invoice number already exists.'); return }
+
       const { data: invoice, error: insertError } = await supabase.from('invoices').insert([{
         customer_id: form.customer_id,
         issued_at: form.issued_at,
@@ -371,7 +407,7 @@ function InvoicesContent() {
     setEditInvoice(null)
     setLineItems([])
     setSelectedCustomer(null)
-    setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '13', notes: '', wire_fee: '0' })
+    setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '13', notes: '', wire_fee: '0', invoice_no: '' })
     fetchAll()
   }
 
@@ -421,6 +457,7 @@ function InvoicesContent() {
     if (!inv) return
     const old = { ...inv }
     await logActivity(supabase, 'invoices', invoiceId, 'DELETE', old)
+    await supabase.from('invoice_items').delete().eq('invoice_id', invoiceId)
     await supabase.from('invoices').delete().eq('id', invoiceId)
     fetchAll()
     setUndoToast({
@@ -847,7 +884,7 @@ function InvoicesContent() {
   async function openEditCm(cm: CreditMemo) {
     setEditCm(cm)
     setCmSelectedCustomer(customers.find(c => c.id === cm.customer_id) || null)
-    setCmForm({ customer_id: cm.customer_id, issued_at: cm.issued_at, po_number: cm.po_number || '', tax_rate: String(Math.round(cm.tax_rate * 100)), notes: cm.notes || '', applied_date: cm.applied_date || '' })
+    setCmForm({ customer_id: cm.customer_id, issued_at: cm.issued_at, po_number: cm.po_number || '', tax_rate: String(Math.round(cm.tax_rate * 100)), notes: cm.notes || '', applied_date: cm.applied_date || '', memo_no: cm.memo_no })
     const [{ data: items }, { data: cmCustPrices }] = await Promise.all([
       supabase.from('credit_memo_items').select('*, products(id, sku, name, size_oz, price_whs_cad)').eq('memo_id', cm.id),
       supabase.from('customer_prices').select('product_id, custom_price').eq('customer_id', cm.customer_id),
@@ -925,8 +962,16 @@ function InvoicesContent() {
     setCmSubmitting(true)
     setCmError('')
     try {
+      const memo_no = cmForm.memo_no.trim()
+      if (!memo_no) { setCmError('Credit memo number is required.'); setCmSubmitting(false); return }
+
       if (editCm) {
+        if (memo_no !== editCm.memo_no) {
+          const { data: dup } = await supabase.from('credit_memos').select('id').eq('memo_no', memo_no).maybeSingle()
+          if (dup) { setCmError('Credit memo number already exists.'); setCmSubmitting(false); return }
+        }
         const { error: updErr } = await supabase.from('credit_memos').update({
+          memo_no,
           customer_id: cmForm.customer_id, issued_at: cmForm.issued_at,
           subtotal_cad: cmSubtotal, tax_rate: parseFloat(cmForm.tax_rate) / 100,
           tax_amount_cad: cmTaxAmount, total_cad: cmTotal,
@@ -938,7 +983,8 @@ function InvoicesContent() {
         const { error: itemErr } = await supabase.from('credit_memo_items').insert(cmActiveItems.map(i => ({ memo_id: editCm.id, product_id: i.product_id, qty: i.qty, unit_price_cad: i.unit_price, line_total_cad: i.total })))
         if (itemErr) throw itemErr
       } else {
-        const memo_no = await generateMemoNo()
+        const { data: dup } = await supabase.from('credit_memos').select('id').eq('memo_no', memo_no).maybeSingle()
+        if (dup) { setCmError('Credit memo number already exists.'); setCmSubmitting(false); return }
         const { data: cm, error: insErr } = await supabase.from('credit_memos').insert([{
           memo_no, customer_id: cmForm.customer_id, issued_at: cmForm.issued_at, status: 'draft',
           subtotal_cad: cmSubtotal, tax_rate: parseFloat(cmForm.tax_rate) / 100,
@@ -953,7 +999,7 @@ function InvoicesContent() {
         }
       }
       setShowCmModal(false); setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null)
-      setCmForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '', applied_date: '' })
+      setCmForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '', applied_date: '', memo_no: '' })
       fetchAll()
     } catch (err: any) {
       setCmError(err?.message || 'An error occurred. Please try again.')
@@ -1323,7 +1369,7 @@ function InvoicesContent() {
           <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <TableIcon size={15} /> Export Excel
           </button>
-          <button onClick={() => { setInvoiceCurrency('CAD'); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null); setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '13', notes: '', wire_fee: '0' }); setShowModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+          <button onClick={() => openNewInvoiceModal('CAD')} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={16} /> New Invoice
           </button>
         </div>
@@ -1425,7 +1471,7 @@ function InvoicesContent() {
           <button onClick={handleCmExport} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <TableIcon size={15} /> Export Excel
           </button>
-          <button onClick={() => { setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null); setCmForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '' }); setShowCmModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+          <button onClick={openNewCmModal} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={16} /> New Credit Memo
           </button>
         </div>
@@ -1527,7 +1573,7 @@ function InvoicesContent() {
           <button onClick={handleUsExport} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <TableIcon size={15} /> Export Excel
           </button>
-          <button onClick={() => { setInvoiceCurrency('USD'); setEditInvoice(null); setLineItems([]); setSelectedCustomer(null); setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '0', notes: '', wire_fee: '0' }); setShowModal(true) }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#0369a1', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+          <button onClick={() => openNewInvoiceModal('USD')} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#0369a1', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={16} /> New Invoice (US)
           </button>
         </div>
@@ -1847,7 +1893,7 @@ function InvoicesContent() {
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>
               {editCm ? `Edit Credit Memo ${editCm.memo_no}` : 'New Credit Memo'}
             </h2>
-            <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+            <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Bill To / Ship To *</label>
                 <select value={cmForm.customer_id} onChange={e => cmHandleCustomerChange(e.target.value)} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}>
@@ -1858,6 +1904,11 @@ function InvoicesContent() {
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Date</label>
                 <input type='date' value={cmForm.issued_at} onChange={e => setCmForm({ ...cmForm, issued_at: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Memo #</label>
+                <input value={cmForm.memo_no} onChange={e => setCmForm({ ...cmForm, memo_no: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px' }}>Auto-generated. You may edit if needed.</div>
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Applied Date</label>
@@ -1959,7 +2010,7 @@ function InvoicesContent() {
               {editInvoice ? `Edit Invoice ${editInvoice.invoice_no}` : `New Invoice (${invoiceCurrency})`}
             </h2>
 
-            <div className="modal-grid-3" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+            <div className="modal-grid-3" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Bill To / Ship To *</label>
                 <select value={form.customer_id} onChange={e => handleCustomerChange(e.target.value)} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }}>
@@ -1972,6 +2023,11 @@ function InvoicesContent() {
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Date</label>
                 <input type='date' value={form.issued_at} onChange={e => setForm({ ...form, issued_at: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Invoice #</label>
+                <input value={form.invoice_no} onChange={e => setForm({ ...form, invoice_no: e.target.value })} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
+                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px' }}>Auto-generated. You may edit if needed.</div>
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>PO #</label>
