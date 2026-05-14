@@ -21,8 +21,8 @@ interface POItem {
   quantity: number
   unit_price: number
   line_total: number
-  raw_materials?: { item_no: string; name: string; unit: string }
-  packaging?: { item_no: string; name: string }
+  raw_materials?: { item_no?: string; name: string; unit: string }
+  packaging?: { item_no?: string; name: string; type?: string }
 }
 
 interface LineItemForm {
@@ -157,6 +157,7 @@ export default function Purchasing() {
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null)
   const invoiceInputRef = useRef<HTMLInputElement>(null)
   const editInvoiceInputRef = useRef<HTMLInputElement>(null)
+  const attachmentInputRef = useRef<HTMLInputElement>(null)
   const [labelQtys, setLabelQtys] = useState<Record<string, string>>({})
   const [labelPrices, setLabelPrices] = useState<Record<string, string>>({})
   const [detailLineItemEdits, setDetailLineItemEdits] = useState<Record<string, { quantity: string; unit_price: string }>>({})
@@ -187,6 +188,12 @@ export default function Purchasing() {
   const [historyData, setHistoryData] = useState<HistoryEntry[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
 
+  const [showAttachment, setShowAttachment] = useState(false)
+  const [attachmentPO, setAttachmentPO] = useState<PO | null>(null)
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
+  const [attachmentUploading, setAttachmentUploading] = useState(false)
+  const [attachmentError, setAttachmentError] = useState('')
+
   useEffect(() => { fetchAll() }, [])
 
   useEffect(() => {
@@ -214,6 +221,7 @@ export default function Purchasing() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
+      if (showAttachment) { setShowAttachment(false); return }
       if (showHistory) { setShowHistory(false); return }
       if (showRollbackConfirm) { setShowRollbackConfirm(false); return }
       if (showDeleteConfirm) { setShowDeleteConfirm(false); setDeleteError(''); return }
@@ -223,7 +231,7 @@ export default function Purchasing() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [showCreate, showDetail, showStatusModal, showDeleteConfirm, showHistory, showRollbackConfirm])
+  }, [showCreate, showDetail, showStatusModal, showDeleteConfirm, showHistory, showRollbackConfirm, showAttachment])
 
   async function fetchAll() {
     const [posRes, suppRes, rawRes, pkgRes, itemsRes] = await Promise.all([
@@ -285,8 +293,10 @@ export default function Purchasing() {
   }
 
   function getLineItemLabel(item: POItem): string {
-    if (item.material_type === 'raw_material' && item.raw_materials) return `${item.raw_materials.item_no} — ${item.raw_materials.name}`
-    if (item.material_type === 'packaging' && item.packaging) return `${item.packaging.item_no} — ${item.packaging.name}`
+    if (item.material_type === 'raw_material' && item.raw_materials)
+      return item.raw_materials.item_no ? `${item.raw_materials.item_no} — ${item.raw_materials.name}` : item.raw_materials.name
+    if (item.material_type === 'packaging' && item.packaging)
+      return item.packaging.item_no ? `${item.packaging.item_no} — ${item.packaging.name}` : item.packaging.name
     return item.material_id
   }
 
@@ -334,7 +344,7 @@ export default function Purchasing() {
     // Fetch line items fresh from DB to guarantee latest data is shown
     const { data: freshItems, error: itemsErr } = await supabase
       .from('purchase_order_items')
-      .select('*, raw_materials(item_no, name, unit), packaging(item_no, name)')
+      .select('*, raw_materials(name, unit), packaging(name, type)')
       .eq('po_id', po.id)
     if (itemsErr) console.error('Failed to fetch PO items:', itemsErr)
     const items = (freshItems || []) as POItem[]
@@ -726,6 +736,31 @@ export default function Purchasing() {
     XLSX.writeFile(wb, `purchase_orders_${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
+  async function handleAttachmentUpload() {
+    if (!attachmentPO || !attachmentFile) return
+    setAttachmentUploading(true)
+    setAttachmentError('')
+    const ext = attachmentFile.name.split('.').pop()
+    const path = `${attachmentPO.id}_${Date.now()}.${ext}`
+    const { error: uploadErr } = await supabase.storage.from('purchase-orders').upload(path, attachmentFile, { upsert: true })
+    if (uploadErr) {
+      setAttachmentError(uploadErr.message || 'Upload failed')
+      setAttachmentUploading(false)
+      return
+    }
+    const { data: urlData } = supabase.storage.from('purchase-orders').getPublicUrl(path)
+    const { error: updateErr } = await supabase.from('purchase_orders').update({ invoice_url: urlData.publicUrl }).eq('id', attachmentPO.id)
+    if (updateErr) {
+      setAttachmentError(updateErr.message || 'Failed to save attachment URL')
+      setAttachmentUploading(false)
+      return
+    }
+    setAttachmentUploading(false)
+    setAttachmentFile(null)
+    setShowAttachment(false)
+    fetchAll()
+  }
+
   function handleTableStatusChange(po: PO, newStatus: string) {
     if (newStatus === po.status) return
     if (po.status === 'cancelled') return
@@ -896,13 +931,22 @@ export default function Purchasing() {
                       {os == null && sr == null && total == null && '—'}
                     </td>
                     <td style={{ padding: '12px 16px' }}>
-                      <button
-                        onClick={e => { e.stopPropagation(); setDetail(po); setShowDeleteConfirm(true) }}
-                        title='Delete PO'
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '4px', display: 'flex', alignItems: 'center' }}
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                        <button
+                          onClick={e => { e.stopPropagation(); setAttachmentPO(po); setAttachmentFile(null); setAttachmentError(''); setShowAttachment(true) }}
+                          title='Attachments'
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: po.invoice_url ? '#2563eb' : '#94a3b8', padding: '4px', display: 'flex', alignItems: 'center' }}
+                        >
+                          <Paperclip size={15} />
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); setDetail(po); setShowDeleteConfirm(true) }}
+                          title='Delete PO'
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '4px', display: 'flex', alignItems: 'center' }}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )
@@ -1183,6 +1227,7 @@ export default function Purchasing() {
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                         <thead>
                           <tr style={{ background: '#f8fafc' }}>
+                            <th style={{ padding: '9px 14px', textAlign: 'left', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Type</th>
                             <th style={{ padding: '9px 14px', textAlign: 'left', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Item</th>
                             <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Qty</th>
                             <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Unit Price</th>
@@ -1192,6 +1237,7 @@ export default function Purchasing() {
                         <tbody>
                           {detailItems.map((item, i) => (
                             <tr key={item.id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '12px', whiteSpace: 'nowrap' }}>{item.material_type === 'raw_material' ? 'Raw Material' : 'Packaging'}</td>
                               <td style={{ padding: '10px 14px', color: '#374151' }}>{getLineItemLabel(item)}</td>
                               <td style={{ padding: '10px 14px', textAlign: 'right', color: '#374151' }}>{item.quantity}</td>
                               <td style={{ padding: '10px 14px', textAlign: 'right', color: '#64748b' }}>${formatCurrency(item.unit_price || 0)}</td>
@@ -1313,6 +1359,7 @@ export default function Purchasing() {
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                         <thead>
                           <tr style={{ background: '#f8fafc' }}>
+                            <th style={{ padding: '8px 12px', textAlign: 'left', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Type</th>
                             <th style={{ padding: '8px 12px', textAlign: 'left', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Item</th>
                             <th style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Qty</th>
                             <th style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Unit Price</th>
@@ -1326,6 +1373,7 @@ export default function Purchasing() {
                             const price = parseFloat(edits?.unit_price ?? String(item.unit_price || 0))
                             return (
                               <tr key={item.id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '8px 12px', color: '#64748b', fontSize: '12px', whiteSpace: 'nowrap' }}>{item.material_type === 'raw_material' ? 'Raw Material' : 'Packaging'}</td>
                                 <td style={{ padding: '8px 12px', color: '#374151' }}>{getLineItemLabel(item)}</td>
                                 <td style={{ padding: '6px 12px', textAlign: 'right' }}>
                                   <input
@@ -1667,6 +1715,66 @@ export default function Purchasing() {
             )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
               <button onClick={() => setShowHistory(false)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Attachment Modal ── */}
+      {showAttachment && attachmentPO && (
+        <div className="modal-overlay" onClick={() => { setShowAttachment(false) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '20px' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '480px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>Attachments</h2>
+              <button onClick={() => setShowAttachment(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
+            </div>
+            <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '20px' }}>
+              {attachmentPO.po_number ? `PO# ${attachmentPO.po_number}` : attachmentPO.id.slice(0, 8)} — {attachmentPO.suppliers?.name || '—'}
+            </div>
+
+            {attachmentPO.invoice_url ? (
+              <div style={{ marginBottom: '20px', padding: '12px 16px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Paperclip size={16} color='#16a34a' />
+                <a href={attachmentPO.invoice_url} target='_blank' rel='noreferrer' style={{ color: '#15803d', fontSize: '14px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  View Current Attachment
+                </a>
+              </div>
+            ) : (
+              <div style={{ marginBottom: '20px', padding: '12px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', color: '#94a3b8', textAlign: 'center' }}>
+                No attachment yet
+              </div>
+            )}
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={lbl}>Upload New File</label>
+              <div
+                onClick={() => attachmentInputRef.current?.click()}
+                style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', border: '1px dashed #cbd5e1', borderRadius: '6px', cursor: 'pointer', background: '#fafafa' }}
+              >
+                <Paperclip size={16} color='#94a3b8' />
+                <span style={{ fontSize: '13px', color: attachmentFile ? '#374151' : '#94a3b8' }}>
+                  {attachmentFile ? attachmentFile.name : 'Click to select file (jpg, png, pdf)'}
+                </span>
+                {attachmentFile && (
+                  <button onClick={e => { e.stopPropagation(); setAttachmentFile(null) }} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              <input ref={attachmentInputRef} type='file' accept='.jpg,.jpeg,.png,.pdf' style={{ display: 'none' }} onChange={e => setAttachmentFile(e.target.files?.[0] || null)} />
+            </div>
+
+            {attachmentError && (
+              <div style={{ marginBottom: '14px', padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '13px', color: '#dc2626' }}>{attachmentError}</div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button onClick={() => setShowAttachment(false)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Close</button>
+              {attachmentFile && (
+                <button onClick={handleAttachmentUpload} disabled={attachmentUploading} style={{ padding: '8px 20px', background: attachmentUploading ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: attachmentUploading ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
+                  {attachmentUploading ? 'Uploading...' : 'Upload & Save'}
+                </button>
+              )}
             </div>
           </div>
         </div>
