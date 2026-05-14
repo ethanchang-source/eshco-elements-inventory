@@ -105,6 +105,7 @@ function InventoryContent() {
   const [editRawForm, setEditRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '' })
   const [editPackForm, setEditPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '' })
   const [editFinishedStock, setEditFinishedStock] = useState('')
+  const [editFinishedReorderThreshold, setEditFinishedReorderThreshold] = useState('')
   const [editFinishedMaxCapacity, setEditFinishedMaxCapacity] = useState('')
   const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
   const [inventorySuppliers, setInventorySuppliers] = useState<Supplier[]>([])
@@ -176,6 +177,7 @@ function InventoryContent() {
   function openEditFinished(p: Product) {
     setEditFinished(p)
     setEditFinishedStock(String(p.current_stock != null ? Math.round(p.current_stock / 36) : ''))
+    setEditFinishedReorderThreshold(String(p.reorder_threshold ?? ''))
     setEditFinishedMaxCapacity(String(p.max_capacity ?? ''))
   }
 
@@ -262,6 +264,7 @@ function InventoryContent() {
     if (!editFinished) return
     const { error } = await supabase.from('products').update({
       current_stock: (parseInt(editFinishedStock) || 0) * 36,
+      reorder_threshold: editFinishedReorderThreshold !== '' ? parseInt(editFinishedReorderThreshold) || 0 : 0,
       max_capacity: editFinishedMaxCapacity !== '' ? (parseInt(editFinishedMaxCapacity) || 0) * 36 : null,
     }).eq('id', editFinished.id)
     if (error) console.error('finished product update error:', error)
@@ -997,6 +1000,10 @@ function InventoryContent() {
                   {parseInt(editFinishedStock) || 0} boxes = {(parseInt(editFinishedStock) || 0) * 36} units
                 </div>
               )}
+            </div>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={lbl}>Reorder At (units)</label>
+              <input type='number' min='0' value={editFinishedReorderThreshold} onChange={e => setEditFinishedReorderThreshold(e.target.value)} style={inp} placeholder='0' />
             </div>
             <div style={{ marginBottom: '16px' }}>
               <label style={lbl}>Max Capacity (boxes)</label>
