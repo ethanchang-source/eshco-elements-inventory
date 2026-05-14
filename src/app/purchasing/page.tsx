@@ -309,7 +309,7 @@ export default function Purchasing() {
     })
   }
 
-  function openDetail(po: PO) {
+  async function openDetail(po: PO) {
     setDetail(po)
     setEditForm({
       supplier_id: po.supplier_id,
@@ -327,13 +327,23 @@ export default function Purchasing() {
       amount_usd: po.amount_usd != null ? String(po.amount_usd) : '',
       amount_cad: '',
     })
+    setDetailLineItemEdits({})
+    setUpdateError('')
+    setShowDetail(true)
+
+    // Fetch line items fresh from DB to guarantee latest data is shown
+    const { data: freshItems, error: itemsErr } = await supabase
+      .from('purchase_order_items')
+      .select('*, raw_materials(item_no, name, unit), packaging(item_no, name)')
+      .eq('po_id', po.id)
+    if (itemsErr) console.error('Failed to fetch PO items:', itemsErr)
+    const items = (freshItems || []) as POItem[]
+    setPoItems(prev => ({ ...prev, [po.id]: items }))
     const editMap: Record<string, { quantity: string; unit_price: string }> = {}
-    for (const item of (poItems[po.id] || [])) {
+    for (const item of items) {
       editMap[item.id] = { quantity: String(item.quantity), unit_price: String(item.unit_price ?? 0) }
     }
     setDetailLineItemEdits(editMap)
-    setUpdateError('')
-    setShowDetail(true)
   }
 
   async function handleCreate() {
