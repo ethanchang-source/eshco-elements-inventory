@@ -337,16 +337,28 @@ export default function Purchasing() {
       amount_usd: po.amount_usd != null ? String(po.amount_usd) : '',
       amount_cad: '',
     })
-    setDetailLineItemEdits({})
     setUpdateError('')
+
+    // Immediately populate edit map from fetchAll cache so modal is usable right away
+    const cachedItems = poItems[po.id] || []
+    const initialEditMap: Record<string, { quantity: string; unit_price: string }> = {}
+    for (const item of cachedItems) {
+      initialEditMap[item.id] = { quantity: String(item.quantity), unit_price: String(item.unit_price ?? 0) }
+    }
+    setDetailLineItemEdits(initialEditMap)
     setShowDetail(true)
 
-    // Fetch line items fresh from DB to guarantee latest data is shown
+    // Fetch fresh line items from DB
     const { data: freshItems, error: itemsErr } = await supabase
       .from('purchase_order_items')
-      .select('*, raw_materials(name, unit), packaging(name, type)')
+      .select('*, raw_materials(id, item_no, name, unit), packaging(id, item_no, name, type)')
       .eq('po_id', po.id)
-    if (itemsErr) console.error('Failed to fetch PO items:', itemsErr)
+
+    if (itemsErr) {
+      console.error('Failed to fetch PO items:', itemsErr)
+      return // Keep using cached fetchAll data
+    }
+
     const items = (freshItems || []) as POItem[]
     setPoItems(prev => ({ ...prev, [po.id]: items }))
     const editMap: Record<string, { quantity: string; unit_price: string }> = {}
@@ -431,7 +443,7 @@ export default function Purchasing() {
     }
 
     const { error: itemsError } = await supabase.from('purchase_order_items').insert(
-      itemsToInsert.map(i => ({ ...i, po_id: poData.id }))
+      itemsToInsert.map(i => ({ ...i, po_id: poData.id, line_total: i.quantity * i.unit_price }))
     )
 
     if (itemsError) {
@@ -490,13 +502,13 @@ export default function Purchasing() {
         if (edits) {
           const qty = parseFloat(edits.quantity || '0')
           const price = parseFloat(edits.unit_price || '0')
-          await supabase.from('purchase_order_items').update({ quantity: qty, unit_price: price }).eq('id', item.id)
+          await supabase.from('purchase_order_items').update({ quantity: qty, unit_price: price, line_total: qty * price }).eq('id', item.id)
         }
       }
       const itemsSubtotal = items.reduce((s, i) => {
         const edits = detailLineItemEdits[i.id]
         if (edits) return s + parseFloat(edits.quantity || '0') * parseFloat(edits.unit_price || '0')
-        return s + i.line_total
+        return s + (i.line_total != null ? i.line_total : i.quantity * i.unit_price)
       }, 0)
       const shippingCad = editForm.shipping_cad ? parseFloat(editForm.shipping_cad) : 0
       const brokerageCad = editForm.brokerage_cad ? parseFloat(editForm.brokerage_cad) : 0
@@ -678,8 +690,8 @@ export default function Purchasing() {
         await supabase.from('purchase_orders').upsert([poRow])
         if (isMultiItem && items.length > 0) {
           await supabase.from('purchase_order_items').insert(
-            items.map(({ id, po_id, material_type, material_id, quantity, unit_price }) =>
-              ({ id, po_id, material_type, material_id, quantity, unit_price }))
+            items.map(({ id, po_id, material_type, material_id, quantity, unit_price, line_total }) =>
+              ({ id, po_id, material_type, material_id, quantity, unit_price, line_total: line_total != null ? line_total : quantity * unit_price }))
           )
         }
         if (wasReceived) {
@@ -1241,7 +1253,7 @@ export default function Purchasing() {
                               <td style={{ padding: '10px 14px', color: '#374151' }}>{getLineItemLabel(item)}</td>
                               <td style={{ padding: '10px 14px', textAlign: 'right', color: '#374151' }}>{item.quantity}</td>
                               <td style={{ padding: '10px 14px', textAlign: 'right', color: '#64748b' }}>${formatCurrency(item.unit_price || 0)}</td>
-                              <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: '500', color: '#1e293b' }}>${formatCurrency(item.line_total || 0)}</td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: '500', color: '#1e293b' }}>${formatCurrency(item.line_total != null ? item.line_total : item.quantity * item.unit_price)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1249,7 +1261,7 @@ export default function Purchasing() {
                       {/* Cost summary */}
                       <div style={{ borderTop: '1px solid #e2e8f0', padding: '10px 14px', background: '#f8fafc' }}>
                         {(() => {
-                          const subtotal = detailItems.reduce((s, i) => s + i.line_total, 0)
+                          const subtotal = detailItems.reduce((s, i) => s + (i.line_total != null ? i.line_total : i.quantity * i.unit_price), 0)
                           return (
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', fontSize: '13px' }}>
                               <div style={{ color: '#64748b' }}>Items: <strong style={{ color: '#374151' }}>${formatCurrency(subtotal)}</strong></div>
