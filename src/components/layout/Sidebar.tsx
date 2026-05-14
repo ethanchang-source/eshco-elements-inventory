@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   LayoutDashboard,
   Package,
@@ -45,6 +45,13 @@ export default function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [userEmail, setUserEmail] = useState('')
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setUserEmail(data.user?.email || '')
+    })
+  }, [])
 
   async function handleSignOut() {
     await supabase.auth.signOut()
@@ -76,6 +83,11 @@ export default function Sidebar() {
         })}
       </nav>
       <div style={{ padding: '12px 16px', borderTop: '1px solid #334155' }}>
+        {userEmail && (
+          <div style={{ fontSize: '11px', color: '#64748b', padding: '6px 12px', marginBottom: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {userEmail}
+          </div>
+        )}
         <button
           onClick={handleSignOut}
           style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: 'transparent', border: '1px solid #334155', borderRadius: '8px', color: '#94a3b8', fontSize: '14px', cursor: 'pointer', transition: 'all 0.15s' }}
@@ -105,12 +117,12 @@ export default function Sidebar() {
         }
       `}</style>
 
-      {/* 데스크탑 사이드바 */}
+      {/* Desktop sidebar */}
       <aside className="desktop-sidebar" style={{ width: '240px', minHeight: '100vh', background: '#1e293b', color: '#fff', display: 'flex', flexDirection: 'column', position: 'fixed', left: 0, top: 0, zIndex: 100 }}>
         {sidebarContent}
       </aside>
 
-      {/* 모바일 상단 헤더 - 로고만 */}
+      {/* Mobile top header */}
       <div className="mobile-header" style={{ display: 'none', position: 'fixed', top: 0, left: 0, right: 0, height: '56px', background: '#1e293b', zIndex: 100, alignItems: 'center', justifyContent: 'center', padding: '0 16px' }}>
         <button onClick={() => setMobileOpen(true)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '4px', position: 'absolute', left: '16px' }}>
           <Menu size={24} />
@@ -118,10 +130,10 @@ export default function Sidebar() {
         <img src='/logo.png' alt='I AM PURE' style={{ height: '32px', objectFit: 'contain', filter: 'brightness(0) invert(1)', display: 'block', margin: '0 auto' }} />
       </div>
 
-      {/* 모바일 오버레이 */}
+      {/* Mobile overlay */}
       <div className="mobile-overlay" onClick={() => setMobileOpen(false)} style={{ display: 'none', position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 150 }} />
 
-      {/* 모바일 슬라이드 사이드바 */}
+      {/* Mobile slide sidebar */}
       <aside className="mobile-sidebar" style={{ position: 'fixed', left: 0, top: 0, bottom: 0, width: '260px', background: '#1e293b', color: '#fff', display: 'flex', flexDirection: 'column', zIndex: 200, transition: 'transform 0.3s ease' }}>
         {sidebarContent}
       </aside>
