@@ -397,13 +397,64 @@ export default function ActivityLog() {
     setRestoring(entry.id)
     setRestoreMsg('')
     try {
-      const {
-        id: _id, created_at: _ca, updated_at: _ua, deleted_at: _da,
-        customers: _c, suppliers: _s, raw_materials: _r, packaging: _p,
-        ...payload
-      } = entry.old_data
-      const { error } = await supabase.from(entry.table_name).insert([payload])
-      if (error) throw error
+      if (entry.table_name === 'invoices') {
+        const { created_at: _ca, updated_at: _ua, deleted_at: _da,
+          customers: _c, suppliers: _s, raw_materials: _r, packaging: _p,
+          ...invoicePayload } = entry.old_data
+        const { error: invErr } = await supabase.from('invoices').insert([invoicePayload])
+        if (invErr) throw invErr
+
+        const deletedAt = entry.created_at
+        const { data: itemLogs } = await supabase
+          .from('activity_log')
+          .select('*')
+          .eq('table_name', 'invoice_items')
+          .eq('action', 'DELETE')
+          .gte('created_at', new Date(new Date(deletedAt).getTime() - 2000).toISOString())
+          .lte('created_at', new Date(new Date(deletedAt).getTime() + 2000).toISOString())
+
+        if (itemLogs && itemLogs.length > 0) {
+          const items = itemLogs.map((il: any) => {
+            const { created_at: _ca, ...itemPayload } = il.old_data
+            return itemPayload
+          })
+          const { error: itemsErr } = await supabase.from('invoice_items').insert(items)
+          if (itemsErr) throw itemsErr
+        }
+      } else if (entry.table_name === 'credit_memos') {
+        const { created_at: _ca, updated_at: _ua, deleted_at: _da,
+          customers: _c, suppliers: _s, raw_materials: _r, packaging: _p,
+          ...memoPayload } = entry.old_data
+        const { error: memoErr } = await supabase.from('credit_memos').insert([memoPayload])
+        if (memoErr) throw memoErr
+
+        const deletedAt = entry.created_at
+        const { data: itemLogs } = await supabase
+          .from('activity_log')
+          .select('*')
+          .eq('table_name', 'credit_memo_items')
+          .eq('action', 'DELETE')
+          .gte('created_at', new Date(new Date(deletedAt).getTime() - 2000).toISOString())
+          .lte('created_at', new Date(new Date(deletedAt).getTime() + 2000).toISOString())
+
+        if (itemLogs && itemLogs.length > 0) {
+          const items = itemLogs.map((il: any) => {
+            const { created_at: _ca, ...itemPayload } = il.old_data
+            return itemPayload
+          })
+          const { error: itemsErr } = await supabase.from('credit_memo_items').insert(items)
+          if (itemsErr) throw itemsErr
+        }
+      } else {
+        const {
+          id: _id, created_at: _ca, updated_at: _ua, deleted_at: _da,
+          customers: _c, suppliers: _s, raw_materials: _r, packaging: _p,
+          ...payload
+        } = entry.old_data
+        const { error } = await supabase.from(entry.table_name).insert([payload])
+        if (error) throw error
+      }
+
       setRestoreMsg('Restored successfully')
       setSelectedEntry(null)
       setTimeout(() => setRestoreMsg(''), 3000)
