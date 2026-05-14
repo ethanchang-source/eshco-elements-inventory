@@ -443,7 +443,7 @@ export default function Purchasing() {
     }
 
     const { error: itemsError } = await supabase.from('purchase_order_items').insert(
-      itemsToInsert.map(i => ({ ...i, po_id: poData.id, line_total: i.quantity * i.unit_price }))
+      itemsToInsert.map(i => ({ ...i, po_id: poData.id }))
     )
 
     if (itemsError) {
@@ -691,7 +691,7 @@ export default function Purchasing() {
         if (isMultiItem && items.length > 0) {
           await supabase.from('purchase_order_items').insert(
             items.map(({ id, po_id, material_type, material_id, quantity, unit_price }) =>
-              ({ id, po_id, material_type, material_id, quantity, unit_price, line_total: quantity * unit_price }))
+              ({ id, po_id, material_type, material_id, quantity, unit_price }))
           )
         }
         if (wasReceived) {
