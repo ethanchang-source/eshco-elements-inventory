@@ -922,11 +922,12 @@ function InvoicesContent() {
         .select('invoice_no')
         .like('invoice_no', `${yr}-U%`)
         .is('deleted_at', null)
-        .order('invoice_no', { ascending: false })
-        .limit(1)
-      const last = data?.[0]?.invoice_no || ''
-      const match = last.match(/U(\d+)$/)
-      const next = match ? parseInt(match[1]) + 1 : 1
+        .order('invoice_no', { ascending: true })
+      const used = new Set(
+        (data || []).map(inv => parseInt(inv.invoice_no.replace(`${yr}-U`, ''))).filter(n => !isNaN(n))
+      )
+      let next = 1
+      while (used.has(next)) next++
       return `${yr}-U${String(next).padStart(4, '0')}`
     } else {
       const { data } = await supabase
@@ -936,19 +937,29 @@ function InvoicesContent() {
         .like('invoice_no', `${yr}-%`)
         .not('invoice_no', 'like', `${yr}-U%`)
         .is('deleted_at', null)
-        .order('invoice_no', { ascending: false })
-        .limit(1)
-      const last = data?.[0]?.invoice_no || ''
-      const match = last.match(/(\d+)$/)
-      const next = match ? parseInt(match[1]) + 1 : 1
+        .order('invoice_no', { ascending: true })
+      const used = new Set(
+        (data || []).map(inv => parseInt(inv.invoice_no.replace(`${yr}-`, ''))).filter(n => !isNaN(n))
+      )
+      let next = 1
+      while (used.has(next)) next++
       return `${yr}-${String(next).padStart(5, '0')}`
     }
   }
 
   async function generateMemoNo(): Promise<string> {
     const yr = new Date().getFullYear().toString().slice(2)
-    const { count } = await supabase.from('credit_memos').select('*', { count: 'exact', head: true }).like('memo_no', `C${yr}-%`)
-    return `C${yr}-${String((count || 0) + 1).padStart(5, '0')}`
+    const { data } = await supabase
+      .from('credit_memos')
+      .select('memo_no')
+      .like('memo_no', `C${yr}-%`)
+      .order('memo_no', { ascending: true })
+    const used = new Set(
+      (data || []).map(m => parseInt(m.memo_no.replace(`C${yr}-`, ''))).filter(n => !isNaN(n))
+    )
+    let next = 1
+    while (used.has(next)) next++
+    return `C${yr}-${String(next).padStart(5, '0')}`
   }
 
   const [cmSubmitting, setCmSubmitting] = useState(false)
