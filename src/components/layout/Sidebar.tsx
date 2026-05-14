@@ -21,6 +21,7 @@ import {
   Receipt,
   History,
   Archive,
+  Database,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
@@ -39,6 +40,7 @@ const menuItems = [
   { href: '/reports', icon: BarChart3, label: 'Reports' },
   { href: '/scan', icon: ScanLine, label: 'Scan Stock' },
   { href: '/activity', icon: History, label: 'Activity Log' },
+  { href: '/backup', icon: Database, label: 'Data Backup' },
 ]
 
 export default function Sidebar() {

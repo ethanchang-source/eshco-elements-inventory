@@ -450,19 +450,15 @@ function InventoryContent() {
     const rows = products.map(p => ({
       'SKU': p.sku,
       'Name': p.name,
-      'Size (oz)': p.size_oz,
-      'Barcode UPC': p.barcode_upc ?? '',
-      'Barcode ITF14': p.barcode_itf14 ?? '',
-      'Unit Cost CAD': p.unit_cost_cad,
-      'WHS Price CAD': p.whs_price_cad ?? '',
-      'MSRP CAD': p.msrp_cad ?? '',
-      'Current Stock': p.current_stock,
-      'Reorder Threshold': p.reorder_threshold,
+      'Stock': p.current_stock,
+      'MFG Cost': p.unit_cost_cad,
+      'WHS Price': p.whs_price_cad ?? '',
+      'Total Value': (p.unit_cost_cad || 0) * (p.current_stock || 0),
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Finished Goods')
-    XLSX.writeFile(wb, 'finished_goods_export.xlsx')
+    XLSX.writeFile(wb, 'inventory_finished_goods.xlsx')
   }
 
   function handleExportRaw() {
@@ -470,16 +466,14 @@ function InventoryContent() {
       'Item No': r.item_no,
       'Name': r.name,
       'Unit': r.unit,
-      'Cost per Unit CAD': r.cost_per_unit_cad,
-      'Avg Cost CAD': r.avg_cost_cad ?? '',
-      'Current Stock': r.current_stock,
-      'Reorder Threshold': r.reorder_threshold,
-      'Notes': r.notes ?? '',
+      'Stock': r.current_stock,
+      'Cost/Unit': r.cost_per_unit_cad,
+      'Total Value': (r.cost_per_unit_cad || 0) * (r.current_stock || 0),
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Raw Materials')
-    XLSX.writeFile(wb, 'raw_materials_export.xlsx')
+    XLSX.writeFile(wb, 'inventory_raw_materials.xlsx')
   }
 
   function handleExportPack() {
@@ -487,17 +481,14 @@ function InventoryContent() {
       'Item No': p.item_no,
       'Name': p.name,
       'Type': p.type,
-      'Size (oz)': p.size_oz,
-      'Cost CAD': p.cost_cad,
-      'Avg Cost CAD': p.avg_cost_cad ?? '',
-      'Current Stock': p.current_stock,
-      'Reorder Threshold': p.reorder_threshold,
-      'Notes': p.notes ?? '',
+      'Stock': p.current_stock,
+      'Cost': p.cost_cad,
+      'Total Value': (p.cost_cad || 0) * (p.current_stock || 0),
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Packaging')
-    XLSX.writeFile(wb, 'packaging_export.xlsx')
+    XLSX.writeFile(wb, 'inventory_packaging.xlsx')
   }
 
   const filteredRaw = rawMaterials.filter(r => r.name?.toLowerCase().includes(search.toLowerCase()) || r.item_no?.toLowerCase().includes(search.toLowerCase()))

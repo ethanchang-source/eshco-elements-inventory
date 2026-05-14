@@ -237,23 +237,14 @@ export default function Suppliers() {
     const rows = suppliers.map(s => ({
       'Company Name': s.name,
       'Contact Name': s.contact_name || '',
-      'Contact Email': s.contact_email || '',
-      'Contact Phone': s.contact_phone || '',
+      'Email': s.contact_email || '',
+      'Phone': s.contact_phone || '',
       'Country': s.country || '',
-      'Ship To Address': s.ship_to_address || '',
-      'Ship To City': s.ship_to_city || '',
-      'Ship To Province': s.ship_to_province || '',
-      'Ship To Postal Code': s.ship_to_postal_code || '',
-      'Bill To Same As Ship To': s.bill_to_same_as_ship_to || false,
-      'Bill To Address': s.address || '',
-      'Bill To City': s.city || '',
-      'Bill To Province': s.province || '',
-      'Bill To Postal Code': s.postal_code || '',
-      'Notes': s.notes || '',
+      'Address': s.ship_to_address || '',
     }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Suppliers')
-    XLSX.writeFile(wb, `suppliers_export_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    XLSX.writeFile(wb, 'suppliers.xlsx')
   }
 
   function downloadTemplate() {
@@ -312,7 +303,7 @@ export default function Suppliers() {
             <input ref={importFileRef} type='file' accept='.xlsx,.xls' onChange={handleFileSelect} style={{ display: 'none' }} />
           </label>
           <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
-            <TableIcon size={14} /> Export Excel
+            <TableIcon size={14} /> Export Suppliers
           </button>
           <button onClick={openAddModal} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={16} /> Add Supplier

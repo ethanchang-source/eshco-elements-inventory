@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
-import { BarChart3, TrendingUp, DollarSign, Package, ShoppingCart, X } from 'lucide-react'
+import { BarChart3, TrendingUp, DollarSign, Package, ShoppingCart, X, Download } from 'lucide-react'
+import * as XLSX from 'xlsx'
 
 interface MonthlySales {
   month: string
@@ -215,6 +216,29 @@ export default function Reports() {
     cursor: 'pointer', fontSize: '13px', fontWeight: '500',
   })
 
+  async function handleRevenueExport() {
+    const { data } = await supabase
+      .from('invoices')
+      .select('invoice_number, customers(company_name), issued_at, subtotal_cad, tax_amount_cad, total_cad, currency, status')
+      .gte('issued_at', `${year}-01-01`)
+      .lte('issued_at', `${year}-12-31`)
+      .order('issued_at', { ascending: true })
+    const rows = (data || []).map((inv: any) => ({
+      'Invoice No': inv.invoice_number,
+      'Customer': inv.customers?.company_name || '',
+      'Date': inv.issued_at,
+      'Subtotal': inv.subtotal_cad || 0,
+      'Tax': inv.tax_amount_cad || 0,
+      'Total': inv.total_cad || 0,
+      'Currency': inv.currency || 'CAD',
+      'Status': inv.status || '',
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, `Revenue ${year}`)
+    XLSX.writeFile(wb, `revenue_${year}.xlsx`)
+  }
+
   return (
     <MainLayout>
       {/* Year selector */}
@@ -224,6 +248,9 @@ export default function Reports() {
             <button key={y} onClick={() => setYear(y)} style={yearBtnStyle(year === y)}>{y}</button>
           ))}
         </div>
+        <button onClick={handleRevenueExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
+          <Download size={14} /> Export Revenue Report
+        </button>
       </div>
 
       {/* KPI cards */}

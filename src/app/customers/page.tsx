@@ -337,25 +337,18 @@ export default function Customers() {
   function handleExport() {
     const rows = customers.map(c => ({
       'Company Name': c.company_name,
-      'Ship To Address': c.ship_to_address || '',
-      'Ship To City': c.ship_to_city || '',
-      'Ship To Province': c.ship_to_province || '',
-      'Ship To Postal Code': c.ship_to_postal_code || '',
-      'Bill To Same As Ship To': c.bill_to_same_as_ship_to || false,
-      'Bill To Address': c.warehouse_address || '',
-      'Bill To City': c.city || '',
-      'Bill To Province': c.province || '',
-      'Bill To Postal Code': c.postal_code || '',
+      'Address': c.ship_to_address || '',
+      'City': c.ship_to_city || '',
+      'Province': c.ship_to_province || '',
       'Contact Name': c.contact_name || '',
-      'Contact Email': c.contact_email || '',
-      'Contact Phone': c.contact_phone || '',
+      'Email': c.contact_email || '',
+      'Phone': c.contact_phone || '',
       'Payment Terms': c.payment_terms || '',
       'Currency': c.currency || '',
-      'Notes': c.notes || '',
     }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Customers')
-    XLSX.writeFile(wb, `customers_export_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    XLSX.writeFile(wb, 'customers.xlsx')
   }
 
   function downloadTemplate() {
@@ -410,7 +403,7 @@ export default function Customers() {
             <input ref={importFileRef} type='file' accept='.xlsx,.xls' onChange={handleFileSelect} style={{ display: 'none' }} />
           </label>
           <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
-            <TableIcon size={14} /> Export Excel
+            <TableIcon size={14} /> Export Customers
           </button>
           <button onClick={openAddModal} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={14} /> Add Customer

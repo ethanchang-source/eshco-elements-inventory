@@ -420,6 +420,25 @@ export default function Expenses() {
     XLSX.writeFile(wb, `expenses_${activeYear}_${MONTHS[activeMonth]}.xlsx`)
   }
 
+  function handleYearExport() {
+    const rows = expenses.map(e => ({
+      'Date': e.expense_date,
+      'Category': e.category || '',
+      'Type': e.type || '',
+      'Payee': e.payee || '',
+      'Description': e.description || '',
+      'Amount Before Tax': e.amount_before_tax || 0,
+      'Sales Tax': e.sales_tax || 0,
+      'Total': e.total_amount || 0,
+      'Payment Method': e.payment_method || '',
+      'Currency': e.currency || 'CAD',
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, `Expenses ${activeYear}`)
+    XLSX.writeFile(wb, `expenses_${activeYear}.xlsx`)
+  }
+
   async function handleRangeExport() {
     const fromDate = new Date(rangeFromYear, rangeFromMonth, 1)
     const toDate = new Date(rangeToYear, rangeToMonth, 1)
@@ -630,6 +649,9 @@ export default function Expenses() {
           </label>
           <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer' }}>
             <Download size={14} /> Export {MONTHS[activeMonth]} {activeYear}
+          </button>
+          <button onClick={handleYearExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer' }}>
+            <Download size={14} /> Export Expenses {activeYear}
           </button>
           <button onClick={openAdd} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={15} /> Add Expense
