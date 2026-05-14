@@ -169,7 +169,7 @@ export default function ActivityLog() {
         <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', padding: '14px 18px', marginBottom: '16px', fontSize: '13px', color: '#dc2626' }}>
           <strong>Error loading activity log:</strong> {fetchError}
           <div style={{ color: '#7f1d1d', fontSize: '12px', marginTop: '6px' }}>
-            Supabase SQL Editor에서 실행하세요:{' '}
+            Run this in the Supabase SQL Editor:{' '}
             <code style={{ background: '#fee2e2', padding: '2px 8px', borderRadius: '4px' }}>
               ALTER TABLE activity_log DISABLE ROW LEVEL SECURITY;
             </code>

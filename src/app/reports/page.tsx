@@ -358,7 +358,7 @@ export default function Reports() {
         <div style={{ padding: '14px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
           <div>
             <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', margin: 0 }}>Customer Sales {csYear}</h3>
-            <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>업체명 클릭 → 제품별 판매 순위</div>
+            <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>Click a customer name to view product breakdown</div>
           </div>
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
             {[2024, 2025, 2026].map(y => (
@@ -475,11 +475,11 @@ export default function Reports() {
             </div>
 
             <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '10px' }}>
-              제품별 판매 순위 (Top {Math.min(drillDown.top_products.length, 10)})
+              Top Products Sold (Top {Math.min(drillDown.top_products.length, 10)})
             </div>
 
             {drillDown.top_products.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8', fontSize: '13px' }}>제품 데이터 없음</div>
+              <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8', fontSize: '13px' }}>No product data</div>
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead>
