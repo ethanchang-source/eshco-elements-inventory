@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
+import { toTorontoTime } from '@/lib/dateUtils'
 import { History, RotateCcw } from 'lucide-react'
 
 interface ActivityEntry {
@@ -44,11 +45,46 @@ function getIdentifier(entry: ActivityEntry): string {
   return entry.record_id.slice(0, 8)
 }
 
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString('en-CA', {
-    year: 'numeric', month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
+const MONTHS = ['January','February','March','April','May','June',
+                'July','August','September','October','November','December']
+const YEARS = [2024, 2025, 2026, 2027]
+
+function DatePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const parts   = value ? value.split('-') : ['', '', '']
+  const selYear  = parts[0] ? parseInt(parts[0]) : 0
+  const selMonth = parts[1] ? parseInt(parts[1]) : 0
+  const selDay   = parts[2] ? parseInt(parts[2]) : 0
+  const maxDay   = selYear && selMonth ? new Date(selYear, selMonth, 0).getDate() : 31
+
+  function emit(y: number, m: number, d: number) {
+    if (!y || !m || !d) { onChange(''); return }
+    const max = new Date(y, m, 0).getDate()
+    onChange(`${y}-${String(m).padStart(2, '0')}-${String(Math.min(d, max)).padStart(2, '0')}`)
+  }
+
+  const s: React.CSSProperties = {
+    padding: '7px 8px', border: '1px solid #e2e8f0', borderRadius: '8px',
+    fontSize: '13px', outline: 'none', background: '#fff', cursor: 'pointer',
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: '4px' }}>
+      <select value={selMonth} onChange={e => emit(selYear, parseInt(e.target.value), selDay)} style={s}>
+        <option value={0}>Month</option>
+        {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+      </select>
+      <select value={selDay} onChange={e => emit(selYear, selMonth, parseInt(e.target.value))} style={s}>
+        <option value={0}>Day</option>
+        {Array.from({ length: maxDay }, (_, i) => i + 1).map(d => (
+          <option key={d} value={d}>{d}</option>
+        ))}
+      </select>
+      <select value={selYear} onChange={e => emit(parseInt(e.target.value), selMonth, selDay)} style={s}>
+        <option value={0}>Year</option>
+        {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+      </select>
+    </div>
+  )
 }
 
 export default function ActivityLog() {
@@ -108,10 +144,10 @@ export default function ActivityLog() {
   const allTables = Array.from(new Set(entries.map(e => e.table_name))).sort()
 
   const filtered = entries.filter(e => {
-    if (filterTable  && e.table_name !== filterTable)       return false
-    if (filterAction && e.action     !== filterAction)       return false
-    if (dateFrom && e.created_at < dateFrom)                 return false
-    if (dateTo   && e.created_at > dateTo + 'T23:59:59')    return false
+    if (filterTable  && e.table_name !== filterTable)    return false
+    if (filterAction && e.action     !== filterAction)    return false
+    if (dateFrom && e.created_at < dateFrom)              return false
+    if (dateTo   && e.created_at > dateTo + 'T23:59:59') return false
     return true
   })
 
@@ -139,11 +175,9 @@ export default function ActivityLog() {
             <option value='DELETE'>Delete</option>
           </select>
 
-          <input type='date' value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-            style={{ ...sel, color: dateFrom ? '#1e293b' : '#94a3b8' }} />
+          <DatePicker value={dateFrom} onChange={setDateFrom} />
           <span style={{ fontSize: '12px', color: '#94a3b8' }}>–</span>
-          <input type='date' value={dateTo} onChange={e => setDateTo(e.target.value)}
-            style={{ ...sel, color: dateTo ? '#1e293b' : '#94a3b8' }} />
+          <DatePicker value={dateTo} onChange={setDateTo} />
 
           {hasFilter && (
             <button onClick={() => { setFilterTable(''); setFilterAction(''); setDateFrom(''); setDateTo('') }}
@@ -203,7 +237,7 @@ export default function ActivityLog() {
                 return (
                   <tr key={entry.id} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
                     <td style={{ padding: '10px 16px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>
-                      {formatDateTime(entry.created_at)}
+                      {toTorontoTime(entry.created_at)}
                     </td>
                     <td style={{ padding: '10px 16px', fontSize: '12px', color: '#374151', fontWeight: '500' }}>
                       {TABLE_LABELS[entry.table_name] || entry.table_name}

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
+import { getTodayToronto, torontoDateOnly } from '@/lib/dateUtils'
 import { Archive, Camera, Calendar } from 'lucide-react'
 
 interface Snapshot {
@@ -18,12 +19,50 @@ interface Snapshot {
   snapshot_type: string
 }
 
-function todayStr() {
-  return new Date().toISOString().split('T')[0]
+const MONTHS = ['January','February','March','April','May','June',
+                'July','August','September','October','November','December']
+const YEARS = [2024, 2025, 2026, 2027]
+
+function DatePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const parts    = value ? value.split('-') : ['', '', '']
+  const selYear  = parts[0] ? parseInt(parts[0]) : 0
+  const selMonth = parts[1] ? parseInt(parts[1]) : 0
+  const selDay   = parts[2] ? parseInt(parts[2]) : 0
+  const maxDay   = selYear && selMonth ? new Date(selYear, selMonth, 0).getDate() : 31
+
+  function emit(y: number, m: number, d: number) {
+    if (!y || !m || !d) { onChange(''); return }
+    const max = new Date(y, m, 0).getDate()
+    onChange(`${y}-${String(m).padStart(2, '0')}-${String(Math.min(d, max)).padStart(2, '0')}`)
+  }
+
+  const s: React.CSSProperties = {
+    padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: '8px',
+    fontSize: '13px', outline: 'none', background: '#fff', cursor: 'pointer',
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: '4px' }}>
+      <select value={selMonth} onChange={e => emit(selYear, parseInt(e.target.value), selDay)} style={s}>
+        <option value={0}>Month</option>
+        {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
+      </select>
+      <select value={selDay} onChange={e => emit(selYear, selMonth, parseInt(e.target.value))} style={s}>
+        <option value={0}>Day</option>
+        {Array.from({ length: maxDay }, (_, i) => i + 1).map(d => (
+          <option key={d} value={d}>{d}</option>
+        ))}
+      </select>
+      <select value={selYear} onChange={e => emit(parseInt(e.target.value), selMonth, selDay)} style={s}>
+        <option value={0}>Year</option>
+        {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+      </select>
+    </div>
+  )
 }
 
 export default function InventoryHistory() {
-  const [selectedDate, setSelectedDate]     = useState(todayStr())
+  const [selectedDate, setSelectedDate]     = useState(getTodayToronto())
   const [compareDate, setCompareDate]       = useState('')
   const [snapshots, setSnapshots]           = useState<Snapshot[]>([])
   const [compareSnaps, setCompareSnaps]     = useState<Snapshot[]>([])
@@ -80,7 +119,7 @@ export default function InventoryHistory() {
   async function handleTakeSnapshot() {
     setTaking(true)
     setTakeMsg('')
-    const today = todayStr()
+    const today = getTodayToronto()
 
     await supabase.from('inventory_snapshots').delete().eq('snapshot_date', today)
 
@@ -157,12 +196,12 @@ export default function InventoryHistory() {
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Calendar size={15} color='#64748b' />
-          <input type='date' value={selectedDate} onChange={e => setSelectedDate(e.target.value)} style={sel} />
+          <DatePicker value={selectedDate} onChange={v => { if (v) setSelectedDate(v) }} />
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: '13px', color: '#64748b' }}>Compare with:</span>
-          <input type='date' value={compareDate} onChange={e => setCompareDate(e.target.value)} style={sel} />
+          <DatePicker value={compareDate} onChange={setCompareDate} />
           {compareDate && (
             <button
               onClick={() => setCompareDate('')}
@@ -332,9 +371,7 @@ export default function InventoryHistory() {
                     color: selectedDate === date ? '#2563eb' : '#374151',
                   }}
                 >
-                  {new Date(date + 'T00:00:00').toLocaleDateString('en-CA', {
-                    year: 'numeric', month: 'short', day: 'numeric',
-                  })}
+                  {torontoDateOnly(date + 'T12:00:00')}
                 </button>
               ))}
             </div>
