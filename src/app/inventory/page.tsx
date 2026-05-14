@@ -683,7 +683,11 @@ function InventoryContent() {
                       </div>
                     )}
                   </td>
-                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.reorder_threshold?.toLocaleString()}</td>
+                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>
+                    {p.reorder_threshold != null
+                      ? `${p.reorder_threshold.toLocaleString()} units (${Math.round(p.reorder_threshold / 36)} boxes)`
+                      : '—'}
+                  </td>
                   <td style={{ padding: '12px 16px' }}>
                     <span style={{ background: p.current_stock <= p.reorder_threshold ? '#fef2f2' : '#f0fdf4', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a', padding: '2px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '500' }}>
                       {p.current_stock <= p.reorder_threshold ? 'Low Stock' : 'OK'}
