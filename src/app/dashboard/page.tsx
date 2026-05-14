@@ -59,7 +59,7 @@ export default function Dashboard() {
     ])
 
     const productionQty = (productionData || []).reduce((sum, o) => sum + (o.qty_produced || 0), 0)
-    const lowStockItems = (allActiveProducts || []).filter(p => p.current_stock <= p.reorder_threshold)
+    const lowStockItems = (allActiveProducts || []).filter(p => p.reorder_threshold != null && p.current_stock <= p.reorder_threshold)
 
     setStats({
       products: products?.length ?? 0,
@@ -164,18 +164,21 @@ export default function Dashboard() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {(showAllLowStock ? lowStock : lowStock.slice(0, COLLAPSE_LIMIT)).map(p => (
-                <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#fff7ed', borderRadius: '8px', border: '1px solid #fed7aa' }}>
-                  <div>
-                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>{p.name}</div>
-                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.sku}</div>
+              {(showAllLowStock ? lowStock : lowStock.slice(0, COLLAPSE_LIMIT)).map(p => {
+                const isOut = p.current_stock === 0
+                return (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: isOut ? '#fef2f2' : '#fffbeb', borderRadius: '8px', border: `1px solid ${isOut ? '#fecaca' : '#fde68a'}` }}>
+                    <div>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>{p.name}</div>
+                      <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.sku}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '16px', fontWeight: '700', color: isOut ? '#dc2626' : '#d97706' }}>{p.current_stock}</div>
+                      <div style={{ fontSize: '11px', color: '#94a3b8' }}>/ {p.reorder_threshold}</div>
+                    </div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '16px', fontWeight: '700', color: '#dc2626' }}>{p.current_stock}</div>
-                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>min {p.reorder_threshold}</div>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
               {lowStock.length > COLLAPSE_LIMIT && (
                 <button
                   onClick={() => setShowAllLowStock(v => !v)}

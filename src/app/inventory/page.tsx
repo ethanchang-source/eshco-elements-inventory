@@ -570,13 +570,13 @@ function InventoryContent() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {tab === 'raw' && ['Item #', 'Name', 'Unit', 'Cost (CAD)', 'Cost (Avg)', 'Current Stock', 'Reorder At', 'Status'].map(h => (
+              {tab === 'raw' && ['Item #', 'Name', 'Unit', 'Cost (CAD)', 'Cost (Avg)', 'Current Stock', 'Replenish At', 'Status'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
-              {tab === 'packaging' && ['Item #', 'Name', 'Type', 'Unit', 'Cost (CAD)', 'Cost (Avg)', 'Current Stock', 'Reorder At', 'Status'].map(h => (
+              {tab === 'packaging' && ['Item #', 'Name', 'Type', 'Unit', 'Cost (CAD)', 'Cost (Avg)', 'Current Stock', 'Replenish At', 'Status'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
-              {tab === 'finished' && ['SKU', 'Name', 'Size', 'MFG Cost (CAD)', 'Current Stock', 'Reorder At', 'Status'].map(h => (
+              {tab === 'finished' && ['SKU', 'Name', 'Size', 'MFG Cost (CAD)', 'Current Stock', 'Replenish At', 'Status'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
@@ -1002,12 +1002,16 @@ function InventoryContent() {
               )}
             </div>
             <div style={{ marginBottom: '16px' }}>
-              <label style={lbl}>Reorder At (units)</label>
+              <label style={lbl}>Replenish At (units)</label>
               <input type='number' min='0' value={editFinishedReorderThreshold} onChange={e => setEditFinishedReorderThreshold(e.target.value)} style={inp} placeholder='0' />
             </div>
             <div style={{ marginBottom: '16px' }}>
               <label style={lbl}>Max Capacity (boxes)</label>
-              <input type='number' value={editFinishedMaxCapacity} onChange={e => setEditFinishedMaxCapacity(e.target.value)} style={inp} placeholder='0' />
+              <input type='number' value={editFinishedMaxCapacity} onChange={e => {
+                setEditFinishedMaxCapacity(e.target.value)
+                const boxes = parseInt(e.target.value) || 0
+                setEditFinishedReorderThreshold(String(Math.floor((boxes * 36) / 2)))
+              }} style={inp} placeholder='0' />
               {editFinishedMaxCapacity !== '' && (
                 <div style={{ marginTop: '6px', fontSize: '13px', color: '#64748b', fontWeight: '500' }}>
                   {parseInt(editFinishedMaxCapacity) || 0} boxes = {(parseInt(editFinishedMaxCapacity) || 0) * 36} units
