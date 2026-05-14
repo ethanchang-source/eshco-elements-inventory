@@ -443,7 +443,7 @@ export default function Purchasing() {
     }
 
     const { error: itemsError } = await supabase.from('purchase_order_items').insert(
-      itemsToInsert.map(i => ({ ...i, po_id: poData.id, line_total: i.quantity * i.unit_price }))
+      itemsToInsert.map(i => ({ ...i, po_id: poData.id }))
     )
 
     if (itemsError) {
@@ -502,7 +502,7 @@ export default function Purchasing() {
         if (edits) {
           const qty = parseFloat(edits.quantity || '0')
           const price = parseFloat(edits.unit_price || '0')
-          await supabase.from('purchase_order_items').update({ quantity: qty, unit_price: price, line_total: qty * price }).eq('id', item.id)
+          await supabase.from('purchase_order_items').update({ quantity: qty, unit_price: price }).eq('id', item.id)
         }
       }
       const itemsSubtotal = items.reduce((s, i) => {
@@ -690,8 +690,8 @@ export default function Purchasing() {
         await supabase.from('purchase_orders').upsert([poRow])
         if (isMultiItem && items.length > 0) {
           await supabase.from('purchase_order_items').insert(
-            items.map(({ id, po_id, material_type, material_id, quantity, unit_price, line_total }) =>
-              ({ id, po_id, material_type, material_id, quantity, unit_price, line_total: line_total != null ? line_total : quantity * unit_price }))
+            items.map(({ id, po_id, material_type, material_id, quantity, unit_price }) =>
+              ({ id, po_id, material_type, material_id, quantity, unit_price }))
           )
         }
         if (wasReceived) {
