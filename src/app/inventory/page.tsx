@@ -107,6 +107,7 @@ function InventoryContent() {
   const [editFinishedStock, setEditFinishedStock] = useState('')
   const [editFinishedReorderThreshold, setEditFinishedReorderThreshold] = useState('')
   const [editFinishedMaxCapacity, setEditFinishedMaxCapacity] = useState('')
+  const [editFinishedReplenishUserEdited, setEditFinishedReplenishUserEdited] = useState(false)
   const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
   const [inventorySuppliers, setInventorySuppliers] = useState<Supplier[]>([])
   const [itemPurchaseHistory, setItemPurchaseHistory] = useState<PurchaseHistoryEntry[]>([])
@@ -177,8 +178,13 @@ function InventoryContent() {
   function openEditFinished(p: Product) {
     setEditFinished(p)
     setEditFinishedStock(String(p.current_stock != null ? Math.round(p.current_stock / 36) : ''))
-    setEditFinishedReorderThreshold(String(p.reorder_threshold ?? ''))
-    setEditFinishedMaxCapacity(String(p.max_capacity ?? ''))
+    const maxBoxes = p.max_capacity != null ? Math.round(p.max_capacity / 36) : 0
+    setEditFinishedMaxCapacity(p.max_capacity != null ? String(maxBoxes) : '')
+    const replenishBoxes = p.reorder_threshold != null && p.reorder_threshold > 0
+      ? Math.round(p.reorder_threshold / 36)
+      : maxBoxes > 0 ? Math.floor(maxBoxes / 2) : 0
+    setEditFinishedReorderThreshold(String(replenishBoxes))
+    setEditFinishedReplenishUserEdited(false)
   }
 
   async function handleUpdateRaw() {
@@ -264,7 +270,7 @@ function InventoryContent() {
     if (!editFinished) return
     const { error } = await supabase.from('products').update({
       current_stock: (parseInt(editFinishedStock) || 0) * 36,
-      reorder_threshold: editFinishedReorderThreshold !== '' ? parseInt(editFinishedReorderThreshold) || 0 : 0,
+      reorder_threshold: editFinishedReorderThreshold !== '' ? (parseInt(editFinishedReorderThreshold) || 0) * 36 : 0,
       max_capacity: editFinishedMaxCapacity !== '' ? (parseInt(editFinishedMaxCapacity) || 0) * 36 : null,
     }).eq('id', editFinished.id)
     if (error) console.error('finished product update error:', error)
@@ -1002,15 +1008,25 @@ function InventoryContent() {
               )}
             </div>
             <div style={{ marginBottom: '16px' }}>
-              <label style={lbl}>Replenish At (units)</label>
-              <input type='number' min='0' value={editFinishedReorderThreshold} onChange={e => setEditFinishedReorderThreshold(e.target.value)} style={inp} placeholder='0' />
+              <label style={lbl}>Replenish At (Boxes)</label>
+              <input type='number' min='0' value={editFinishedReorderThreshold} onChange={e => {
+                setEditFinishedReorderThreshold(e.target.value)
+                setEditFinishedReplenishUserEdited(true)
+              }} style={inp} placeholder='0' />
+              {editFinishedReorderThreshold !== '' && (
+                <div style={{ marginTop: '6px', fontSize: '13px', color: '#2563eb', fontWeight: '500' }}>
+                  {(parseInt(editFinishedReorderThreshold) || 0) * 36} units ({parseInt(editFinishedReorderThreshold) || 0} boxes)
+                </div>
+              )}
             </div>
             <div style={{ marginBottom: '16px' }}>
               <label style={lbl}>Max Capacity (boxes)</label>
               <input type='number' value={editFinishedMaxCapacity} onChange={e => {
                 setEditFinishedMaxCapacity(e.target.value)
                 const boxes = parseInt(e.target.value) || 0
-                setEditFinishedReorderThreshold(String(Math.floor((boxes * 36) / 2)))
+                if (!editFinishedReplenishUserEdited) {
+                  setEditFinishedReorderThreshold(String(Math.floor(boxes / 2)))
+                }
               }} style={inp} placeholder='0' />
               {editFinishedMaxCapacity !== '' && (
                 <div style={{ marginTop: '6px', fontSize: '13px', color: '#64748b', fontWeight: '500' }}>
