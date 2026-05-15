@@ -11,6 +11,18 @@ const TODAY = new Date().toISOString().slice(0, 10)
 const fmtDate = (v: any) => (v ? String(v).slice(0, 10) : '')
 const fmtNum = (v: any) => (v !== null && v !== undefined && v !== '' ? Number(v).toFixed(2) : '')
 
+function sumCol(data: any[], key: string): number {
+  return data.reduce((s: number, r: any) => s + (Number(r[key]) || 0), 0)
+}
+
+function makeSheetWithTotal(data: any[], summaryRow: Record<string, any>) {
+  const ws = XLSX.utils.json_to_sheet(data)
+  if (data.length === 0) return ws
+  XLSX.utils.sheet_add_aoa(ws, [[]], { origin: -1 })
+  XLSX.utils.sheet_add_json(ws, [summaryRow], { skipHeader: true, origin: -1 })
+  return ws
+}
+
 async function fetchAll() {
   const [
     { data: invoicesRaw },
@@ -54,16 +66,16 @@ async function fetchAll() {
       name, contact_name, contact_email, contact_phone, country, ship_to_address
     `).order('name', { ascending: true }),
     supabase.from('products').select(`
-      sku, name, size, current_stock, unit_cost_cad, whs_price_cad, msrp_cad,
-      reorder_threshold, max_capacity
+      sku, name, size_oz, current_stock, unit_cost_cad, price_whs_cad, price_msrp,
+      reorder_threshold, max_capacity, is_active
     `).order('sku', { ascending: true }),
     supabase.from('raw_materials').select(`
       item_no, name, unit, current_stock, cost_per_unit_cad, avg_cost_cad,
-      suppliers (name)
+      reorder_threshold, max_capacity
     `).order('item_no', { ascending: true }),
     supabase.from('packaging').select(`
       item_no, name, type, current_stock, cost_cad, avg_cost_cad,
-      suppliers (name)
+      reorder_threshold, max_capacity
     `).order('item_no', { ascending: true }),
     supabase.from('expenses').select(`
       expense_date, category, type, payee, description,
@@ -71,7 +83,7 @@ async function fetchAll() {
     `).order('expense_date', { ascending: true }),
     supabase.from('purchase_orders').select(`
       po_number, status, ordered_at, received_at,
-      qty_ordered, qty_received, cost_total_cad, notes,
+      qty_ordered, qty_received, cost_total_cad, shipping_cad, notes,
       suppliers (name)
     `).order('ordered_at', { ascending: true }),
   ])
@@ -146,13 +158,14 @@ async function fetchAll() {
   const products = (productsRaw || []).map((p: any) => ({
     'SKU': p.sku || '',
     'Name': p.name || '',
-    'Size': p.size || '',
-    'Stock': p.current_stock ?? '',
+    'Size (oz)': p.size_oz ?? '',
+    'Stock (Units)': p.current_stock ?? '',
     'MFG Cost (CAD)': fmtNum(p.unit_cost_cad),
-    'WHS Price (CAD)': fmtNum(p.whs_price_cad),
-    'MSRP (CAD)': fmtNum(p.msrp_cad),
-    'Reorder Threshold': p.reorder_threshold ?? '',
+    'WHS Price (CAD)': fmtNum(p.price_whs_cad),
+    'MSRP (CAD)': fmtNum(p.price_msrp),
+    'Replenish At': p.reorder_threshold ?? '',
     'Max Capacity': p.max_capacity ?? '',
+    'Active': p.is_active ? 'Yes' : 'No',
   }))
 
   const rawMaterials = (rawMaterialsRaw || []).map((r: any) => ({
@@ -162,7 +175,9 @@ async function fetchAll() {
     'Stock': r.current_stock ?? '',
     'Cost/Unit (CAD)': fmtNum(r.cost_per_unit_cad),
     'Avg Cost (CAD)': fmtNum(r.avg_cost_cad),
-    'Preferred Supplier': r.suppliers?.name || '',
+    'Reorder At': r.reorder_threshold ?? '',
+    'Max Capacity': r.max_capacity ?? '',
+    'Total Value': fmtNum((r.cost_per_unit_cad || 0) * (r.current_stock || 0)),
   }))
 
   const packaging = (packagingRaw || []).map((p: any) => ({
@@ -172,7 +187,9 @@ async function fetchAll() {
     'Stock': p.current_stock ?? '',
     'Cost (CAD)': fmtNum(p.cost_cad),
     'Avg Cost (CAD)': fmtNum(p.avg_cost_cad),
-    'Preferred Supplier': p.suppliers?.name || '',
+    'Reorder At': p.reorder_threshold ?? '',
+    'Max Capacity': p.max_capacity ?? '',
+    'Total Value': fmtNum((p.cost_cad || 0) * (p.current_stock || 0)),
   }))
 
   const expenses = (expensesRaw || []).map((e: any) => ({
@@ -197,14 +214,11 @@ async function fetchAll() {
     'Qty Ordered': po.qty_ordered ?? '',
     'Qty Received': po.qty_received ?? '',
     'Total Cost (CAD)': fmtNum(po.cost_total_cad),
+    'Shipping (CAD)': fmtNum(po.shipping_cad),
     'Notes': po.notes || '',
   }))
 
   return { invoicesCAD, invoicesUSD, invoiceItems, creditMemos, creditMemoItems, customers, suppliers, products, rawMaterials, packaging, expenses, purchaseOrders }
-}
-
-function makeSheet(data: any[]) {
-  return XLSX.utils.json_to_sheet(data)
 }
 
 export default function BackupPage() {
@@ -216,18 +230,76 @@ export default function BackupPage() {
     try {
       const { invoicesCAD, invoicesUSD, invoiceItems, creditMemos, creditMemoItems, customers, suppliers, products, rawMaterials, packaging, expenses, purchaseOrders } = await fetchAll()
       const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, makeSheet(invoicesCAD), 'Invoices CAD')
-      XLSX.utils.book_append_sheet(wb, makeSheet(invoicesUSD), 'Invoices USD')
-      XLSX.utils.book_append_sheet(wb, makeSheet(invoiceItems), 'Invoice Items')
-      XLSX.utils.book_append_sheet(wb, makeSheet(creditMemos), 'Credit Memos')
-      XLSX.utils.book_append_sheet(wb, makeSheet(creditMemoItems), 'Credit Memo Items')
-      XLSX.utils.book_append_sheet(wb, makeSheet(customers), 'Customers')
-      XLSX.utils.book_append_sheet(wb, makeSheet(suppliers), 'Suppliers')
-      XLSX.utils.book_append_sheet(wb, makeSheet(products), 'Products (Finished Goods)')
-      XLSX.utils.book_append_sheet(wb, makeSheet(rawMaterials), 'Raw Materials')
-      XLSX.utils.book_append_sheet(wb, makeSheet(packaging), 'Packaging')
-      XLSX.utils.book_append_sheet(wb, makeSheet(expenses), 'Expenses')
-      XLSX.utils.book_append_sheet(wb, makeSheet(purchaseOrders), 'Purchase Orders')
+
+      XLSX.utils.book_append_sheet(wb, makeSheetWithTotal(invoicesCAD, {
+        'Invoice No': 'TOTAL',
+        'Subtotal (CAD)': sumCol(invoicesCAD, 'Subtotal (CAD)'),
+        'Tax (CAD)': sumCol(invoicesCAD, 'Tax (CAD)'),
+        'Total (CAD)': sumCol(invoicesCAD, 'Total (CAD)'),
+      }), 'Invoices CAD')
+
+      XLSX.utils.book_append_sheet(wb, makeSheetWithTotal(invoicesUSD, {
+        'Invoice No': 'TOTAL',
+        'Subtotal (CAD)': sumCol(invoicesUSD, 'Subtotal (CAD)'),
+        'Total (CAD)': sumCol(invoicesUSD, 'Total (CAD)'),
+      }), 'Invoices USD')
+
+      XLSX.utils.book_append_sheet(wb, makeSheetWithTotal(invoiceItems, {
+        'Invoice No': 'TOTAL',
+        'Qty': sumCol(invoiceItems, 'Qty'),
+        'Line Total (CAD)': sumCol(invoiceItems, 'Line Total (CAD)'),
+      }), 'Invoice Items')
+
+      XLSX.utils.book_append_sheet(wb, makeSheetWithTotal(creditMemos, {
+        'Memo No': 'TOTAL',
+        'Subtotal (CAD)': sumCol(creditMemos, 'Subtotal (CAD)'),
+        'Tax (CAD)': sumCol(creditMemos, 'Tax (CAD)'),
+        'Total (CAD)': sumCol(creditMemos, 'Total (CAD)'),
+      }), 'Credit Memos')
+
+      XLSX.utils.book_append_sheet(wb, makeSheetWithTotal(creditMemoItems, {
+        'Memo No': 'TOTAL',
+        'Qty': sumCol(creditMemoItems, 'Qty'),
+        'Line Total (CAD)': sumCol(creditMemoItems, 'Line Total (CAD)'),
+      }), 'Credit Memo Items')
+
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(customers), 'Customers')
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(suppliers), 'Suppliers')
+
+      XLSX.utils.book_append_sheet(wb, makeSheetWithTotal(products, {
+        'SKU': 'TOTAL',
+        'Stock (Units)': sumCol(products, 'Stock (Units)'),
+        'MFG Cost (CAD)': sumCol(products, 'MFG Cost (CAD)'),
+        'WHS Price (CAD)': sumCol(products, 'WHS Price (CAD)'),
+        'Total MFG Value': products.reduce((s: number, r: any) => s + (Number(r['Stock (Units)']) || 0) * (Number(r['MFG Cost (CAD)']) || 0), 0).toFixed(2),
+        'Total WHS Value': products.reduce((s: number, r: any) => s + (Number(r['Stock (Units)']) || 0) * (Number(r['WHS Price (CAD)']) || 0), 0).toFixed(2),
+      }), 'Products (Finished Goods)')
+
+      XLSX.utils.book_append_sheet(wb, makeSheetWithTotal(rawMaterials, {
+        'Item No': 'TOTAL',
+        'Stock': sumCol(rawMaterials, 'Stock'),
+        'Total Value': sumCol(rawMaterials, 'Total Value'),
+      }), 'Raw Materials')
+
+      XLSX.utils.book_append_sheet(wb, makeSheetWithTotal(packaging, {
+        'Item No': 'TOTAL',
+        'Stock': sumCol(packaging, 'Stock'),
+        'Total Value': sumCol(packaging, 'Total Value'),
+      }), 'Packaging')
+
+      XLSX.utils.book_append_sheet(wb, makeSheetWithTotal(expenses, {
+        'Date': 'TOTAL',
+        'Amount Before Tax': sumCol(expenses, 'Amount Before Tax'),
+        'Sales Tax': sumCol(expenses, 'Sales Tax'),
+        'Total': sumCol(expenses, 'Total'),
+      }), 'Expenses')
+
+      XLSX.utils.book_append_sheet(wb, makeSheetWithTotal(purchaseOrders, {
+        'PO Number': 'TOTAL',
+        'Total Cost (CAD)': sumCol(purchaseOrders, 'Total Cost (CAD)'),
+        'Shipping (CAD)': sumCol(purchaseOrders, 'Shipping (CAD)'),
+      }), 'Purchase Orders')
+
       XLSX.writeFile(wb, `iampure_backup_${TODAY}.xlsx`)
     } finally {
       setLoading(false)
@@ -287,7 +359,7 @@ export default function BackupPage() {
     const wb = XLSX.utils.book_new()
     const finishedRows = (products || []).map((p: any) => ({
       'SKU': p.sku, 'Name': p.name, 'Stock': p.current_stock,
-      'MFG Cost': p.unit_cost_cad, 'WHS Price': p.whs_price_cad ?? '',
+      'MFG Cost': p.unit_cost_cad, 'WHS Price': p.price_whs_cad ?? '',
       'Total Value': (p.unit_cost_cad || 0) * (p.current_stock || 0),
     }))
     const rawRows = (rawMaterials || []).map((r: any) => ({
