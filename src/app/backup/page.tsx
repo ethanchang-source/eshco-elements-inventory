@@ -70,8 +70,11 @@ async function fetchAll() {
       name, contact_name, contact_email, contact_phone, country, ship_to_address
     `).order('name', { ascending: true }),
     supabase.from('products').select(`
-      sku, name, size_oz, current_stock, unit_cost_cad, price_whs_cad, price_msrp,
-      reorder_threshold, max_capacity, is_active
+      sku, name, size_oz,
+      barcode_upc, barcode_itf14,
+      unit_cost_cad, price_whs_cad, price_msrp, price_dist_cad,
+      current_stock, reorder_threshold, max_capacity,
+      is_active, notes
     `).order('sku', { ascending: true }),
     supabase.from('raw_materials').select(`
       item_no, name, unit, current_stock, cost_per_unit_cad, avg_cost_cad,
@@ -169,13 +172,20 @@ async function fetchAll() {
     'SKU': p.sku || '',
     'Name': p.name || '',
     'Size (oz)': p.size_oz ?? '',
-    'Stock (Units)': p.current_stock ?? '',
+    'Barcode UPC': p.barcode_upc || '',
+    'Barcode ITF-14': p.barcode_itf14 || '',
     'MFG Cost (CAD)': fmtNum(p.unit_cost_cad),
     'WHS Price (CAD)': fmtNum(p.price_whs_cad),
     'MSRP (CAD)': fmtNum(p.price_msrp),
-    'Replenish At': p.reorder_threshold ?? '',
-    'Max Capacity': p.max_capacity ?? '',
+    'Dist Price (CAD)': fmtNum(p.price_dist_cad),
+    'Stock (Units)': p.current_stock ?? '',
+    'Stock (Boxes)': Math.floor((p.current_stock || 0) / 36),
+    'Replenish At (Units)': p.reorder_threshold ?? '',
+    'Max Capacity (Units)': p.max_capacity ?? '',
+    'Total MFG Value': fmtNum((p.unit_cost_cad || 0) * (p.current_stock || 0)),
+    'Total WHS Value': fmtNum((p.price_whs_cad || 0) * (p.current_stock || 0)),
     'Active': p.is_active ? 'Yes' : 'No',
+    'Notes': p.notes || '',
   }))
 
   const rawMaterials = (rawMaterialsRaw || []).map((r: any) => ({
@@ -279,10 +289,9 @@ export default function BackupPage() {
       XLSX.utils.book_append_sheet(wb, makeSheetWithTotal(products, {
         'SKU': 'TOTAL',
         'Stock (Units)': sumCol(products, 'Stock (Units)'),
-        'MFG Cost (CAD)': sumCol(products, 'MFG Cost (CAD)'),
-        'WHS Price (CAD)': sumCol(products, 'WHS Price (CAD)'),
-        'Total MFG Value': products.reduce((s: number, r: any) => s + (Number(r['Stock (Units)']) || 0) * (Number(r['MFG Cost (CAD)']) || 0), 0).toFixed(2),
-        'Total WHS Value': products.reduce((s: number, r: any) => s + (Number(r['Stock (Units)']) || 0) * (Number(r['WHS Price (CAD)']) || 0), 0).toFixed(2),
+        'Stock (Boxes)': sumCol(products, 'Stock (Boxes)'),
+        'Total MFG Value': sumCol(products, 'Total MFG Value'),
+        'Total WHS Value': sumCol(products, 'Total WHS Value'),
       }), 'Products (Finished Goods)')
 
       XLSX.utils.book_append_sheet(wb, makeSheetWithTotal(rawMaterials, {
