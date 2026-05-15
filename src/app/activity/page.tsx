@@ -89,31 +89,67 @@ function getChangedFields(entry: ActivityEntry): string[] {
   )
 }
 
-function getChangeSummary(entry: ActivityEntry): string {
-  const identifier = getIdentifier(entry)
-  if (entry.action === 'INSERT') return `${identifier} created`
-  if (entry.action === 'DELETE') return `${identifier} deleted`
+function getSummary(log: ActivityEntry): string {
+  const data = log.old_data || log.new_data
+  if (!data) return log.action.toLowerCase()
 
-  const old = entry.old_data
-  const neu = entry.new_data
-  if (!old || !neu) return identifier
+  const action = log.action === 'INSERT' ? 'created'
+               : log.action === 'DELETE' ? 'deleted'
+               : 'updated'
 
-  const changed = getChangedFields(entry)
-  if (changed.length === 0) return identifier
+  switch (log.table_name) {
+    case 'invoices':
+      if (log.action === 'UPDATE' && log.old_data && log.new_data) {
+        if (log.old_data.status !== log.new_data.status)
+          return `Invoice ${data.invoice_no} status ${log.old_data.status} → ${log.new_data.status}`
+      }
+      return `Invoice ${data.invoice_no || ''} ${action}`
 
-  if (entry.table_name === 'products') {
-    const sku = neu.sku || old.sku || identifier
-    if (changed.includes('current_stock'))
-      return `${sku} stock ${old.current_stock} → ${neu.current_stock}`
+    case 'invoice_items':
+      return `Invoice item ${action} (qty: ${data.qty || ''})`
+
+    case 'credit_memos':
+      return `Credit Memo ${data.memo_no || ''} ${action}`
+
+    case 'credit_memo_items':
+      return `Credit memo item ${action} (qty: ${data.qty || ''})`
+
+    case 'products':
+      if (log.action === 'UPDATE' && log.old_data && log.new_data) {
+        if (log.old_data.current_stock !== log.new_data.current_stock)
+          return `${data.sku} stock ${log.old_data.current_stock} → ${log.new_data.current_stock}`
+        if (log.old_data.unit_cost_cad !== log.new_data.unit_cost_cad)
+          return `${data.sku} MFG cost $${log.old_data.unit_cost_cad} → $${log.new_data.unit_cost_cad}`
+      }
+      return `Product ${data.sku || ''} ${action}`
+
+    case 'customers':
+      return `Customer ${data.company_name || ''} ${action}`
+
+    case 'suppliers':
+      return `Supplier ${data.name || ''} ${action}`
+
+    case 'expenses':
+      return `Expense "${data.description || data.category || ''}" ${action}`
+
+    case 'purchase_orders':
+      return `PO ${data.po_number || ''} ${action}`
+
+    case 'purchase_order_items':
+      return `PO item ${action} (qty: ${data.quantity || ''})`
+
+    case 'raw_materials':
+      return `Material ${data.name || data.item_no || ''} ${action}`
+
+    case 'packaging':
+      return `Packaging ${data.name || data.item_no || ''} ${action}`
+
+    case 'inventory_snapshots':
+      return `Inventory snapshot ${action}`
+
+    default:
+      return `${log.table_name} ${action}`
   }
-  if (entry.table_name === 'invoices') {
-    const inv = neu.invoice_no || old.invoice_no || identifier
-    if (changed.includes('status'))
-      return `${inv} status ${old.status} → ${neu.status}`
-  }
-
-  const f = changed[0]
-  return `${identifier} ${FIELD_LABELS[f] || f}: ${formatVal(old[f])} → ${formatVal(neu[f])}`
 }
 
 // ── Detail Modal ──────────────────────────────────────────────────────────────
@@ -582,7 +618,7 @@ export default function ActivityLog() {
                       </span>
                     </td>
                     <td style={{ padding: '10px 16px', fontSize: '12px', color: '#1e293b', maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {getChangeSummary(entry)}
+                      {getSummary(entry)}
                     </td>
                     <td style={{ padding: '10px 16px' }}>
                       {entry.action === 'DELETE' && entry.old_data && (
