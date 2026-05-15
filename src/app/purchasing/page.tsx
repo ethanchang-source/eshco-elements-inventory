@@ -398,7 +398,8 @@ export default function Purchasing() {
       const valid = lineItems.filter(li => li.material_id && parseFloat(li.quantity || '0') > 0)
       if (valid.length === 0) { setCreateError('Please add at least one item with a material and quantity.'); return }
       itemsToInsert = valid.map(li => {
-        const qty = parseFloat(li.quantity)
+        const qtyInput = parseFloat(li.quantity)
+        const qty = li.material_type === 'raw_material' ? qtyInput * 1000 : qtyInput
         const unitPrice = parseFloat(li.unit_price || '0')
         return { material_type: li.material_type, material_id: li.material_id, quantity: qty, unit_price: unitPrice }
       })
@@ -1055,7 +1056,7 @@ export default function Purchasing() {
                 <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
                   {/* Table header */}
                   <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 80px 100px 90px 32px', gap: '0', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '8px 12px', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    <span>Type</span><span>Material</span><span style={{ textAlign: 'right' }}>Qty</span><span style={{ textAlign: 'right' }}>Unit Price</span><span style={{ textAlign: 'right' }}>Total</span><span />
+                    <span>Type</span><span>Material</span><span style={{ textAlign: 'right' }}>Qty (kg*)</span><span style={{ textAlign: 'right' }}>Unit Price</span><span style={{ textAlign: 'right' }}>Total</span><span />
                   </div>
                   {lineItems.map((li, idx) => {
                     const matOpts = li.material_type === 'raw_material'
@@ -1084,7 +1085,8 @@ export default function Purchasing() {
                           type='number' min='0' step='any'
                           value={li.quantity}
                           onChange={e => updateLineItem(idx, 'quantity', e.target.value)}
-                          placeholder='0'
+                          placeholder={li.material_type === 'raw_material' ? 'kg' : '0'}
+                          title={li.material_type === 'raw_material' ? 'Enter quantity in kg (stored as ml)' : ''}
                           style={{ ...numInp, padding: '6px 8px', fontSize: '12px', marginLeft: '6px' }}
                         />
                         <input
@@ -1112,6 +1114,11 @@ export default function Purchasing() {
                     <span style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b', minWidth: '80px', textAlign: 'right' }}>${formatCurrency(lineItemsSubtotal)}</span>
                   </div>
                 </div>
+                {lineItems.some(li => li.material_type === 'raw_material') && (
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '6px' }}>
+                    * Raw material qty entered in kg — saved as ml (×1000) and applied to inventory
+                  </div>
+                )}
               </div>
             )}
 

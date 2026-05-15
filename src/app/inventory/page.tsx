@@ -17,10 +17,13 @@ interface RawMaterial {
   name: string
   unit: string
   cost_per_unit_cad: number
+  cost_per_unit_usd?: number | null
   avg_cost_cad: number | null
   current_stock: number
   reorder_threshold: number
   max_capacity?: number | null
+  purchase_unit?: string | null
+  purchase_unit_kg?: number | null
   notes?: string | null
   preferred_supplier_id?: string | null
 }
@@ -70,6 +73,15 @@ interface Product {
   msrp_cad?: number | null
 }
 
+function formatRawStock(stock_ml: number, purchase_unit: string | null | undefined, purchase_unit_kg: number | null | undefined): string {
+  const kg = stock_ml / 1000
+  if (purchase_unit && purchase_unit_kg && purchase_unit_kg > 0) {
+    const units = kg / purchase_unit_kg
+    return `${stock_ml.toLocaleString()} ml (${kg.toFixed(1)} kg / ${units.toFixed(2)} ${purchase_unit}s)`
+  }
+  return `${stock_ml.toLocaleString()} ml (${kg.toFixed(1)} kg)`
+}
+
 function InventoryContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -102,7 +114,7 @@ function InventoryContent() {
   const [editRaw, setEditRaw] = useState<RawMaterial | null>(null)
   const [editPack, setEditPack] = useState<Packaging | null>(null)
   const [editFinished, setEditFinished] = useState<Product | null>(null)
-  const [editRawForm, setEditRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '' })
+  const [editRawForm, setEditRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', cost_per_unit_usd: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '', purchase_unit: '', purchase_unit_kg: '' })
   const [editPackForm, setEditPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '' })
   const [editFinishedStock, setEditFinishedStock] = useState('')
   const [editFinishedReorderThreshold, setEditFinishedReorderThreshold] = useState('')
@@ -150,10 +162,13 @@ function InventoryContent() {
       name: r.name || '',
       unit: r.unit || 'ml',
       cost_per_unit_cad: String(r.cost_per_unit_cad ?? ''),
+      cost_per_unit_usd: String(r.cost_per_unit_usd ?? ''),
       current_stock: String(r.current_stock ?? ''),
       reorder_threshold: String(r.reorder_threshold ?? ''),
       max_capacity: String(r.max_capacity ?? ''),
       preferred_supplier_id: r.preferred_supplier_id || '',
+      purchase_unit: r.purchase_unit || '',
+      purchase_unit_kg: String(r.purchase_unit_kg ?? ''),
     })
     fetchItemPurchaseHistory('raw_material', r.id)
   }
@@ -194,10 +209,13 @@ function InventoryContent() {
       name: editRawForm.name.trim(),
       unit: editRawForm.unit,
       cost_per_unit_cad: parseFloat(editRawForm.cost_per_unit_cad) || 0,
+      cost_per_unit_usd: editRawForm.cost_per_unit_usd !== '' ? parseFloat(editRawForm.cost_per_unit_usd) : null,
       current_stock: parseFloat(editRawForm.current_stock) || 0,
       reorder_threshold: parseFloat(editRawForm.reorder_threshold) || 0,
       max_capacity: editRawForm.max_capacity !== '' ? parseFloat(editRawForm.max_capacity) : null,
       preferred_supplier_id: editRawForm.preferred_supplier_id || null,
+      purchase_unit: editRawForm.purchase_unit || null,
+      purchase_unit_kg: editRawForm.purchase_unit_kg !== '' ? parseFloat(editRawForm.purchase_unit_kg) : null,
     }).eq('id', editRaw.id)
     if (error) console.error('raw_material update error:', error)
     setEditRaw(null)
@@ -567,7 +585,7 @@ function InventoryContent() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {tab === 'raw' && ['Item #', 'Name', 'Unit', 'Cost (CAD)', 'Cost (Avg)', 'Current Stock', 'Replenish At', 'Status'].map(h => (
+              {tab === 'raw' && ['Item #', 'Name', 'Unit', 'Cost (CAD)', 'Cost (Avg)', 'USD Price/kg', 'Purchase Unit', 'Current Stock', 'Replenish At', 'Status'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
               {tab === 'packaging' && ['Item #', 'Name', 'Type', 'Unit', 'Cost (CAD)', 'Cost (Avg)', 'Current Stock', 'Replenish At', 'Status'].map(h => (
@@ -583,7 +601,7 @@ function InventoryContent() {
               <tr><td colSpan={8} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>Loading...</td></tr>
             ) : tab === 'raw' ? (
               filteredRaw.length === 0 ? (
-                <tr><td colSpan={7} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
+                <tr><td colSpan={10} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
                   <FlaskConical size={32} color='#e2e8f0' style={{ display: 'block', margin: '0 auto 8px' }} />
                   No raw materials yet
                 </td></tr>
@@ -597,15 +615,21 @@ function InventoryContent() {
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.unit}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${r.cost_per_unit_cad?.toFixed(4)}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.avg_cost_cad != null ? `$${r.avg_cost_cad.toFixed(4)}` : '—'}</td>
+                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{r.cost_per_unit_usd != null ? `$${r.cost_per_unit_usd.toFixed(2)}/kg` : '—'}</td>
+                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>
+                    {r.purchase_unit && r.purchase_unit_kg ? `${r.purchase_unit} (${r.purchase_unit_kg}kg)` : '—'}
+                  </td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: r.current_stock <= r.reorder_threshold ? '#dc2626' : '#16a34a' }}>
-                    <div>{r.current_stock?.toLocaleString()} {r.unit}{r.max_capacity != null ? ` / ${r.max_capacity.toLocaleString()}` : ''}</div>
+                    <div>{formatRawStock(r.current_stock, r.purchase_unit, r.purchase_unit_kg)}{r.max_capacity != null ? ` / ${formatRawStock(r.max_capacity, r.purchase_unit, r.purchase_unit_kg)}` : ''}</div>
                     {rawPct !== null && (
                       <div style={{ marginTop: '4px', height: '4px', background: '#e2e8f0', borderRadius: '2px', width: '80px' }}>
                         <div style={{ height: '100%', width: `${rawPct}%`, background: rawBarColor, borderRadius: '2px', transition: 'width 0.3s' }} />
                       </div>
                     )}
                   </td>
-                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.reorder_threshold?.toLocaleString()} {r.unit}</td>
+                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>
+                    {r.reorder_threshold != null ? `${r.reorder_threshold.toLocaleString()} ml (${(r.reorder_threshold / 1000).toFixed(1)} kg)` : '—'}
+                  </td>
                   <td style={{ padding: '12px 16px' }}>
                     <span style={{ background: r.current_stock <= r.reorder_threshold ? '#fef2f2' : '#f0fdf4', color: r.current_stock <= r.reorder_threshold ? '#dc2626' : '#16a34a', padding: '2px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '500' }}>
                       {r.current_stock <= r.reorder_threshold ? 'Low Stock' : 'OK'}
@@ -696,7 +720,7 @@ function InventoryContent() {
               const fmt = (n: number) => '$' + n.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
               return (
                 <tr style={{ background: '#eff6ff', borderTop: '2px solid #bfdbfe' }}>
-                  <td colSpan={8} style={{ padding: '12px 16px' }}>
+                  <td colSpan={10} style={{ padding: '12px 16px' }}>
                     <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '12px', color: '#1e40af', fontWeight: '600' }}>Total Inventory Value: <strong>{fmt(listVal)}</strong></span>
                       <span style={{ fontSize: '12px', color: '#1e40af', fontWeight: '600' }}>Total Avg Cost Value: <strong>{fmt(avgVal)}</strong></span>
@@ -809,12 +833,31 @@ function InventoryContent() {
         <div className="modal-overlay" onClick={() => { setShowModal(false); setEditRaw(null); setItemPurchaseHistory([]) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Edit Raw Material</h2>
-            {([['Item #', 'item_no'], ['Name', 'name'], ['Cost (CAD)', 'cost_per_unit_cad'], ['Current Stock', 'current_stock'], ['Reorder Threshold', 'reorder_threshold'], ['Max Capacity', 'max_capacity']] as [string, string][]).map(([label, key]) => (
+            {([['Item #', 'item_no'], ['Name', 'name'], ['Cost (CAD)', 'cost_per_unit_cad'], ['Current Stock (ml)', 'current_stock'], ['Reorder Threshold (ml)', 'reorder_threshold'], ['Max Capacity (ml)', 'max_capacity']] as [string, string][]).map(([label, key]) => (
               <div key={key} style={{ marginBottom: '16px' }}>
                 <label style={lbl}>{label}</label>
                 <input value={editRawForm[key as keyof typeof editRawForm]} onChange={e => setEditRawForm({ ...editRawForm, [key]: e.target.value })} style={inp} />
               </div>
             ))}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={lbl}>USD Price/kg</label>
+              <input type='number' min='0' step='0.01' value={editRawForm.cost_per_unit_usd} onChange={e => setEditRawForm({ ...editRawForm, cost_per_unit_usd: e.target.value })} placeholder='e.g. 9.00' style={inp} />
+            </div>
+            <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+              <div>
+                <label style={lbl}>Purchase Unit</label>
+                <select value={editRawForm.purchase_unit} onChange={e => setEditRawForm({ ...editRawForm, purchase_unit: e.target.value })} style={inp}>
+                  <option value=''>—</option>
+                  <option value='Drum'>Drum</option>
+                  <option value='Gallon'>Gallon</option>
+                  <option value='Pail'>Pail</option>
+                </select>
+              </div>
+              <div>
+                <label style={lbl}>Unit Size (kg)</label>
+                <input type='number' min='0' step='0.1' value={editRawForm.purchase_unit_kg} onChange={e => setEditRawForm({ ...editRawForm, purchase_unit_kg: e.target.value })} placeholder='e.g. 200' style={inp} />
+              </div>
+            </div>
             <div style={{ marginBottom: '16px' }}>
               <label style={lbl}>Cost (Avg) <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '400' }}>(auto-calculated from purchases)</span></label>
               <input readOnly value={editRaw?.avg_cost_cad != null ? editRaw.avg_cost_cad.toFixed(4) : ''} placeholder='—' style={{ ...inp, background: '#f8fafc', color: '#64748b', cursor: 'default' }} />
