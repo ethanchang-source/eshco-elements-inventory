@@ -234,9 +234,8 @@ export default function Reports() {
     const { data } = await supabase
       .from('production_orders')
       .select('*, products(sku, name)')
-      .gte('production_date', `${prodYear}-01-01`)
-      .lte('production_date', `${prodYear}-12-31`)
-      .eq('status', 'completed')
+      .gte('produced_at', `${prodYear}-01-01`)
+      .lte('produced_at', `${prodYear}-12-31`)
 
     if (data && data.length > 0) {
       const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -245,14 +244,14 @@ export default function Reports() {
 
       const pmap: Record<string, { sku: string; name: string; total: number; runs: number }> = {}
       for (const o of data as any[]) {
-        const mo = (o.production_date || '').substring(5, 7)
+        const mo = (o.produced_at || '').substring(5, 7)
         if (mProdMap[mo]) {
-          mProdMap[mo].units += o.quantity || 0
+          mProdMap[mo].units += o.qty_produced || 0
           mProdMap[mo].runs  += 1
         }
         if (o.product_id) {
           if (!pmap[o.product_id]) pmap[o.product_id] = { sku: o.products?.sku || '', name: o.products?.name || '', total: 0, runs: 0 }
-          pmap[o.product_id].total += o.quantity || 0
+          pmap[o.product_id].total += o.qty_produced || 0
           pmap[o.product_id].runs  += 1
         }
       }
@@ -264,7 +263,7 @@ export default function Reports() {
       }))
       setMonthlyProduction(monthly)
 
-      const totalUnits = (data as any[]).reduce((s, o) => s + (o.quantity || 0), 0)
+      const totalUnits = (data as any[]).reduce((s, o) => s + (o.qty_produced || 0), 0)
       const totalRuns  = data.length
       const mostProduced = Object.values(pmap).sort((a, b) => b.total - a.total)[0]
       setProdStats({
