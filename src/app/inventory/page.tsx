@@ -34,6 +34,7 @@ interface Packaging {
   name: string
   type: string
   size_oz: number
+  unit?: string | null
   cost_cad: number
   avg_cost_cad: number | null
   current_stock: number
@@ -126,7 +127,7 @@ function InventoryContent() {
   const [editPack, setEditPack] = useState<Packaging | null>(null)
   const [editFinished, setEditFinished] = useState<Product | null>(null)
   const [editRawForm, setEditRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', cost_per_unit_usd: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '', purchase_unit: '', purchase_unit_kg: '' })
-  const [editPackForm, setEditPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '', modules: '' })
+  const [editPackForm, setEditPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', unit: 'ea', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '', modules: '' })
   const [editFinishedStock, setEditFinishedStock] = useState('')
   const [editFinishedReorderThreshold, setEditFinishedReorderThreshold] = useState('')
   const [editFinishedMaxCapacity, setEditFinishedMaxCapacity] = useState('')
@@ -192,7 +193,8 @@ function InventoryContent() {
       item_no: p.item_no || '',
       name: p.name || '',
       type: p.type || 'bottle',
-      size_oz: String(p.size_oz ?? ''),
+      size_oz: p.size_oz > 0 ? String(p.size_oz) : '',
+      unit: p.unit || 'ea',
       cost_cad: String(p.cost_cad ?? ''),
       current_stock: String(p.current_stock ?? ''),
       reorder_threshold: String(p.reorder_threshold ?? ''),
@@ -263,7 +265,8 @@ function InventoryContent() {
       item_no: editPackForm.item_no.trim(),
       name: editPackForm.name.trim(),
       type: editPackForm.type,
-      size_oz: parseFloat(editPackForm.size_oz) || 0,
+      size_oz: parseFloat(editPackForm.size_oz) || null,
+      unit: editPackForm.unit || 'ea',
       cost_cad: parseFloat(editPackForm.cost_cad) || 0,
       current_stock: parseInt(editPackForm.current_stock) || 0,
       reorder_threshold: parseInt(editPackForm.reorder_threshold) || 0,
@@ -665,7 +668,7 @@ function InventoryContent() {
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{p.item_no}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{p.name}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.type}</td>
-                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>ea</td>
+                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.size_oz > 0 ? `${p.size_oz} oz` : (p.unit || '')}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.cost_cad?.toFixed(4)}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.avg_cost_cad != null ? `$${p.avg_cost_cad.toFixed(4)}` : '—'}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a' }}>
@@ -988,6 +991,22 @@ function InventoryContent() {
                 <option value='box'>Box</option><option value='shrink_band'>Shrink Band</option><option value='label'>Label</option>
               </select>
             </div>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={lbl}>Unit</label>
+              <select value={editPackForm.unit} onChange={e => setEditPackForm({ ...editPackForm, unit: e.target.value })} style={inp}>
+                <option value='ea'>ea</option>
+                <option value='roll'>roll</option>
+                <option value='box'>box</option>
+                <option value='pack'>pack</option>
+                <option value='bottle'>bottle</option>
+              </select>
+            </div>
+            {['bottle', 'dropper', 'cap'].includes(editPackForm.type) && (
+              <div style={{ marginBottom: '16px' }}>
+                <label style={lbl}>Size (oz)</label>
+                <input type='number' min='0' step='any' value={editPackForm.size_oz} onChange={e => setEditPackForm({ ...editPackForm, size_oz: e.target.value })} placeholder='0' style={inp} />
+              </div>
+            )}
             <div style={{ marginBottom: '20px' }}>
               <label style={lbl}>Preferred Supplier</label>
               <select value={editPackForm.preferred_supplier_id} onChange={e => setEditPackForm({ ...editPackForm, preferred_supplier_id: e.target.value })} style={inp}>
