@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { toTorontoTime } from '@/lib/dateUtils'
-import { History, RotateCcw, X } from 'lucide-react'
+import { History, RotateCcw, Trash2, X } from 'lucide-react'
 
 interface ActivityEntry {
   id: string
@@ -15,6 +15,8 @@ interface ActivityEntry {
   new_data: Record<string, any> | null
   created_at: string
 }
+
+const ADMIN_EMAIL = 'ethan.chang@iampurebeauty.com'
 
 const TABLE_LABELS: Record<string, string> = {
   invoices:        'Invoices',
@@ -392,21 +394,44 @@ function DatePicker({ value, onChange }: { value: string; onChange: (v: string) 
   )
 }
 
+// ── SelectAll checkbox (handles indeterminate state) ─────────────────────────
+
+function SelectAllCheckbox({ checked, indeterminate, onChange }: {
+  checked: boolean
+  indeterminate: boolean
+  onChange: () => void
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate
+  }, [indeterminate])
+  return <input ref={ref} type='checkbox' checked={checked} onChange={onChange} style={{ cursor: 'pointer' }} />
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ActivityLog() {
-  const [entries, setEntries]           = useState<ActivityEntry[]>([])
-  const [loading, setLoading]           = useState(true)
-  const [fetchError, setFetchError]     = useState('')
-  const [filterTable, setFilterTable]   = useState('')
-  const [filterAction, setFilterAction] = useState('')
-  const [dateFrom, setDateFrom]         = useState('')
-  const [dateTo, setDateTo]             = useState('')
-  const [restoring, setRestoring]       = useState<string | null>(null)
-  const [restoreMsg, setRestoreMsg]     = useState('')
+  const [entries, setEntries]             = useState<ActivityEntry[]>([])
+  const [loading, setLoading]             = useState(true)
+  const [fetchError, setFetchError]       = useState('')
+  const [filterTable, setFilterTable]     = useState('')
+  const [filterAction, setFilterAction]   = useState('')
+  const [dateFrom, setDateFrom]           = useState('')
+  const [dateTo, setDateTo]               = useState('')
+  const [restoring, setRestoring]         = useState<string | null>(null)
+  const [restoreMsg, setRestoreMsg]       = useState('')
   const [selectedEntry, setSelectedEntry] = useState<ActivityEntry | null>(null)
+  const [isAdmin, setIsAdmin]             = useState(false)
+  const [selected, setSelected]           = useState<Set<string>>(new Set())
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<null | 'selected' | 'all'>(null)
+  const [deleting, setDeleting]           = useState(false)
 
-  useEffect(() => { fetchLogs() }, [])
+  useEffect(() => {
+    fetchLogs()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setIsAdmin(user?.email === ADMIN_EMAIL)
+    })
+  }, [])
 
   async function fetchLogs() {
     setLoading(true)
@@ -501,6 +526,28 @@ export default function ActivityLog() {
     setRestoring(null)
   }
 
+  async function handleDeleteSelected() {
+    setDeleting(true)
+    const ids = [...selected]
+    await supabase.from('activity_log').delete().in('id', ids)
+    setSelected(new Set())
+    setShowDeleteConfirm(null)
+    setDeleting(false)
+    fetchLogs()
+  }
+
+  async function handleDeleteAll() {
+    setDeleting(true)
+    const ids = filtered.map(e => e.id)
+    if (ids.length > 0) {
+      await supabase.from('activity_log').delete().in('id', ids)
+    }
+    setSelected(new Set())
+    setShowDeleteConfirm(null)
+    setDeleting(false)
+    fetchLogs()
+  }
+
   const allTables = Array.from(new Set(entries.map(e => e.table_name))).sort()
 
   const filtered = entries.filter(e => {
@@ -512,6 +559,26 @@ export default function ActivityLog() {
   })
 
   const hasFilter = filterTable || filterAction || dateFrom || dateTo
+
+  const allFilteredSelected = filtered.length > 0 && filtered.every(e => selected.has(e.id))
+  const someSelected = filtered.some(e => selected.has(e.id))
+
+  function toggleSelectAll() {
+    if (allFilteredSelected) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(filtered.map(e => e.id)))
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   const sel: React.CSSProperties = {
     padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '8px',
@@ -546,9 +613,33 @@ export default function ActivityLog() {
             </button>
           )}
           <button onClick={fetchLogs} style={{ ...sel, color: '#374151' }}>Refresh</button>
+
+          {isAdmin && filtered.length > 0 && (
+            <button
+              onClick={() => setShowDeleteConfirm('all')}
+              style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '8px 12px', border: '1px solid #fecaca', borderRadius: '8px', background: '#fff', color: '#dc2626', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}
+            >
+              <Trash2 size={13} />
+              Delete All{hasFilter ? ` (${filtered.length})` : ''}
+            </button>
+          )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          {isAdmin && selected.size > 0 && (
+            <>
+              <span style={{ fontSize: '13px', color: '#dc2626', fontWeight: '500' }}>
+                {selected.size} selected
+              </span>
+              <button
+                onClick={() => setShowDeleteConfirm('selected')}
+                style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '8px 14px', border: 'none', borderRadius: '8px', background: '#dc2626', color: '#fff', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}
+              >
+                <Trash2 size={13} />
+                Delete Selected
+              </button>
+            </>
+          )}
           {restoreMsg && (
             <span style={{ fontSize: '13px', fontWeight: '500', color: restoreMsg.startsWith('Restore failed') ? '#dc2626' : '#16a34a' }}>
               {restoreMsg}
@@ -584,6 +675,15 @@ export default function ActivityLog() {
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                {isAdmin && (
+                  <th style={{ padding: '11px 16px', width: '40px' }}>
+                    <SelectAllCheckbox
+                      checked={allFilteredSelected}
+                      indeterminate={someSelected && !allFilteredSelected}
+                      onChange={toggleSelectAll}
+                    />
+                  </th>
+                )}
                 {['Date & Time', 'Table', 'Action', 'Summary', 'Restore'].map(h => (
                   <th key={h} style={{ padding: '11px 16px', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                     {h}
@@ -594,18 +694,33 @@ export default function ActivityLog() {
             <tbody>
               {filtered.map((entry, idx) => {
                 const ac = ACTION_STYLE[entry.action] || ACTION_STYLE.UPDATE
+                const isSelected = selected.has(entry.id)
                 return (
                   <tr
                     key={entry.id}
                     onClick={() => setSelectedEntry(entry)}
                     style={{
                       borderBottom: '1px solid #f1f5f9',
-                      background: idx % 2 === 0 ? '#fff' : '#fafafa',
+                      background: isSelected ? '#eff6ff' : idx % 2 === 0 ? '#fff' : '#fafafa',
                       cursor: 'pointer',
                     }}
-                    onMouseEnter={e => (e.currentTarget.style.background = '#f0f7ff')}
-                    onMouseLeave={e => (e.currentTarget.style.background = idx % 2 === 0 ? '#fff' : '#fafafa')}
+                    onMouseEnter={e => (e.currentTarget.style.background = isSelected ? '#dbeafe' : '#f0f7ff')}
+                    onMouseLeave={e => (e.currentTarget.style.background = isSelected ? '#eff6ff' : idx % 2 === 0 ? '#fff' : '#fafafa')}
                   >
+                    {isAdmin && (
+                      <td
+                        style={{ padding: '10px 16px' }}
+                        onClick={e => { e.stopPropagation(); toggleSelect(entry.id) }}
+                      >
+                        <input
+                          type='checkbox'
+                          checked={isSelected}
+                          onChange={() => toggleSelect(entry.id)}
+                          onClick={e => e.stopPropagation()}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </td>
+                    )}
                     <td style={{ padding: '10px 16px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>
                       {toTorontoTime(entry.created_at)}
                     </td>
@@ -655,6 +770,48 @@ export default function ActivityLog() {
           onRestore={handleRestore}
           restoring={restoring}
         />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div
+          onClick={() => !deleting && setShowDeleteConfirm(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '20px' }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '420px' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ width: '40px', height: '40px', background: '#fef2f2', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Trash2 size={20} color='#dc2626' />
+              </div>
+              <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#1e293b', margin: 0 }}>Confirm Delete</h3>
+            </div>
+            <p style={{ fontSize: '14px', color: '#374151', lineHeight: '1.6', marginBottom: '24px' }}>
+              {showDeleteConfirm === 'selected'
+                ? `Delete ${selected.size} selected log ${selected.size === 1 ? 'entry' : 'entries'}? This cannot be undone.`
+                : `Delete ALL ${filtered.length} activity log ${filtered.length === 1 ? 'entry' : 'entries'}${hasFilter ? ' matching current filters' : ''}? This cannot be undone.`}
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowDeleteConfirm(null)}
+                disabled={deleting}
+                style={{ padding: '9px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: deleting ? 'not-allowed' : 'pointer', fontSize: '14px' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={showDeleteConfirm === 'selected' ? handleDeleteSelected : handleDeleteAll}
+                disabled={deleting}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 20px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: deleting ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}
+              >
+                <Trash2 size={14} />
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </MainLayout>
   )
