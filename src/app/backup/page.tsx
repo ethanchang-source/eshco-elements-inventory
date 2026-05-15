@@ -59,8 +59,12 @@ async function fetchAll() {
       products (sku, name)
     `).order('id', { ascending: true }),
     supabase.from('customers').select(`
-      company_name, ship_to_address, ship_to_city, ship_to_province, ship_to_postal_code,
-      contact_name, contact_email, contact_phone, payment_terms, currency
+      company_name,
+      warehouse_address, city, province, postal_code,
+      ship_to_address, ship_to_city, ship_to_province, ship_to_postal_code,
+      bill_to_same_as_ship_to,
+      contact_name, contact_email, contact_phone,
+      payment_terms, currency, notes
     `).order('company_name', { ascending: true }),
     supabase.from('suppliers').select(`
       name, contact_name, contact_email, contact_phone, country, ship_to_address
@@ -135,15 +139,21 @@ async function fetchAll() {
 
   const customers = (customersRaw || []).map((c: any) => ({
     'Company Name': c.company_name || '',
-    'Address': c.ship_to_address || '',
-    'City': c.ship_to_city || '',
-    'Province': c.ship_to_province || '',
-    'Postal Code': c.ship_to_postal_code || '',
+    'Bill To Address': c.warehouse_address || '',
+    'Bill To City': c.city || '',
+    'Bill To Province': c.province || '',
+    'Bill To Postal': c.postal_code || '',
+    'Ship To Address': c.ship_to_address || '',
+    'Ship To City': c.ship_to_city || '',
+    'Ship To Province': c.ship_to_province || '',
+    'Ship To Postal': c.ship_to_postal_code || '',
+    'Same Address': c.bill_to_same_as_ship_to ? 'Yes' : 'No',
     'Contact Name': c.contact_name || '',
     'Email': c.contact_email || '',
     'Phone': c.contact_phone || '',
     'Payment Terms': c.payment_terms || '',
     'Currency': c.currency || '',
+    'Notes': c.notes || '',
   }))
 
   const suppliers = (suppliersRaw || []).map((s: any) => ({
@@ -382,15 +392,22 @@ export default function BackupPage() {
     setExportingKey('customers')
     const { data } = await supabase.from('customers').select('*').order('company_name', { ascending: true })
     const rows = (data || []).map((c: any) => ({
-      'Company Name': c.company_name,
-      'Address': c.ship_to_address || '',
-      'City': c.ship_to_city || '',
-      'Province': c.ship_to_province || '',
+      'Company Name': c.company_name || '',
+      'Bill To Address': c.warehouse_address || '',
+      'Bill To City': c.city || '',
+      'Bill To Province': c.province || '',
+      'Bill To Postal': c.postal_code || '',
+      'Ship To Address': c.ship_to_address || '',
+      'Ship To City': c.ship_to_city || '',
+      'Ship To Province': c.ship_to_province || '',
+      'Ship To Postal': c.ship_to_postal_code || '',
+      'Same Address': c.bill_to_same_as_ship_to ? 'Yes' : 'No',
       'Contact Name': c.contact_name || '',
       'Email': c.contact_email || '',
       'Phone': c.contact_phone || '',
       'Payment Terms': c.payment_terms || '',
       'Currency': c.currency || '',
+      'Notes': c.notes || '',
     }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Customers')
