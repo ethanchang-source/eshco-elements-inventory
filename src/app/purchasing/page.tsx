@@ -11,7 +11,7 @@ import UndoToast from '@/components/UndoToast'
 
 interface Supplier { id: string; name: string }
 interface RawMaterial { id: string; item_no: string; name: string; unit: string; cost_per_unit_cad: number }
-interface PackagingItem { id: string; item_no: string; name: string; type: string | null; cost_cad: number }
+interface PackagingItem { id: string; item_no: string; name: string; type: string | null; cost_cad: number; module_qty?: number | null }
 
 interface POItem {
   id: string
@@ -30,6 +30,7 @@ interface LineItemForm {
   material_id: string
   quantity: string
   unit_price: string
+  moduleQty?: number | null
 }
 
 interface PO {
@@ -105,7 +106,7 @@ const emptyEditForm = {
   amount_cad: '',
 }
 
-const emptyLineItem: LineItemForm = { material_type: 'raw_material', material_id: '', quantity: '', unit_price: '' }
+const emptyLineItem: LineItemForm = { material_type: 'raw_material', material_id: '', quantity: '', unit_price: '', moduleQty: null }
 
 function calcDays(from: string | null, to: string | null): number | null {
   if (!from || !to) return null
@@ -242,7 +243,7 @@ export default function Purchasing() {
         .order('ordered_at', { ascending: false }),
       supabase.from('suppliers').select('id, name').order('name'),
       supabase.from('raw_materials').select('id, item_no, name, unit, cost_per_unit_cad').order('item_no'),
-      supabase.from('packaging').select('id, item_no, name, type, cost_cad').order('item_no'),
+      supabase.from('packaging').select('id, item_no, name, type, cost_cad, module_qty').order('item_no'),
       supabase.from('purchase_order_items').select('*, raw_materials(item_no, name, unit), packaging(item_no, name)'),
     ])
     setPOs(posRes.data || [])
@@ -304,14 +305,16 @@ export default function Purchasing() {
     setLineItems(prev => {
       const updated = [...prev]
       const item = { ...updated[index], [field]: value }
-      if (field === 'material_type') { item.material_id = ''; item.unit_price = '' }
+      if (field === 'material_type') { item.material_id = ''; item.unit_price = ''; item.moduleQty = null }
       if (field === 'material_id') {
         if (item.material_type === 'raw_material') {
           const mat = rawMaterials.find(m => m.id === value)
           if (mat?.cost_per_unit_cad != null) item.unit_price = String(mat.cost_per_unit_cad)
+          item.moduleQty = null
         } else {
           const pkg = packaging.find(p => p.id === value)
           if (pkg?.cost_cad != null) item.unit_price = String(pkg.cost_cad)
+          item.moduleQty = pkg?.module_qty ?? null
         }
       }
       updated[index] = item
@@ -399,7 +402,9 @@ export default function Purchasing() {
       if (valid.length === 0) { setCreateError('Please add at least one item with a material and quantity.'); return }
       itemsToInsert = valid.map(li => {
         const qtyInput = parseFloat(li.quantity)
-        const qty = li.material_type === 'raw_material' ? qtyInput * 1000 : qtyInput
+        const qty = li.material_type === 'raw_material'
+          ? qtyInput * 1000
+          : (li.moduleQty && li.moduleQty > 1 ? qtyInput * li.moduleQty : qtyInput)
         const unitPrice = parseFloat(li.unit_price || '0')
         return { material_type: li.material_type, material_id: li.material_id, quantity: qty, unit_price: unitPrice }
       })
@@ -807,7 +812,13 @@ export default function Purchasing() {
   const detailItems = detail ? (poItems[detail.id] || []) : []
   const detailIsMultiItem = detailItems.length > 0
 
-  const lineItemsSubtotal = lineItems.reduce((s, li) => s + parseFloat(li.quantity || '0') * parseFloat(li.unit_price || '0'), 0)
+  const lineItemsSubtotal = lineItems.reduce((s, li) => {
+    const qtyInput = parseFloat(li.quantity || '0')
+    const qty = li.material_type === 'raw_material'
+      ? qtyInput * 1000
+      : (li.moduleQty && li.moduleQty > 1 ? qtyInput * li.moduleQty : qtyInput)
+    return s + qty * parseFloat(li.unit_price || '0')
+  }, 0)
   const createShipping = parseFloat(createForm.shipping_cad || '0') || 0
   const createBrokerage = parseFloat(createForm.brokerage_cad || '0') || 0
   const createDuty = parseFloat(createForm.duty_cad || '0') || 0
@@ -1056,19 +1067,24 @@ export default function Purchasing() {
                 <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
                   {/* Table header */}
                   <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 80px 100px 90px 32px', gap: '0', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '8px 12px', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    <span>Type</span><span>Material</span><span style={{ textAlign: 'right' }}>Qty (kg*)</span><span style={{ textAlign: 'right' }}>Unit Price</span><span style={{ textAlign: 'right' }}>Total</span><span />
+                    <span>Type</span><span>Material</span><span style={{ textAlign: 'right' }}>Qty*</span><span style={{ textAlign: 'right' }}>Unit Price</span><span style={{ textAlign: 'right' }}>Total</span><span />
                   </div>
                   {lineItems.map((li, idx) => {
                     const matOpts = li.material_type === 'raw_material'
                       ? rawMaterials.map(m => ({ id: m.id, label: `${m.item_no} — ${m.name}` }))
                       : packaging.map(p => ({ id: p.id, label: `${p.item_no} — ${p.name}` }))
-                    const lineTotal = parseFloat(li.quantity || '0') * parseFloat(li.unit_price || '0')
+                    const isModulePkg = li.material_type === 'packaging' && li.moduleQty && li.moduleQty > 1
+                    const qtyInput = parseFloat(li.quantity || '0')
+                    const actualQty = li.material_type === 'raw_material'
+                      ? qtyInput * 1000
+                      : (isModulePkg ? qtyInput * li.moduleQty! : qtyInput)
+                    const lineTotal = actualQty * parseFloat(li.unit_price || '0')
                     return (
-                      <div key={idx} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 80px 100px 90px 32px', gap: '0', padding: '8px 12px', borderBottom: idx < lineItems.length - 1 ? '1px solid #f1f5f9' : 'none', alignItems: 'center' }}>
+                      <div key={idx} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 80px 100px 90px 32px', gap: '0', padding: '8px 12px', borderBottom: idx < lineItems.length - 1 ? '1px solid #f1f5f9' : 'none', alignItems: 'start' }}>
                         <select
                           value={li.material_type}
                           onChange={e => updateLineItem(idx, 'material_type', e.target.value)}
-                          style={{ ...inp, padding: '6px 8px', fontSize: '12px' }}
+                          style={{ ...inp, padding: '6px 8px', fontSize: '12px', marginTop: '2px' }}
                         >
                           <option value='raw_material'>Raw Material</option>
                           <option value='packaging'>Packaging</option>
@@ -1076,32 +1092,39 @@ export default function Purchasing() {
                         <select
                           value={li.material_id}
                           onChange={e => updateLineItem(idx, 'material_id', e.target.value)}
-                          style={{ ...inp, padding: '6px 8px', fontSize: '12px', marginLeft: '6px' }}
+                          style={{ ...inp, padding: '6px 8px', fontSize: '12px', marginLeft: '6px', marginTop: '2px' }}
                         >
                           <option value=''>Select...</option>
                           {matOpts.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
                         </select>
-                        <input
-                          type='number' min='0' step='any'
-                          value={li.quantity}
-                          onChange={e => updateLineItem(idx, 'quantity', e.target.value)}
-                          placeholder={li.material_type === 'raw_material' ? 'kg' : '0'}
-                          title={li.material_type === 'raw_material' ? 'Enter quantity in kg (stored as ml)' : ''}
-                          style={{ ...numInp, padding: '6px 8px', fontSize: '12px', marginLeft: '6px' }}
-                        />
+                        <div style={{ marginLeft: '6px' }}>
+                          <input
+                            type='number' min='0' step='any'
+                            value={li.quantity}
+                            onChange={e => updateLineItem(idx, 'quantity', e.target.value)}
+                            placeholder={li.material_type === 'raw_material' ? 'kg' : isModulePkg ? 'mod' : '0'}
+                            title={li.material_type === 'raw_material' ? 'Enter quantity in kg (stored as ml)' : isModulePkg ? `Enter modules (1 module = ${li.moduleQty} ea)` : ''}
+                            style={{ ...numInp, padding: '6px 8px', fontSize: '12px', width: '100%' }}
+                          />
+                          {isModulePkg && li.quantity && (
+                            <div style={{ fontSize: '10px', color: '#2563eb', marginTop: '2px', textAlign: 'right' }}>
+                              = {(qtyInput * li.moduleQty!).toLocaleString()} ea
+                            </div>
+                          )}
+                        </div>
                         <input
                           type='number' min='0' step='0.01'
                           value={li.unit_price}
                           onChange={e => updateLineItem(idx, 'unit_price', e.target.value)}
                           placeholder='0.00'
-                          style={{ ...numInp, padding: '6px 8px', fontSize: '12px', marginLeft: '6px' }}
+                          style={{ ...numInp, padding: '6px 8px', fontSize: '12px', marginLeft: '6px', marginTop: '2px' }}
                         />
-                        <div style={{ textAlign: 'right', fontSize: '13px', fontWeight: '500', color: '#1e293b', paddingRight: '4px' }}>
+                        <div style={{ textAlign: 'right', fontSize: '13px', fontWeight: '500', color: '#1e293b', paddingRight: '4px', marginTop: '6px' }}>
                           ${formatCurrency(lineTotal)}
                         </div>
                         <button
                           onClick={() => setLineItems(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev)}
-                          style={{ background: 'none', border: 'none', cursor: lineItems.length > 1 ? 'pointer' : 'default', color: lineItems.length > 1 ? '#dc2626' : '#e2e8f0', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          style={{ background: 'none', border: 'none', cursor: lineItems.length > 1 ? 'pointer' : 'default', color: lineItems.length > 1 ? '#dc2626' : '#e2e8f0', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '2px' }}
                         >
                           <X size={14} />
                         </button>
@@ -1114,9 +1137,10 @@ export default function Purchasing() {
                     <span style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b', minWidth: '80px', textAlign: 'right' }}>${formatCurrency(lineItemsSubtotal)}</span>
                   </div>
                 </div>
-                {lineItems.some(li => li.material_type === 'raw_material') && (
+                {(lineItems.some(li => li.material_type === 'raw_material') || lineItems.some(li => li.moduleQty && li.moduleQty > 1)) && (
                   <div style={{ fontSize: '11px', color: '#64748b', marginTop: '6px' }}>
-                    * Raw material qty entered in kg — saved as ml (×1000) and applied to inventory
+                    {lineItems.some(li => li.material_type === 'raw_material') && <div>* Raw material qty in kg — saved as ml (×1000)</div>}
+                    {lineItems.some(li => li.moduleQty && li.moduleQty > 1) && <div>* Packaging qty in modules — saved as ea (×module size)</div>}
                   </div>
                 )}
               </div>
