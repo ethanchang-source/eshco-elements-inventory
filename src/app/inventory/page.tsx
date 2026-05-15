@@ -250,7 +250,7 @@ function InventoryContent() {
       item_no: editPackForm.item_no.trim(),
       name: editPackForm.name.trim(),
       type: editPackForm.type,
-      size_oz: editPackForm.size_oz,
+      size_oz: parseFloat(editPackForm.size_oz) || 0,
       cost_cad: parseFloat(editPackForm.cost_cad) || 0,
       current_stock: parseInt(editPackForm.current_stock) || 0,
       reorder_threshold: parseInt(editPackForm.reorder_threshold) || 0,
