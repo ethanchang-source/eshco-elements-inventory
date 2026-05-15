@@ -319,7 +319,9 @@ export default function Products() {
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${formatCurrency(p.msrp_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px' }}>
-                  <span style={{ color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a', fontWeight: '600' }}>{p.current_stock}</span>
+                  <span style={{ color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a', fontWeight: '600' }}>
+                    {p.current_stock} units ({Math.floor((p.current_stock || 0) / 36)} boxes)
+                  </span>
                 </td>
                 <td style={{ padding: '12px 16px' }}>
                   <span style={{ background: p.is_active ? '#f0fdf4' : '#fef2f2', color: p.is_active ? '#16a34a' : '#dc2626', padding: '2px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '500' }}>
@@ -388,7 +390,7 @@ export default function Products() {
               ['SKU', 'sku', 'IAP013'], ['Product Name', 'name', 'JBCO 2oz'],
               ['Size (oz)', 'size_oz', '2'], ['Barcode UPC', 'barcode_upc', '628176712130'],
               ['MFG Cost (CAD)', 'unit_cost_cad', '0.00'], ['MSRP (CAD)', 'msrp_cad', '0.00'],
-              ['WHS Price (CAD)', 'price_whs_cad', '0.00'], ['Reorder Threshold', 'reorder_threshold', '100'],
+              ['WHS Price (CAD)', 'price_whs_cad', '0.00'], ['Replenish At', 'reorder_threshold', '100'],
             ] as [string, string, string][]).map(([label, key, placeholder]) => (
               <div key={key} style={{ marginBottom: '16px' }}>
                 <label style={lbl}>{label}</label>
@@ -437,7 +439,7 @@ export default function Products() {
                 )
               })()}
               {([
-                ['Reorder Threshold', 'reorder_threshold'],
+                ['Replenish At', 'reorder_threshold'],
               ] as [string, string][]).map(([label, key]) => (
                 <div key={key}>
                   <label style={lbl}>{label}</label>

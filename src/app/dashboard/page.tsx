@@ -54,12 +54,12 @@ export default function Dashboard() {
       supabase.from('raw_materials').select('id'),
       supabase.from('production_orders').select('qty_produced').gte('produced_at', monthStart),
       supabase.from('invoices').select('id').gte('issued_at', monthStart),
-      supabase.from('products').select('id, sku, name, current_stock, reorder_threshold').eq('is_active', true).order('current_stock'),
+      supabase.from('products').select('id, sku, name, current_stock, reorder_threshold').eq('is_active', true).gt('reorder_threshold', 0).order('current_stock'),
       supabase.from('invoices').select('id, invoice_no, issued_at, total_cad, status, customers(company_name)').order('invoice_no', { ascending: false }).limit(50),
     ])
 
     const productionQty = (productionData || []).reduce((sum, o) => sum + (o.qty_produced || 0), 0)
-    const lowStockItems = (allActiveProducts || []).filter(p => p.reorder_threshold != null && p.current_stock <= p.reorder_threshold)
+    const lowStockItems = (allActiveProducts || []).filter(p => p.reorder_threshold != null && p.reorder_threshold > 0 && p.current_stock <= p.reorder_threshold)
 
     setStats({
       products: products?.length ?? 0,
@@ -173,8 +173,8 @@ export default function Dashboard() {
                       <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.sku}</div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '16px', fontWeight: '700', color: isOut ? '#dc2626' : '#d97706' }}>{p.current_stock}</div>
-                      <div style={{ fontSize: '11px', color: '#94a3b8' }}>/ {p.reorder_threshold}</div>
+                      <div style={{ fontSize: '12px', fontWeight: '600', color: isOut ? '#dc2626' : '#d97706' }}>Stock: {p.current_stock} units ({Math.floor(p.current_stock / 36)} boxes)</div>
+                      <div style={{ fontSize: '11px', color: '#94a3b8' }}>Replenish At: {p.reorder_threshold} units ({Math.floor(p.reorder_threshold / 36)} boxes)</div>
                     </div>
                   </div>
                 )
