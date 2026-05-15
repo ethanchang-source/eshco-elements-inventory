@@ -463,10 +463,51 @@ export default function BackupPage() {
     setExportingKey(null)
   }
 
+  async function exportProducts() {
+    setExportingKey('products')
+    const { data } = await supabase.from('products').select(`
+      sku, name, size_oz,
+      barcode_upc, barcode_itf14,
+      unit_cost_cad, price_whs_cad, price_msrp, price_dist_cad,
+      current_stock, reorder_threshold, max_capacity,
+      is_active, notes
+    `).order('sku', { ascending: true })
+    const rows = (data || []).map((p: any) => ({
+      'SKU': p.sku || '',
+      'Name': p.name || '',
+      'Size (oz)': p.size_oz ?? '',
+      'Barcode UPC': p.barcode_upc || '',
+      'Barcode ITF-14': p.barcode_itf14 || '',
+      'MFG Cost (CAD)': fmtNum(p.unit_cost_cad),
+      'WHS Price (CAD)': fmtNum(p.price_whs_cad),
+      'MSRP (CAD)': fmtNum(p.price_msrp),
+      'Dist Price (CAD)': fmtNum(p.price_dist_cad),
+      'Stock (Units)': p.current_stock ?? '',
+      'Stock (Boxes)': Math.floor((p.current_stock || 0) / 36),
+      'Replenish At (Units)': p.reorder_threshold ?? '',
+      'Max Capacity (Units)': p.max_capacity ?? '',
+      'Total MFG Value': fmtNum((p.unit_cost_cad || 0) * (p.current_stock || 0)),
+      'Total WHS Value': fmtNum((p.price_whs_cad || 0) * (p.current_stock || 0)),
+      'Active': p.is_active ? 'Yes' : 'No',
+      'Notes': p.notes || '',
+    }))
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, makeSheetWithTotal(rows, {
+      'SKU': 'TOTAL',
+      'Stock (Units)': sumCol(rows, 'Stock (Units)'),
+      'Stock (Boxes)': sumCol(rows, 'Stock (Boxes)'),
+      'Total MFG Value': sumCol(rows, 'Total MFG Value'),
+      'Total WHS Value': sumCol(rows, 'Total WHS Value'),
+    }), 'Products')
+    XLSX.writeFile(wb, `products_${TODAY}.xlsx`)
+    setExportingKey(null)
+  }
+
   const quickExports = [
     { key: 'expenses', label: 'Expenses', fn: exportExpenses },
     { key: 'revenue', label: 'Revenue', fn: exportRevenue },
     { key: 'inventory', label: 'Inventory', fn: exportInventory },
+    { key: 'products', label: 'Products', fn: exportProducts },
     { key: 'customers', label: 'Customers', fn: exportCustomers },
     { key: 'suppliers', label: 'Suppliers', fn: exportSuppliers },
     { key: 'po', label: 'Purchase Orders', fn: exportPurchaseOrders },
