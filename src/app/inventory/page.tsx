@@ -127,7 +127,7 @@ function InventoryContent() {
   const [editPack, setEditPack] = useState<Packaging | null>(null)
   const [editFinished, setEditFinished] = useState<Product | null>(null)
   const [editRawForm, setEditRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', cost_per_unit_usd: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '', purchase_unit: '', purchase_unit_kg: '' })
-  const [editPackForm, setEditPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', unit: 'ea', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '', modules: '' })
+  const [editPackForm, setEditPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', unit: 'ea', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '', modules: '', maxCapModules: '' })
   const [editFinishedStock, setEditFinishedStock] = useState('')
   const [editFinishedReorderThreshold, setEditFinishedReorderThreshold] = useState('')
   const [editFinishedMaxCapacity, setEditFinishedMaxCapacity] = useState('')
@@ -189,6 +189,7 @@ function InventoryContent() {
     setEditPack(p)
     setItemPurchaseHistory([])
     const modules = p.module_qty && p.module_qty > 1 ? String(Math.floor(p.current_stock / p.module_qty)) : ''
+    const maxCapModules = p.module_qty && p.module_qty > 1 && p.max_capacity ? String(Math.floor(p.max_capacity / p.module_qty)) : ''
     setEditPackForm({
       item_no: p.item_no || '',
       name: p.name || '',
@@ -201,6 +202,7 @@ function InventoryContent() {
       max_capacity: String(p.max_capacity ?? ''),
       preferred_supplier_id: p.preferred_supplier_id || '',
       modules,
+      maxCapModules,
     })
     fetchItemPurchaseHistory('packaging', p.id)
   }
@@ -672,7 +674,7 @@ function InventoryContent() {
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.cost_cad?.toFixed(4)}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.avg_cost_cad != null ? `$${p.avg_cost_cad.toFixed(4)}` : '—'}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a' }}>
-                    <div>{formatPackStock(p.current_stock, p.module_qty)}{p.max_capacity != null ? ` / ${p.max_capacity.toLocaleString()} ea` : ''}</div>
+                    <div>{formatPackStock(p.current_stock, p.module_qty)}{p.max_capacity != null ? ` / ${formatPackStock(p.max_capacity, p.module_qty)}` : ''}</div>
                     {packPct !== null && (
                       <div style={{ marginTop: '4px', height: '4px', background: '#e2e8f0', borderRadius: '2px', width: '80px' }}>
                         <div style={{ height: '100%', width: `${packPct}%`, background: packBarColor, borderRadius: '2px', transition: 'width 0.3s' }} />
@@ -954,12 +956,33 @@ function InventoryContent() {
         <div className="modal-overlay" onClick={() => { setShowModal(false); setEditPack(null); setItemPurchaseHistory([]) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Edit Packaging</h2>
-            {([['Item #', 'item_no'], ['Name', 'name'], ['Cost (CAD)', 'cost_cad'], ['Reorder Threshold', 'reorder_threshold'], ['Max Capacity', 'max_capacity']] as [string, string][]).map(([label, key]) => (
+            {([['Item #', 'item_no'], ['Name', 'name'], ['Cost (CAD)', 'cost_cad'], ['Reorder Threshold', 'reorder_threshold']] as [string, string][]).map(([label, key]) => (
               <div key={key} style={{ marginBottom: '16px' }}>
                 <label style={lbl}>{label}</label>
                 <input value={editPackForm[key as keyof typeof editPackForm]} onChange={e => setEditPackForm({ ...editPackForm, [key]: e.target.value })} style={inp} />
               </div>
             ))}
+            {editPack?.module_qty && editPack.module_qty > 1 ? (
+              <div style={{ marginBottom: '16px' }}>
+                <label style={lbl}>Max Capacity (Modules) <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '400' }}>(1 module = {editPack.module_qty.toLocaleString()} ea)</span></label>
+                <input type='number' min='0' value={editPackForm.maxCapModules}
+                  onChange={e => {
+                    const mods = e.target.value
+                    setEditPackForm({ ...editPackForm, maxCapModules: mods, max_capacity: mods !== '' ? String((parseInt(mods) || 0) * editPack!.module_qty!) : '' })
+                  }}
+                  placeholder='0' style={inp} />
+                {editPackForm.maxCapModules !== '' && (
+                  <div style={{ marginTop: '6px', fontSize: '13px', color: '#64748b', fontWeight: '500' }}>
+                    = {((parseInt(editPackForm.maxCapModules) || 0) * editPack.module_qty).toLocaleString()} ea
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ marginBottom: '16px' }}>
+                <label style={lbl}>Max Capacity</label>
+                <input value={editPackForm.max_capacity} onChange={e => setEditPackForm({ ...editPackForm, max_capacity: e.target.value })} style={inp} />
+              </div>
+            )}
             {editPack?.module_qty && editPack.module_qty > 1 && (
               <div style={{ marginBottom: '16px' }}>
                 <label style={lbl}>Modules <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '400' }}>(1 module = {editPack.module_qty.toLocaleString()} ea)</span></label>
