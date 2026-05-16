@@ -43,6 +43,7 @@ interface Packaging {
   notes?: string | null
   preferred_supplier_id?: string | null
   module_qty?: number | null
+  roll_length_m?: number | null
 }
 
 interface Supplier {
@@ -82,6 +83,11 @@ function formatRawStock(stock_ml: number, purchase_unit: string | null | undefin
     return `${stock_ml.toLocaleString()} ml (${kg.toFixed(1)} kg / ${units.toFixed(2)} ${purchase_unit}s)`
   }
   return `${stock_ml.toLocaleString()} ml (${kg.toFixed(1)} kg)`
+}
+
+function formatShrinkBand(stock: number, roll_length_m: number | null | undefined): string {
+  if (roll_length_m) return `${stock.toLocaleString()} rolls (${roll_length_m}m/roll)`
+  return `${stock.toLocaleString()} rolls (length TBD)`
 }
 
 function formatPackStock(stock: number, module_qty: number | null | undefined): string {
@@ -127,7 +133,7 @@ function InventoryContent() {
   const [editPack, setEditPack] = useState<Packaging | null>(null)
   const [editFinished, setEditFinished] = useState<Product | null>(null)
   const [editRawForm, setEditRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', cost_per_unit_usd: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '', purchase_unit: '', purchase_unit_kg: '' })
-  const [editPackForm, setEditPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', unit: 'ea', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '', modules: '', maxCapModules: '' })
+  const [editPackForm, setEditPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', unit: 'ea', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '', modules: '', maxCapModules: '', roll_length_m: '' })
   const [editFinishedStock, setEditFinishedStock] = useState('')
   const [editFinishedReorderThreshold, setEditFinishedReorderThreshold] = useState('')
   const [editFinishedMaxCapacity, setEditFinishedMaxCapacity] = useState('')
@@ -203,6 +209,7 @@ function InventoryContent() {
       preferred_supplier_id: p.preferred_supplier_id || '',
       modules,
       maxCapModules,
+      roll_length_m: p.roll_length_m != null ? String(p.roll_length_m) : '',
     })
     fetchItemPurchaseHistory('packaging', p.id)
   }
@@ -274,6 +281,7 @@ function InventoryContent() {
       reorder_threshold: parseInt(editPackForm.reorder_threshold) || 0,
       max_capacity: editPackForm.max_capacity !== '' ? parseInt(editPackForm.max_capacity) : null,
       preferred_supplier_id: editPackForm.preferred_supplier_id || null,
+      roll_length_m: editPackForm.roll_length_m !== '' ? parseFloat(editPackForm.roll_length_m) : null,
     }).eq('id', editPack.id)
     if (error) console.error('packaging update error:', error)
     setEditPack(null)
@@ -670,11 +678,11 @@ function InventoryContent() {
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{p.item_no}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{p.name}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.type}</td>
-                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{(p.unit && p.unit !== '') ? p.unit : (p.size_oz > 0 ? `${p.size_oz} oz` : '')}</td>
+                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.type === 'shrink_band' ? 'roll' : (p.unit && p.unit !== '') ? p.unit : (p.size_oz > 0 ? `${p.size_oz} oz` : '')}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.cost_cad?.toFixed(4)}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.avg_cost_cad != null ? `$${p.avg_cost_cad.toFixed(4)}` : '—'}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a' }}>
-                    <div>{formatPackStock(p.current_stock, p.module_qty)}{p.max_capacity != null ? ` / ${formatPackStock(p.max_capacity, p.module_qty)}` : ''}</div>
+                    <div>{p.type === 'shrink_band' ? formatShrinkBand(p.current_stock, p.roll_length_m) : `${formatPackStock(p.current_stock, p.module_qty)}${p.max_capacity != null ? ` / ${formatPackStock(p.max_capacity, p.module_qty)}` : ''}`}</div>
                     {packPct !== null && (
                       <div style={{ marginTop: '4px', height: '4px', background: '#e2e8f0', borderRadius: '2px', width: '80px' }}>
                         <div style={{ height: '100%', width: `${packPct}%`, background: packBarColor, borderRadius: '2px', transition: 'width 0.3s' }} />
@@ -1000,9 +1008,20 @@ function InventoryContent() {
               </div>
             )}
             <div style={{ marginBottom: '16px' }}>
-              <label style={lbl}>Current Stock</label>
-              <input value={editPackForm.current_stock} onChange={e => setEditPackForm({ ...editPackForm, current_stock: e.target.value })} style={inp} />
+              <label style={lbl}>{editPack?.type === 'shrink_band' ? 'Current Stock (Rolls)' : 'Current Stock'}</label>
+              <input type='number' min='0' value={editPackForm.current_stock} onChange={e => setEditPackForm({ ...editPackForm, current_stock: e.target.value })} style={inp} />
+              {editPack?.type === 'shrink_band' && editPackForm.current_stock !== '' && (
+                <div style={{ marginTop: '6px', fontSize: '13px', color: '#64748b', fontWeight: '500' }}>
+                  {formatShrinkBand(parseInt(editPackForm.current_stock) || 0, editPackForm.roll_length_m !== '' ? parseFloat(editPackForm.roll_length_m) : null)}
+                </div>
+              )}
             </div>
+            {editPack?.type === 'shrink_band' && (
+              <div style={{ marginBottom: '16px' }}>
+                <label style={lbl}>Roll Length (m) <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '400' }}>(optional)</span></label>
+                <input type='number' min='0' step='any' value={editPackForm.roll_length_m} onChange={e => setEditPackForm({ ...editPackForm, roll_length_m: e.target.value })} placeholder='e.g. 100' style={inp} />
+              </div>
+            )}
             <div style={{ marginBottom: '16px' }}>
               <label style={lbl}>Cost (Avg) <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '400' }}>(auto-calculated from purchases)</span></label>
               <input readOnly value={editPack?.avg_cost_cad != null ? editPack.avg_cost_cad.toFixed(4) : ''} placeholder='—' style={{ ...inp, background: '#f8fafc', color: '#64748b', cursor: 'default' }} />
