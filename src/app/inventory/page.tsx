@@ -668,7 +668,7 @@ function InventoryContent() {
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{p.item_no}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{p.name}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.type}</td>
-                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.size_oz > 0 ? `${p.size_oz} oz` : (p.unit || '')}</td>
+                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{(p.unit && p.unit !== '') ? p.unit : (p.size_oz > 0 ? `${p.size_oz} oz` : '')}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.cost_cad?.toFixed(4)}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.avg_cost_cad != null ? `$${p.avg_cost_cad.toFixed(4)}` : '—'}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a' }}>
