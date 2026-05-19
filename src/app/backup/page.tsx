@@ -392,24 +392,25 @@ export default function BackupPage() {
     const { data: production } = await supabase
       .from('production_orders')
       .select(`
-        production_date, quantity, status, notes,
+        produced_at,
+        qty_produced,
+        notes,
         products (sku, name)
       `)
-      .order('production_date', { ascending: false })
-    const rows = (production || []).map((p: any) => [
-      fmtDate(p.production_date),
+      .order('produced_at', { ascending: false })
+    const productionRows = (production || []).map((p: any) => [
+      p.produced_at ? new Date(p.produced_at).toLocaleDateString('en-CA') : '',
       p.products?.sku || '',
       p.products?.name || '',
-      p.quantity || 0,
-      Math.floor((p.quantity || 0) / 36),
-      p.status || '',
+      p.qty_produced || 0,
+      Math.floor((p.qty_produced || 0) / 36),
       p.notes || '',
     ])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, makeAOASheet(
-      ['Production Date', 'SKU', 'Product Name', 'Quantity (Units)', 'Quantity (Boxes)', 'Status', 'Notes'],
-      rows,
-      ['TOTAL', '', '', sumIdx(rows, 3), sumIdx(rows, 4), '', '']
+      ['Production Date', 'SKU', 'Product Name', 'Qty (Units)', 'Qty (Boxes)', 'Notes'],
+      productionRows,
+      ['TOTAL', '', '', productionRows.reduce((s, r) => s + r[3], 0), productionRows.reduce((s, r) => s + r[4], 0), '']
     ), 'Production')
     XLSX.writeFile(wb, `production_${TODAY}.xlsx`)
     setExportingKey(null)
