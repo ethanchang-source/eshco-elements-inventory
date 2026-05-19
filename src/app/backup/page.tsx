@@ -329,8 +329,8 @@ export default function BackupPage() {
     setExportingKey(null)
   }
 
-  async function exportRevenue() {
-    setExportingKey('revenue')
+  async function exportInvoices() {
+    setExportingKey('invoices')
     const { data } = await supabase
       .from('invoices')
       .select('invoice_no, customers(company_name), issued_at, subtotal_cad, tax_amount_cad, total_cad, currency, status')
@@ -346,8 +346,36 @@ export default function BackupPage() {
       'Status': inv.status || '',
     }))
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Revenue')
-    XLSX.writeFile(wb, `revenue_${TODAY}.xlsx`)
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Invoices')
+    XLSX.writeFile(wb, `invoices_${TODAY}.xlsx`)
+    setExportingKey(null)
+  }
+
+  async function exportProduction() {
+    setExportingKey('production')
+    const { data: production } = await supabase
+      .from('production_orders')
+      .select(`
+        production_date, quantity, status, notes,
+        products (sku, name)
+      `)
+      .order('production_date', { ascending: false })
+    const rows = (production || []).map((p: any) => [
+      fmtDate(p.production_date),
+      p.products?.sku || '',
+      p.products?.name || '',
+      p.quantity || 0,
+      Math.floor((p.quantity || 0) / 36),
+      p.status || '',
+      p.notes || '',
+    ])
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, makeAOASheet(
+      ['Production Date', 'SKU', 'Product Name', 'Quantity (Units)', 'Quantity (Boxes)', 'Status', 'Notes'],
+      rows,
+      ['TOTAL', '', '', sumIdx(rows, 3), sumIdx(rows, 4), '', '']
+    ), 'Production')
+    XLSX.writeFile(wb, `production_${TODAY}.xlsx`)
     setExportingKey(null)
   }
 
@@ -478,12 +506,13 @@ export default function BackupPage() {
 
   const quickExports = [
     { key: 'expenses', label: 'Expenses', fn: exportExpenses },
-    { key: 'revenue', label: 'Revenue', fn: exportRevenue },
+    { key: 'invoices', label: 'Invoices', fn: exportInvoices },
     { key: 'inventory', label: 'Inventory', fn: exportInventory },
     { key: 'products', label: 'Products', fn: exportProducts },
     { key: 'customers', label: 'Customers', fn: exportCustomers },
     { key: 'suppliers', label: 'Suppliers', fn: exportSuppliers },
     { key: 'po', label: 'Purchase Orders', fn: exportPurchaseOrders },
+    { key: 'production', label: 'Production', fn: exportProduction },
   ]
 
   return (
