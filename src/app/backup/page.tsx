@@ -29,7 +29,7 @@ async function fetchAll() {
     { data: creditMemoItemsRaw },
     { data: customersRaw },
     { data: suppliersRaw },
-    { data: productsRaw },
+    { data: productsRaw, error: productsErr },
     { data: rawMaterialsRaw },
     { data: packagingRaw },
     { data: expensesRaw },
@@ -67,13 +67,9 @@ async function fetchAll() {
     supabase.from('suppliers').select(`
       name, contact_name, contact_email, contact_phone, country, ship_to_address
     `).order('name', { ascending: true }),
-    supabase.from('products').select(`
-      sku, name, size_oz,
-      barcode_upc, barcode_itf14,
-      unit_cost_cad, price_whs_cad, price_msrp, price_dist_cad,
-      current_stock, reorder_threshold, max_capacity,
-      is_active, notes
-    `).order('sku', { ascending: true }),
+    supabase.from('products').select(
+      'sku, name, size_oz, barcode_upc, barcode_itf14, unit_cost_cad, price_whs_cad, price_msrp, price_dist_cad, current_stock, reorder_threshold, max_capacity, is_active, notes'
+    ).order('sku', { ascending: true }),
     supabase.from('raw_materials').select(`
       item_no, name, unit, current_stock, cost_per_unit_cad, avg_cost_cad,
       reorder_threshold, max_capacity
@@ -92,6 +88,9 @@ async function fetchAll() {
       suppliers (name)
     `).order('ordered_at', { ascending: true }),
   ])
+
+  console.log('products data:', productsRaw?.length, productsErr)
+
   return {
     invoices: invoicesRaw || [],
     invoiceItems: invoiceItemsRaw || [],
@@ -117,7 +116,85 @@ export default function BackupPage() {
       const { invoices, invoiceItems, creditMemos, creditMemoItems, customers, suppliers, products, rawMaterials, packaging, expenses, purchaseOrders } = await fetchAll()
       const wb = XLSX.utils.book_new()
 
-      // Invoices CAD — cols: Invoice No(0) Date(1) Status(2) Currency(3) Customer(4) Subtotal(5) Tax(6) Total(7) Payment Date(8) Delivery Date(9)
+      // ── 1. Products (Finished Goods) ──
+      const productHeaders = ['SKU', 'Name', 'Size (oz)', 'Barcode UPC', 'Barcode ITF-14', 'MFG Cost (CAD)', 'WHS Price (CAD)', 'MSRP (CAD)', 'Dist Price (CAD)', 'Stock (Units)', 'Stock (Boxes)', 'Replenish At', 'Max Capacity', 'Total MFG Value', 'Total WHS Value', 'Active', 'Notes']
+      const productRows = (products as any[]).map(p => [
+        p.sku || '',
+        p.name || '',
+        p.size_oz || 0,
+        p.barcode_upc || '',
+        p.barcode_itf14 || '',
+        p.unit_cost_cad || 0,
+        p.price_whs_cad || 0,
+        p.price_msrp || 0,
+        p.price_dist_cad || 0,
+        p.current_stock || 0,
+        Math.floor((p.current_stock || 0) / 36),
+        p.reorder_threshold || 0,
+        p.max_capacity || 0,
+        (p.current_stock || 0) * (p.unit_cost_cad || 0),
+        (p.current_stock || 0) * (p.price_whs_cad || 0),
+        p.is_active ? 'Yes' : 'No',
+        p.notes || '',
+      ])
+      const productTotals = ['TOTAL', '', '', '', '', '', '', '', '',
+        productRows.reduce((s, r) => s + r[9], 0),
+        productRows.reduce((s, r) => s + r[10], 0),
+        '', '',
+        productRows.reduce((s, r) => s + r[13], 0),
+        productRows.reduce((s, r) => s + r[14], 0),
+        '', '']
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([productHeaders, ...productRows, [], productTotals]), 'Products (Finished Goods)')
+
+      // ── 2. Inventory - Finished Goods ──
+      const fgInvHeaders = ['SKU', 'Name', 'Size (oz)', 'Stock (Units)', 'Stock (Boxes)', 'Replenish At (Units)', 'Replenish At (Boxes)', 'Max Capacity (Units)', 'Max Capacity (Boxes)', 'MFG Cost (CAD)', 'Total MFG Value', 'WHS Price (CAD)', 'Total WHS Value']
+      const fgInvRows = (products as any[]).map(p => [
+        p.sku || '',
+        p.name || '',
+        p.size_oz || 0,
+        p.current_stock || 0,
+        Math.floor((p.current_stock || 0) / 36),
+        p.reorder_threshold || 0,
+        Math.floor((p.reorder_threshold || 0) / 36),
+        p.max_capacity || 0,
+        Math.floor((p.max_capacity || 0) / 36),
+        p.unit_cost_cad || 0,
+        (p.current_stock || 0) * (p.unit_cost_cad || 0),
+        p.price_whs_cad || 0,
+        (p.current_stock || 0) * (p.price_whs_cad || 0),
+      ])
+      XLSX.utils.book_append_sheet(wb, makeAOASheet(
+        fgInvHeaders, fgInvRows,
+        ['TOTAL', '', '', sumIdx(fgInvRows, 3), sumIdx(fgInvRows, 4), sumIdx(fgInvRows, 5), sumIdx(fgInvRows, 6), sumIdx(fgInvRows, 7), sumIdx(fgInvRows, 8), '', sumIdx(fgInvRows, 10), '', sumIdx(fgInvRows, 12)]
+      ), 'Inventory - Finished Goods')
+
+      // ── 3. Inventory - Raw Materials ──
+      const rmData = rawMaterials.map((r: any) => [
+        r.item_no || '', r.name || '', r.unit || '',
+        r.current_stock ?? 0, r.cost_per_unit_cad ?? 0, r.avg_cost_cad ?? 0,
+        r.reorder_threshold ?? '', r.max_capacity ?? '',
+        (r.cost_per_unit_cad || 0) * (r.current_stock || 0),
+      ])
+      XLSX.utils.book_append_sheet(wb, makeAOASheet(
+        ['Item No', 'Name', 'Unit', 'Stock', 'Cost/Unit (CAD)', 'Avg Cost (CAD)', 'Reorder At', 'Max Capacity', 'Total Value'],
+        rmData,
+        ['TOTAL', '', '', sumIdx(rmData, 3), '', '', '', '', sumIdx(rmData, 8)]
+      ), 'Inventory - Raw Materials')
+
+      // ── 4. Inventory - Packaging ──
+      const pkgData = packaging.map((p: any) => [
+        p.item_no || '', p.name || '', p.type || '',
+        p.current_stock ?? 0, p.cost_cad ?? 0, p.avg_cost_cad ?? 0,
+        p.reorder_threshold ?? '', p.max_capacity ?? '',
+        (p.cost_cad || 0) * (p.current_stock || 0),
+      ])
+      XLSX.utils.book_append_sheet(wb, makeAOASheet(
+        ['Item No', 'Name', 'Type', 'Stock', 'Cost (CAD)', 'Avg Cost (CAD)', 'Reorder At', 'Max Capacity', 'Total Value'],
+        pkgData,
+        ['TOTAL', '', '', sumIdx(pkgData, 3), '', '', '', '', sumIdx(pkgData, 8)]
+      ), 'Inventory - Packaging')
+
+      // ── 5. Invoices (CAD) ──
       const invHeaders = ['Invoice No', 'Date', 'Status', 'Currency', 'Customer Name', 'Subtotal (CAD)', 'Tax (CAD)', 'Total (CAD)', 'Payment Date', 'Delivery Date']
       const invCADData = invoices.filter((i: any) => i.currency !== 'USD').map((i: any) => [
         i.invoice_no || '', fmtDate(i.issued_at), i.status || '', i.currency || 'CAD',
@@ -127,9 +204,9 @@ export default function BackupPage() {
       ])
       XLSX.utils.book_append_sheet(wb, makeAOASheet(invHeaders, invCADData,
         ['TOTAL', '', '', '', '', sumIdx(invCADData, 5), sumIdx(invCADData, 6), sumIdx(invCADData, 7), '', '']
-      ), 'Invoices CAD')
+      ), 'Invoices (CAD)')
 
-      // Invoices USD — same columns, sum Subtotal(5) and Total(7) only
+      // ── 6. Invoices (USD) ──
       const invUSDData = invoices.filter((i: any) => i.currency === 'USD').map((i: any) => [
         i.invoice_no || '', fmtDate(i.issued_at), i.status || '', i.currency || 'USD',
         i.customers?.company_name || '',
@@ -138,9 +215,9 @@ export default function BackupPage() {
       ])
       XLSX.utils.book_append_sheet(wb, makeAOASheet(invHeaders, invUSDData,
         ['TOTAL', '', '', '', '', sumIdx(invUSDData, 5), '', sumIdx(invUSDData, 7), '', '']
-      ), 'Invoices USD')
+      ), 'Invoices (USD)')
 
-      // Invoice Items — cols: Invoice No(0) SKU(1) Product Name(2) Qty(3) Unit Price(4) Line Total(5)
+      // ── 7. Invoice Items ──
       const iiData = invoiceItems.map((item: any) => [
         item.invoices?.invoice_no || '', item.products?.sku || '', item.products?.name || '',
         item.qty ?? 0, item.unit_price_cad ?? 0, item.line_total_cad ?? 0,
@@ -151,7 +228,7 @@ export default function BackupPage() {
         ['TOTAL', '', '', sumIdx(iiData, 3), '', sumIdx(iiData, 5)]
       ), 'Invoice Items')
 
-      // Credit Memos — cols: Memo No(0) Date(1) Status(2) Customer(3) Subtotal(4) Tax(5) Total(6) Applied Date(7)
+      // ── 8. Credit Memos ──
       const cmData = creditMemos.map((m: any) => [
         m.memo_no || '', fmtDate(m.issued_at), m.status || '',
         m.customers?.company_name || '',
@@ -164,7 +241,7 @@ export default function BackupPage() {
         ['TOTAL', '', '', '', sumIdx(cmData, 4), sumIdx(cmData, 5), sumIdx(cmData, 6), '']
       ), 'Credit Memos')
 
-      // Credit Memo Items — cols: Memo No(0) SKU(1) Product Name(2) Qty(3) Unit Price(4) Line Total(5)
+      // ── 9. Credit Memo Items ──
       const cmiData = creditMemoItems.map((item: any) => [
         item.credit_memos?.memo_no || '', item.products?.sku || '', item.products?.name || '',
         item.qty ?? 0, item.unit_price_cad ?? 0, item.line_total_cad ?? 0,
@@ -175,7 +252,7 @@ export default function BackupPage() {
         ['TOTAL', '', '', sumIdx(cmiData, 3), '', sumIdx(cmiData, 5)]
       ), 'Credit Memo Items')
 
-      // Customers — no totals
+      // ── 10. Customers ──
       const custData = customers.map((c: any) => [
         c.company_name || '', c.warehouse_address || '', c.city || '', c.province || '', c.postal_code || '',
         c.ship_to_address || '', c.ship_to_city || '', c.ship_to_province || '', c.ship_to_postal_code || '',
@@ -188,7 +265,7 @@ export default function BackupPage() {
         ...custData,
       ]), 'Customers')
 
-      // Suppliers — no totals
+      // ── 11. Suppliers ──
       const suppData = suppliers.map((s: any) => [
         s.name || '', s.contact_name || '', s.contact_email || '', s.contact_phone || '',
         s.country || '', s.ship_to_address || '',
@@ -198,50 +275,7 @@ export default function BackupPage() {
         ...suppData,
       ]), 'Suppliers')
 
-      // Products — cols: SKU(0) Name(1) Size(2) UPC(3) ITF14(4) MFG Cost(5) WHS Price(6) MSRP(7) Dist Price(8) Stock Units(9) Stock Boxes(10) Replenish(11) Max(12) Total MFG(13) Total WHS(14) Active(15) Notes(16)
-      const prodData = products.map((p: any) => [
-        p.sku || '', p.name || '', p.size_oz ?? '',
-        p.barcode_upc || '', p.barcode_itf14 || '',
-        p.unit_cost_cad ?? 0, p.price_whs_cad ?? 0, p.price_msrp ?? 0, p.price_dist_cad ?? 0,
-        p.current_stock ?? 0, Math.floor((p.current_stock || 0) / 36),
-        p.reorder_threshold ?? '', p.max_capacity ?? '',
-        (p.unit_cost_cad || 0) * (p.current_stock || 0),
-        (p.price_whs_cad || 0) * (p.current_stock || 0),
-        p.is_active ? 'Yes' : 'No', p.notes || '',
-      ])
-      XLSX.utils.book_append_sheet(wb, makeAOASheet(
-        ['SKU', 'Name', 'Size (oz)', 'Barcode UPC', 'Barcode ITF-14', 'MFG Cost (CAD)', 'WHS Price (CAD)', 'MSRP (CAD)', 'Dist Price (CAD)', 'Stock (Units)', 'Stock (Boxes)', 'Replenish At (Units)', 'Max Capacity (Units)', 'Total MFG Value', 'Total WHS Value', 'Active', 'Notes'],
-        prodData,
-        ['TOTAL', '', '', '', '', '', '', '', '', sumIdx(prodData, 9), sumIdx(prodData, 10), '', '', sumIdx(prodData, 13), sumIdx(prodData, 14), '', '']
-      ), 'Products (Finished Goods)')
-
-      // Raw Materials — cols: Item No(0) Name(1) Unit(2) Stock(3) Cost/Unit(4) Avg Cost(5) Reorder At(6) Max Capacity(7) Total Value(8)
-      const rmData = rawMaterials.map((r: any) => [
-        r.item_no || '', r.name || '', r.unit || '',
-        r.current_stock ?? 0, r.cost_per_unit_cad ?? 0, r.avg_cost_cad ?? 0,
-        r.reorder_threshold ?? '', r.max_capacity ?? '',
-        (r.cost_per_unit_cad || 0) * (r.current_stock || 0),
-      ])
-      XLSX.utils.book_append_sheet(wb, makeAOASheet(
-        ['Item No', 'Name', 'Unit', 'Stock', 'Cost/Unit (CAD)', 'Avg Cost (CAD)', 'Reorder At', 'Max Capacity', 'Total Value'],
-        rmData,
-        ['TOTAL', '', '', sumIdx(rmData, 3), '', '', '', '', sumIdx(rmData, 8)]
-      ), 'Raw Materials')
-
-      // Packaging — cols: Item No(0) Name(1) Type(2) Stock(3) Cost(4) Avg Cost(5) Reorder At(6) Max Capacity(7) Total Value(8)
-      const pkgData = packaging.map((p: any) => [
-        p.item_no || '', p.name || '', p.type || '',
-        p.current_stock ?? 0, p.cost_cad ?? 0, p.avg_cost_cad ?? 0,
-        p.reorder_threshold ?? '', p.max_capacity ?? '',
-        (p.cost_cad || 0) * (p.current_stock || 0),
-      ])
-      XLSX.utils.book_append_sheet(wb, makeAOASheet(
-        ['Item No', 'Name', 'Type', 'Stock', 'Cost (CAD)', 'Avg Cost (CAD)', 'Reorder At', 'Max Capacity', 'Total Value'],
-        pkgData,
-        ['TOTAL', '', '', sumIdx(pkgData, 3), '', '', '', '', sumIdx(pkgData, 8)]
-      ), 'Packaging')
-
-      // Expenses — cols: Date(0) Category(1) Type(2) Payee(3) Description(4) Amount Before Tax(5) Sales Tax(6) Total(7) Payment Method(8) Currency(9)
+      // ── 12. Expenses ──
       const expData = expenses.map((e: any) => [
         fmtDate(e.expense_date), e.category || '', e.type || '', e.payee || '', e.description || '',
         e.amount_before_tax ?? 0, e.sales_tax ?? 0, e.total_amount ?? 0,
@@ -253,7 +287,7 @@ export default function BackupPage() {
         ['TOTAL', '', '', '', '', sumIdx(expData, 5), sumIdx(expData, 6), sumIdx(expData, 7), '', '']
       ), 'Expenses')
 
-      // Purchase Orders — cols: PO Number(0) Status(1) Ordered Date(2) Received Date(3) Supplier(4) Qty Ordered(5) Qty Received(6) Total Cost(7) Shipping(8) Notes(9)
+      // ── 13. Purchase Orders ──
       const poData = purchaseOrders.map((po: any) => [
         po.po_number || '', po.status || '',
         fmtDate(po.ordered_at), fmtDate(po.received_at),
@@ -469,7 +503,7 @@ export default function BackupPage() {
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '28px', marginBottom: '24px', textAlign: 'center' }}>
           <div style={{ fontSize: '15px', fontWeight: '600', color: '#0f172a', marginBottom: '6px' }}>Full Backup</div>
           <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>
-            Downloads all data as a single Excel file with 12 sheets: Invoices CAD, Invoices USD, Invoice Items, Credit Memos, Credit Memo Items, Customers, Suppliers, Products, Raw Materials, Packaging, Expenses, Purchase Orders
+            Downloads all data as a single Excel file with 13 sheets: Products (Finished Goods), Inventory (Finished Goods), Inventory (Raw Materials), Inventory (Packaging), Invoices (CAD), Invoices (USD), Invoice Items, Credit Memos, Credit Memo Items, Customers, Suppliers, Expenses, Purchase Orders
           </div>
           <button
             onClick={handleFullBackup}
