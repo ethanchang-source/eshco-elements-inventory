@@ -34,6 +34,7 @@ async function fetchAll() {
     { data: packagingRaw },
     { data: expensesRaw },
     { data: purchaseOrdersRaw },
+    { data: productionRaw, error: productionErr },
   ] = await Promise.all([
     supabase.from('invoices').select(`
       invoice_no, issued_at, status, currency,
@@ -87,9 +88,14 @@ async function fetchAll() {
       qty_ordered, qty_received, cost_total_cad, shipping_cad, notes,
       suppliers (name)
     `).order('ordered_at', { ascending: true }),
+    supabase.from('production_orders').select(`
+      produced_at, qty_produced, notes,
+      products (sku, name)
+    `).order('produced_at', { ascending: false }),
   ])
 
   console.log('products fetch:', productsRaw?.length, productsErr)
+  console.log('production fetch:', productionRaw?.length, productionErr)
 
   return {
     invoices: invoicesRaw || [],
@@ -103,6 +109,7 @@ async function fetchAll() {
     packaging: packagingRaw || [],
     expenses: expensesRaw || [],
     purchaseOrders: purchaseOrdersRaw || [],
+    production: productionRaw || [],
   }
 }
 
@@ -113,7 +120,7 @@ export default function BackupPage() {
   async function handleFullBackup() {
     setLoading(true)
     try {
-      const { invoices, invoiceItems, creditMemos, creditMemoItems, customers, suppliers, products, rawMaterials, packaging, expenses, purchaseOrders } = await fetchAll()
+      const { invoices, invoiceItems, creditMemos, creditMemoItems, customers, suppliers, products, rawMaterials, packaging, expenses, purchaseOrders, production } = await fetchAll()
       const wb = XLSX.utils.book_new()
 
       // ── 1. Products ──
@@ -216,7 +223,26 @@ export default function BackupPage() {
         ['TOTAL', '', '', sumIdx(pkgData, 3), '', '', '', '', sumIdx(pkgData, 8)]
       ), 'Inventory - Packaging')
 
-      // ── 5. Invoices (CAD) ──
+      // ── 5. Production History ──
+      const productionHeaders = ['Production Date', 'SKU', 'Product Name', 'Qty (Units)', 'Qty (Boxes)', 'Notes']
+      const productionRows = (production as any[]).map(p => [
+        p.produced_at ? new Date(p.produced_at).toLocaleDateString('en-CA') : '',
+        p.products?.sku ?? '',
+        p.products?.name ?? '',
+        Number(p.qty_produced) || 0,
+        Math.floor((Number(p.qty_produced) || 0) / 36),
+        p.notes ?? '',
+      ])
+      const productionTotalRow = [
+        'TOTAL', '', '',
+        productionRows.reduce((s, r) => s + (r[3] || 0), 0),
+        productionRows.reduce((s, r) => s + (r[4] || 0), 0),
+        '',
+      ]
+      const wsProduction = XLSX.utils.aoa_to_sheet([productionHeaders, ...productionRows, [], productionTotalRow])
+      XLSX.utils.book_append_sheet(wb, wsProduction, 'Production History')
+
+      // ── 6. Invoices (CAD) ──
       const invHeaders = ['Invoice No', 'Date', 'Status', 'Currency', 'Customer Name', 'Subtotal (CAD)', 'Tax (CAD)', 'Total (CAD)', 'Payment Date', 'Delivery Date']
       const invCADData = invoices.filter((i: any) => i.currency !== 'USD').map((i: any) => [
         i.invoice_no || '', fmtDate(i.issued_at), i.status || '', i.currency || 'CAD',
@@ -228,7 +254,7 @@ export default function BackupPage() {
         ['TOTAL', '', '', '', '', sumIdx(invCADData, 5), sumIdx(invCADData, 6), sumIdx(invCADData, 7), '', '']
       ), 'Invoices (CAD)')
 
-      // ── 6. Invoices (USD) ──
+      // ── 7. Invoices (USD) ──
       const invUSDData = invoices.filter((i: any) => i.currency === 'USD').map((i: any) => [
         i.invoice_no || '', fmtDate(i.issued_at), i.status || '', i.currency || 'USD',
         i.customers?.company_name || '',
@@ -239,7 +265,7 @@ export default function BackupPage() {
         ['TOTAL', '', '', '', '', sumIdx(invUSDData, 5), '', sumIdx(invUSDData, 7), '', '']
       ), 'Invoices (USD)')
 
-      // ── 7. Invoice Items ──
+      // ── 8. Invoice Items ──
       const iiData = invoiceItems.map((item: any) => [
         item.invoices?.invoice_no || '', item.products?.sku || '', item.products?.name || '',
         item.qty ?? 0, item.unit_price_cad ?? 0, item.line_total_cad ?? 0,
@@ -250,7 +276,7 @@ export default function BackupPage() {
         ['TOTAL', '', '', sumIdx(iiData, 3), '', sumIdx(iiData, 5)]
       ), 'Invoice Items')
 
-      // ── 8. Credit Memos ──
+      // ── 9. Credit Memos ──
       const cmData = creditMemos.map((m: any) => [
         m.memo_no || '', fmtDate(m.issued_at), m.status || '',
         m.customers?.company_name || '',
@@ -263,7 +289,7 @@ export default function BackupPage() {
         ['TOTAL', '', '', '', sumIdx(cmData, 4), sumIdx(cmData, 5), sumIdx(cmData, 6), '']
       ), 'Credit Memos')
 
-      // ── 9. Credit Memo Items ──
+      // ── 10. Credit Memo Items ──
       const cmiData = creditMemoItems.map((item: any) => [
         item.credit_memos?.memo_no || '', item.products?.sku || '', item.products?.name || '',
         item.qty ?? 0, item.unit_price_cad ?? 0, item.line_total_cad ?? 0,
@@ -274,7 +300,7 @@ export default function BackupPage() {
         ['TOTAL', '', '', sumIdx(cmiData, 3), '', sumIdx(cmiData, 5)]
       ), 'Credit Memo Items')
 
-      // ── 10. Customers ──
+      // ── 11. Customers ──
       const custData = customers.map((c: any) => [
         c.company_name || '', c.warehouse_address || '', c.city || '', c.province || '', c.postal_code || '',
         c.ship_to_address || '', c.ship_to_city || '', c.ship_to_province || '', c.ship_to_postal_code || '',
@@ -287,7 +313,7 @@ export default function BackupPage() {
         ...custData,
       ]), 'Customers')
 
-      // ── 11. Suppliers ──
+      // ── 12. Suppliers ──
       const suppData = suppliers.map((s: any) => [
         s.name || '', s.contact_name || '', s.contact_email || '', s.contact_phone || '',
         s.country || '', s.ship_to_address || '',
@@ -297,7 +323,7 @@ export default function BackupPage() {
         ...suppData,
       ]), 'Suppliers')
 
-      // ── 12. Expenses ──
+      // ── 13. Expenses ──
       const expData = expenses.map((e: any) => [
         fmtDate(e.expense_date), e.category || '', e.type || '', e.payee || '', e.description || '',
         e.amount_before_tax ?? 0, e.sales_tax ?? 0, e.total_amount ?? 0,
@@ -309,7 +335,7 @@ export default function BackupPage() {
         ['TOTAL', '', '', '', '', sumIdx(expData, 5), sumIdx(expData, 6), sumIdx(expData, 7), '', '']
       ), 'Expenses')
 
-      // ── 13. Purchase Orders ──
+      // ── 14. Purchase Orders ──
       const poData = purchaseOrders.map((po: any) => [
         po.po_number || '', po.status || '',
         fmtDate(po.ordered_at), fmtDate(po.received_at),
@@ -591,7 +617,7 @@ export default function BackupPage() {
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '28px', marginBottom: '24px', textAlign: 'center' }}>
           <div style={{ fontSize: '15px', fontWeight: '600', color: '#0f172a', marginBottom: '6px' }}>Full Backup</div>
           <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>
-            Downloads all data as a single Excel file with 13 sheets: Products (Finished Goods), Inventory (Finished Goods), Inventory (Raw Materials), Inventory (Packaging), Invoices (CAD), Invoices (USD), Invoice Items, Credit Memos, Credit Memo Items, Customers, Suppliers, Expenses, Purchase Orders
+            Downloads all data as a single Excel file with 14 sheets: Products, Inventory (Finished Goods), Inventory (Raw Materials), Inventory (Packaging), Production History, Invoices (CAD), Invoices (USD), Invoice Items, Credit Memos, Credit Memo Items, Customers, Suppliers, Expenses, Purchase Orders
           </div>
           <button
             onClick={handleFullBackup}
