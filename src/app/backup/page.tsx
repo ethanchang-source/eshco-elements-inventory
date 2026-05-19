@@ -69,7 +69,7 @@ async function fetchAll() {
     `).order('name', { ascending: true }),
     supabase.from('products').select(
       'sku, name, size_oz, barcode_upc, barcode_itf14, unit_cost_cad, price_whs_cad, price_msrp, price_dist_cad, current_stock, reorder_threshold, max_capacity, is_active, notes'
-    ).order('sku', { ascending: true }),
+    ).eq('is_active', true).order('sku', { ascending: true }),
     supabase.from('raw_materials').select(`
       item_no, name, unit, current_stock, cost_per_unit_cad, avg_cost_cad,
       reorder_threshold, max_capacity
@@ -89,7 +89,7 @@ async function fetchAll() {
     `).order('ordered_at', { ascending: true }),
   ])
 
-  console.log('products data:', productsRaw?.length, productsErr)
+  console.log('products fetch:', productsRaw?.length, productsErr)
 
   return {
     invoices: invoicesRaw || [],
@@ -116,57 +116,79 @@ export default function BackupPage() {
       const { invoices, invoiceItems, creditMemos, creditMemoItems, customers, suppliers, products, rawMaterials, packaging, expenses, purchaseOrders } = await fetchAll()
       const wb = XLSX.utils.book_new()
 
-      // ── 1. Products (Finished Goods) ──
-      const productHeaders = ['SKU', 'Name', 'Size (oz)', 'Barcode UPC', 'Barcode ITF-14', 'MFG Cost (CAD)', 'WHS Price (CAD)', 'MSRP (CAD)', 'Dist Price (CAD)', 'Stock (Units)', 'Stock (Boxes)', 'Replenish At', 'Max Capacity', 'Total MFG Value', 'Total WHS Value', 'Active', 'Notes']
+      // ── 1. Products ──
+      const productHeaders = [
+        'SKU', 'Name', 'Size (oz)', 'Barcode UPC', 'Barcode ITF-14',
+        'MFG Cost (CAD)', 'WHS Price (CAD)', 'MSRP (CAD)', 'Dist Price (CAD)',
+        'Stock (Units)', 'Stock (Boxes)', 'Replenish At', 'Max Capacity',
+        'Total MFG Value', 'Total WHS Value', 'Active', 'Notes',
+      ]
       const productRows = (products as any[]).map(p => [
-        p.sku || '',
-        p.name || '',
-        p.size_oz || 0,
-        p.barcode_upc || '',
-        p.barcode_itf14 || '',
-        p.unit_cost_cad || 0,
-        p.price_whs_cad || 0,
-        p.price_msrp || 0,
-        p.price_dist_cad || 0,
-        p.current_stock || 0,
-        Math.floor((p.current_stock || 0) / 36),
-        p.reorder_threshold || 0,
-        p.max_capacity || 0,
-        (p.current_stock || 0) * (p.unit_cost_cad || 0),
-        (p.current_stock || 0) * (p.price_whs_cad || 0),
+        p.sku ?? '',
+        p.name ?? '',
+        p.size_oz ?? 0,
+        p.barcode_upc ?? '',
+        p.barcode_itf14 ?? '',
+        Number(p.unit_cost_cad) || 0,
+        Number(p.price_whs_cad) || 0,
+        Number(p.price_msrp) || 0,
+        Number(p.price_dist_cad) || 0,
+        Number(p.current_stock) || 0,
+        Math.floor((Number(p.current_stock) || 0) / 36),
+        Number(p.reorder_threshold) || 0,
+        Number(p.max_capacity) || 0,
+        (Number(p.current_stock) || 0) * (Number(p.unit_cost_cad) || 0),
+        (Number(p.current_stock) || 0) * (Number(p.price_whs_cad) || 0),
         p.is_active ? 'Yes' : 'No',
-        p.notes || '',
+        p.notes ?? '',
       ])
-      const productTotals = ['TOTAL', '', '', '', '', '', '', '', '',
-        productRows.reduce((s, r) => s + r[9], 0),
-        productRows.reduce((s, r) => s + r[10], 0),
+      const productTotalRow = [
+        'TOTAL', '', '', '', '', '', '', '', '',
+        productRows.reduce((s, r) => s + (r[9] || 0), 0),
+        productRows.reduce((s, r) => s + (r[10] || 0), 0),
         '', '',
-        productRows.reduce((s, r) => s + r[13], 0),
-        productRows.reduce((s, r) => s + r[14], 0),
-        '', '']
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([productHeaders, ...productRows, [], productTotals]), 'Products (Finished Goods)')
+        productRows.reduce((s, r) => s + (r[13] || 0), 0),
+        productRows.reduce((s, r) => s + (r[14] || 0), 0),
+        '', '',
+      ]
+      const wsProducts = XLSX.utils.aoa_to_sheet([productHeaders, ...productRows, [], productTotalRow])
+      XLSX.utils.book_append_sheet(wb, wsProducts, 'Products')
 
       // ── 2. Inventory - Finished Goods ──
-      const fgInvHeaders = ['SKU', 'Name', 'Size (oz)', 'Stock (Units)', 'Stock (Boxes)', 'Replenish At (Units)', 'Replenish At (Boxes)', 'Max Capacity (Units)', 'Max Capacity (Boxes)', 'MFG Cost (CAD)', 'Total MFG Value', 'WHS Price (CAD)', 'Total WHS Value']
+      const fgInvHeaders = [
+        'SKU', 'Name', 'Size (oz)',
+        'Stock (Units)', 'Stock (Boxes)',
+        'Replenish At (Units)', 'Replenish At (Boxes)',
+        'Max Capacity (Units)', 'Max Capacity (Boxes)',
+        'MFG Cost (CAD)', 'Total MFG Value',
+        'WHS Price (CAD)', 'Total WHS Value',
+      ]
       const fgInvRows = (products as any[]).map(p => [
-        p.sku || '',
-        p.name || '',
-        p.size_oz || 0,
-        p.current_stock || 0,
-        Math.floor((p.current_stock || 0) / 36),
-        p.reorder_threshold || 0,
-        Math.floor((p.reorder_threshold || 0) / 36),
-        p.max_capacity || 0,
-        Math.floor((p.max_capacity || 0) / 36),
-        p.unit_cost_cad || 0,
-        (p.current_stock || 0) * (p.unit_cost_cad || 0),
-        p.price_whs_cad || 0,
-        (p.current_stock || 0) * (p.price_whs_cad || 0),
+        p.sku ?? '',
+        p.name ?? '',
+        p.size_oz ?? 0,
+        Number(p.current_stock) || 0,
+        Math.floor((Number(p.current_stock) || 0) / 36),
+        Number(p.reorder_threshold) || 0,
+        Math.floor((Number(p.reorder_threshold) || 0) / 36),
+        Number(p.max_capacity) || 0,
+        Math.floor((Number(p.max_capacity) || 0) / 36),
+        Number(p.unit_cost_cad) || 0,
+        (Number(p.current_stock) || 0) * (Number(p.unit_cost_cad) || 0),
+        Number(p.price_whs_cad) || 0,
+        (Number(p.current_stock) || 0) * (Number(p.price_whs_cad) || 0),
       ])
-      XLSX.utils.book_append_sheet(wb, makeAOASheet(
-        fgInvHeaders, fgInvRows,
-        ['TOTAL', '', '', sumIdx(fgInvRows, 3), sumIdx(fgInvRows, 4), sumIdx(fgInvRows, 5), sumIdx(fgInvRows, 6), sumIdx(fgInvRows, 7), sumIdx(fgInvRows, 8), '', sumIdx(fgInvRows, 10), '', sumIdx(fgInvRows, 12)]
-      ), 'Inventory - Finished Goods')
+      const fgInvTotalRow = [
+        'TOTAL', '', '',
+        fgInvRows.reduce((s, r) => s + (r[3] || 0), 0),
+        fgInvRows.reduce((s, r) => s + (r[4] || 0), 0),
+        '', '', '', '', '',
+        fgInvRows.reduce((s, r) => s + (r[10] || 0), 0),
+        '',
+        fgInvRows.reduce((s, r) => s + (r[12] || 0), 0),
+      ]
+      const wsInv = XLSX.utils.aoa_to_sheet([fgInvHeaders, ...fgInvRows, [], fgInvTotalRow])
+      XLSX.utils.book_append_sheet(wb, wsInv, 'Inventory - Finished Goods')
 
       // ── 3. Inventory - Raw Materials ──
       const rmData = rawMaterials.map((r: any) => [
