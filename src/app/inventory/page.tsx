@@ -490,51 +490,6 @@ function InventoryContent() {
     }
   }
 
-  function handleExportFinished() {
-    const rows = products.map(p => ({
-      'SKU': p.sku,
-      'Name': p.name,
-      'Stock': p.current_stock,
-      'MFG Cost': p.unit_cost_cad,
-      'WHS Price': p.whs_price_cad ?? '',
-      'Total Value': (p.unit_cost_cad || 0) * (p.current_stock || 0),
-    }))
-    const ws = XLSX.utils.json_to_sheet(rows)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Finished Goods')
-    XLSX.writeFile(wb, 'inventory_finished_goods.xlsx')
-  }
-
-  function handleExportRaw() {
-    const rows = rawMaterials.map(r => ({
-      'Item No': r.item_no,
-      'Name': r.name,
-      'Unit': r.unit,
-      'Stock': r.current_stock,
-      'Cost/Unit': r.cost_per_unit_cad,
-      'Total Value': (r.cost_per_unit_cad || 0) * (r.current_stock || 0),
-    }))
-    const ws = XLSX.utils.json_to_sheet(rows)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Raw Materials')
-    XLSX.writeFile(wb, 'inventory_raw_materials.xlsx')
-  }
-
-  function handleExportPack() {
-    const rows = packaging.map(p => ({
-      'Item No': p.item_no,
-      'Name': p.name,
-      'Type': p.type,
-      'Stock': p.current_stock,
-      'Cost': p.cost_cad,
-      'Total Value': (p.cost_cad || 0) * (p.current_stock || 0),
-    }))
-    const ws = XLSX.utils.json_to_sheet(rows)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Packaging')
-    XLSX.writeFile(wb, 'inventory_packaging.xlsx')
-  }
-
   const filteredRaw = rawMaterials.filter(r => r.name?.toLowerCase().includes(search.toLowerCase()) || r.item_no?.toLowerCase().includes(search.toLowerCase()))
   const filteredPack = packaging.filter(p => p.name?.toLowerCase().includes(search.toLowerCase()) || p.item_no?.toLowerCase().includes(search.toLowerCase()))
   const filteredProducts = products.filter(p => p.name?.toLowerCase().includes(search.toLowerCase()) || p.sku?.toLowerCase().includes(search.toLowerCase()))
@@ -571,12 +526,6 @@ function InventoryContent() {
             <Search size={16} color='#94a3b8' />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '160px' }} />
           </div>
-          <button
-            onClick={tab === 'finished' ? handleExportFinished : tab === 'raw' ? handleExportRaw : handleExportPack}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer' }}
-          >
-            <Download size={14} /> Export Excel
-          </button>
           <button onClick={handleDownloadTemplate} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer' }}>
             <Download size={14} /> Template
           </button>

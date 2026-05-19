@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
-import { FileText, Plus, Search, Download, Trash2, Upload, TableIcon } from 'lucide-react'
+import { FileText, Plus, Search, Download, Trash2, Upload } from 'lucide-react'
 import { generateInvoicePDF } from '@/lib/generateInvoicePDF'
 import { generateCreditMemoPDF } from '@/lib/generateCreditMemoPDF'
 import * as XLSX from 'xlsx'
@@ -470,80 +470,6 @@ function InvoicesContent() {
         fetchAll()
       },
     })
-  }
-
-  async function handleExport() {
-    const { data: items } = await supabase
-      .from('invoice_items')
-      .select('*, invoices(invoice_no), products(sku, name, size_oz)')
-      .order('created_at')
-
-    const summaryRows = cadInvoices.map(inv => ({
-      'Invoice #': inv.invoice_no,
-      'Customer': inv.customers?.company_name || '',
-      'Date': inv.issued_at,
-      'PO #': inv.po_number || '',
-      'Status': inv.status,
-      'Subtotal (CAD)': inv.subtotal_cad,
-      'HST (CAD)': inv.tax_amount_cad,
-      'Total (CAD)': inv.total_cad,
-      'Delivery Date': (inv as any).delivery_date || '',
-      'Payment Date': (inv as any).payment_date || '',
-      'Notes': inv.notes || '',
-    }))
-
-    const itemRows = (items || []).map(item => ({
-      'Invoice #': item.invoices?.invoice_no || '',
-      'SKU': item.products?.sku || '',
-      'Product Name': item.products?.name || '',
-      'Size': `${item.products?.size_oz} FL. OZ.`,
-      'Qty': item.qty,
-      'Unit Price (CAD)': item.unit_price_cad,
-      'Line Total (CAD)': item.line_total_cad,
-    }))
-
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Invoices')
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(itemRows), 'Line Items')
-    XLSX.writeFile(wb, `invoices_export_${new Date().toISOString().slice(0, 10)}.xlsx`)
-  }
-
-  async function handleUsExport() {
-    const usIds = usdInvoices.map(inv => inv.id)
-    const { data: items } = await supabase
-      .from('invoice_items')
-      .select('*, invoices(invoice_no), products(sku, name, size_oz)')
-      .in('invoice_id', usIds)
-      .order('created_at')
-
-    const summaryRows = usdInvoices.map(inv => ({
-      'Invoice #': inv.invoice_no,
-      'Customer': inv.customers?.company_name || '',
-      'Date': inv.issued_at,
-      'PO #': inv.po_number || '',
-      'Status': inv.status,
-      'Subtotal (USD)': inv.subtotal_cad,
-      'Tax (USD)': inv.tax_amount_cad,
-      'Total (USD)': inv.total_cad,
-      'Delivery Date': (inv as any).delivery_date || '',
-      'Payment Date': (inv as any).payment_date || '',
-      'Notes': inv.notes || '',
-    }))
-
-    const itemRows = (items || []).map(item => ({
-      'Invoice #': item.invoices?.invoice_no || '',
-      'SKU': item.products?.sku || '',
-      'Product Name': item.products?.name || '',
-      'Size': `${item.products?.size_oz} FL. OZ.`,
-      'Qty': item.qty,
-      'Unit Price (USD)': item.unit_price_cad,
-      'Line Total (USD)': item.line_total_cad,
-    }))
-
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Invoices (US)')
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(itemRows), 'Line Items')
-    XLSX.writeFile(wb, `invoices_us_export_${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
   function downloadTemplate() {
@@ -1031,41 +957,6 @@ function InvoicesContent() {
     })
   }
 
-  async function handleCmExport() {
-    const { data: items } = await supabase
-      .from('credit_memo_items')
-      .select('*, credit_memos(memo_no), products(sku, name, size_oz)')
-      .order('created_at')
-
-    const summaryRows = creditMemos.map(cm => ({
-      'Credit Memo #': cm.memo_no,
-      'Customer': cm.customers?.company_name || '',
-      'Date': cm.issued_at,
-      'Reference #': cm.po_number || '',
-      'Status': cm.status,
-      'Applied Date': cm.applied_date || '',
-      'Subtotal (CAD)': cm.subtotal_cad,
-      'HST (CAD)': cm.tax_amount_cad,
-      'Total (CAD)': cm.total_cad,
-      'Notes': cm.notes || '',
-    }))
-
-    const itemRows = (items || []).map((item: any) => ({
-      'Credit Memo #': item.credit_memos?.memo_no || '',
-      'SKU': item.products?.sku || '',
-      'Product Name': item.products?.name || '',
-      'Size': `${item.products?.size_oz} FL. OZ.`,
-      'Qty': item.qty,
-      'Unit Price (CAD)': item.unit_price_cad,
-      'Line Total (CAD)': item.line_total_cad,
-    }))
-
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Credit Memos')
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(itemRows), 'Line Items')
-    XLSX.writeFile(wb, `credit_memos_export_${new Date().toISOString().slice(0, 10)}.xlsx`)
-  }
-
   function downloadCmTemplate() {
     const rows = [
       {
@@ -1377,9 +1268,6 @@ function InvoicesContent() {
           <button onClick={() => { setShowImportModal(true); setImportRows([]); setImportStatus('') }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <Upload size={15} /> Import
           </button>
-          <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
-            <TableIcon size={15} /> Export Excel
-          </button>
           <button onClick={() => openNewInvoiceModal('CAD')} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={16} /> New Invoice
           </button>
@@ -1479,9 +1367,6 @@ function InvoicesContent() {
           <button onClick={() => { setShowCmImportModal(true); setCmImportRows([]); setCmImportStatus('') }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <Upload size={15} /> Import
           </button>
-          <button onClick={handleCmExport} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
-            <TableIcon size={15} /> Export Excel
-          </button>
           <button onClick={openNewCmModal} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={16} /> New Credit Memo
           </button>
@@ -1580,9 +1465,6 @@ function InvoicesContent() {
         <div style={{ display: 'flex', gap: '10px' }}>
           <button onClick={() => { setShowUsImportModal(true); setUsImportRows([]); setUsImportStatus('') }} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <Upload size={15} /> Import
-          </button>
-          <button onClick={handleUsExport} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
-            <TableIcon size={15} /> Export Excel
           </button>
           <button onClick={() => openNewInvoiceModal('USD')} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#0369a1', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={16} /> New Invoice (US)

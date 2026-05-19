@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
-import { Users, Plus, Search, MapPin, Phone, Mail, Upload, Download, TableIcon, AlertTriangle } from 'lucide-react'
+import { Users, Plus, Search, MapPin, Phone, Mail, Upload, Download, AlertTriangle } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { logActivity } from '@/lib/activityLog'
 import UndoToast from '@/components/UndoToast'
@@ -334,23 +334,6 @@ export default function Customers() {
     setUndoRestoring(false)
   }
 
-  function handleExport() {
-    const rows = customers.map(c => ({
-      'Company Name': c.company_name,
-      'Address': c.ship_to_address || '',
-      'City': c.ship_to_city || '',
-      'Province': c.ship_to_province || '',
-      'Contact Name': c.contact_name || '',
-      'Email': c.contact_email || '',
-      'Phone': c.contact_phone || '',
-      'Payment Terms': c.payment_terms || '',
-      'Currency': c.currency || '',
-    }))
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Customers')
-    XLSX.writeFile(wb, 'customers.xlsx')
-  }
-
   function downloadTemplate() {
     const rows = [{
       'Company Name': 'Example Retailer Inc.',
@@ -402,9 +385,6 @@ export default function Customers() {
             <Upload size={14} /> {importing ? 'Importing...' : 'Import Excel'}
             <input ref={importFileRef} type='file' accept='.xlsx,.xls' onChange={handleFileSelect} style={{ display: 'none' }} />
           </label>
-          <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
-            <TableIcon size={14} /> Export Customers
-          </button>
           <button onClick={openAddModal} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
             <Plus size={14} /> Add Customer
           </button>

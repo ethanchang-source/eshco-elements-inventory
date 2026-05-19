@@ -4,8 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
-import { ShoppingCart, Plus, Search, Download, X, Trash2, Clock, Paperclip } from 'lucide-react'
-import * as XLSX from 'xlsx'
+import { ShoppingCart, Plus, Search, X, Trash2, Clock, Paperclip } from 'lucide-react'
 import { logActivity } from '@/lib/activityLog'
 import UndoToast from '@/components/UndoToast'
 
@@ -724,32 +723,6 @@ export default function Purchasing() {
     })
   }
 
-  function handleExport() {
-    const rows = pos.map(po => ({
-      'PO Number': po.po_number || '',
-      'Supplier': po.suppliers?.name || '',
-      'Items': getPODisplayLabel(po),
-      'Cost Total (CAD)': po.cost_total_cad || 0,
-      'Amount USD': po.amount_usd ?? '',
-      'Exchange Rate': po.exchange_rate ?? '',
-      'Shipping (CAD)': po.shipping_cad ?? '',
-      'Brokerage (CAD)': po.brokerage_cad ?? '',
-      'Duty (CAD)': po.duty_cad ?? '',
-      'Status': STATUS_STYLE[po.status]?.label || po.status,
-      'Order Date': po.ordered_at,
-      'Shipped Date': po.shipped_at || '',
-      'Received Date': po.received_at || '',
-      'Lead Time O→S (days)': calcDays(po.ordered_at, po.shipped_at) ?? '',
-      'Lead Time S→R (days)': calcDays(po.shipped_at, po.received_at) ?? '',
-      'Lead Time Total (days)': calcDays(po.ordered_at, po.received_at) ?? '',
-      'Invoice URL': po.invoice_url || '',
-      'Notes': po.notes || '',
-    }))
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Purchase Orders')
-    XLSX.writeFile(wb, `purchase_orders_${new Date().toISOString().slice(0, 10)}.xlsx`)
-  }
-
   async function handleAttachmentUpload() {
     if (!attachmentPO || !attachmentFile) return
     setAttachmentUploading(true)
@@ -864,9 +837,6 @@ export default function Purchasing() {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search supplier, material, status...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
-            <Download size={14} /> Export Excel
-          </button>
           <button
             onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ ...emptyCreateForm }); setLineItems([{ ...emptyLineItem }]); setLabelQtys({}); setLabelPrices({}); setInvoiceFile(null) }}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}

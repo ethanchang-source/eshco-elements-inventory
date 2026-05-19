@@ -4,8 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
-import { BarChart3, TrendingUp, DollarSign, Package, ShoppingCart, X, Download, Factory } from 'lucide-react'
-import * as XLSX from 'xlsx'
+import { BarChart3, TrendingUp, DollarSign, Package, ShoppingCart, X, Factory } from 'lucide-react'
 
 interface MonthlySales {
   month: string
@@ -82,7 +81,7 @@ function qoqChange(curr: number, prev: number): { text: string; up: boolean } | 
 }
 
 export default function Reports() {
-  const [year, setYear] = useState(new Date().getFullYear())
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState({
     total_revenue: 0, total_invoices: 0, total_units_sold: 0,
@@ -92,14 +91,12 @@ export default function Reports() {
   const [quarterlySales, setQuarterlySales] = useState<QuarterlySales[]>([])
   const [topProducts, setTopProducts]       = useState<TopProduct[]>([])
 
-  const [csYear, setCsYear]       = useState(new Date().getFullYear())
   const [csStatus, setCsStatus]   = useState<'all' | 'paid' | 'sent'>('all')
   const [customerSales, setCustomerSales] = useState<GroupedCustomerRow[]>([])
   const [csLoading, setCsLoading] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [drillDown, setDrillDown] = useState<GroupedCustomerRow | null>(null)
 
-  const [prodYear, setProdYear] = useState(new Date().getFullYear())
   const [prodLoading, setProdLoading] = useState(false)
   const [prodStats, setProdStats] = useState({ total_units: 0, total_runs: 0, avg_batch: 0, most_produced: '—' })
   const [monthlyProduction, setMonthlyProduction] = useState<MonthlyProduction[]>([])
@@ -111,8 +108,8 @@ export default function Reports() {
     const { data: invoices } = await supabase
       .from('invoices')
       .select('*, invoice_items(qty, unit_price_cad, line_total_cad, product_id, products(sku, name))')
-      .gte('issued_at', `${year}-01-01`)
-      .lte('issued_at', `${year}-12-31`)
+      .gte('issued_at', `${selectedYear}-01-01`)
+      .lte('issued_at', `${selectedYear}-12-31`)
 
     if (invoices) {
       const allItems = invoices.flatMap(inv => inv.invoice_items || []) as any[]
@@ -157,7 +154,7 @@ export default function Reports() {
       setTopProducts(Object.values(pmap).sort((a, b) => b.total_revenue - a.total_revenue).slice(0, 10))
     }
     setLoading(false)
-  }, [year])
+  }, [selectedYear])
 
   useEffect(() => { fetchReports() }, [fetchReports])
 
@@ -166,8 +163,8 @@ export default function Reports() {
     let query = supabase
       .from('invoices')
       .select('customer_id, subtotal_cad, tax_amount_cad, total_cad, status, customers(company_name), invoice_items(qty, line_total_cad, products(sku, name))')
-      .gte('issued_at', `${csYear}-01-01`)
-      .lte('issued_at', `${csYear}-12-31`)
+      .gte('issued_at', `${selectedYear}-01-01`)
+      .lte('issued_at', `${selectedYear}-12-31`)
     if (csStatus !== 'all') query = query.eq('status', csStatus)
     const { data } = await query
 
@@ -225,7 +222,7 @@ export default function Reports() {
     grouped.sort((a, b) => b.total - a.total)
     setCustomerSales(grouped)
     setCsLoading(false)
-  }, [csYear, csStatus])
+  }, [selectedYear, csStatus])
 
   useEffect(() => { fetchCustomerSales() }, [fetchCustomerSales])
 
@@ -234,8 +231,8 @@ export default function Reports() {
     const { data } = await supabase
       .from('production_orders')
       .select('*, products(sku, name)')
-      .gte('produced_at', `${prodYear}-01-01`)
-      .lte('produced_at', `${prodYear}-12-31`)
+      .gte('produced_at', `${selectedYear}-01-01`)
+      .lte('produced_at', `${selectedYear}-12-31`)
 
     if (data && data.length > 0) {
       const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -297,7 +294,7 @@ export default function Reports() {
       setQuarterlyProduction(QUARTERS.map(q => ({ label: q.label, months: q.months, units: 0, runs: 0 })))
     }
     setProdLoading(false)
-  }, [prodYear])
+  }, [selectedYear])
 
   useEffect(() => { fetchProductionData() }, [fetchProductionData])
 
@@ -306,46 +303,187 @@ export default function Reports() {
   const maxProdMonthly  = Math.max(...monthlyProduction.map(m => m.units), 1)
   const maxQProdUnits   = Math.max(...quarterlyProduction.map(q => q.units), 1)
 
-  const yearBtnStyle = (active: boolean): React.CSSProperties => ({
-    padding: '6px 16px', border: '1px solid #e2e8f0', borderRadius: '6px',
-    background: active ? '#2563eb' : '#fff', color: active ? '#fff' : '#64748b',
-    cursor: 'pointer', fontSize: '13px', fontWeight: '500',
-  })
+  async function handleAnnualReport() {
+    const PptxGenJS = (await import('pptxgenjs')).default
+    const pptx = new PptxGenJS()
+    pptx.layout = 'LAYOUT_WIDE'
 
-  async function handleRevenueExport() {
-    const { data } = await supabase
-      .from('invoices')
-      .select('invoice_number, customers(company_name), issued_at, subtotal_cad, tax_amount_cad, total_cad, currency, status')
-      .gte('issued_at', `${year}-01-01`)
-      .lte('issued_at', `${year}-12-31`)
-      .order('issued_at', { ascending: true })
-    const rows = (data || []).map((inv: any) => ({
-      'Invoice No': inv.invoice_number,
-      'Customer': inv.customers?.company_name || '',
-      'Date': inv.issued_at,
-      'Subtotal': inv.subtotal_cad || 0,
-      'Tax': inv.tax_amount_cad || 0,
-      'Total': inv.total_cad || 0,
-      'Currency': inv.currency || 'CAD',
-      'Status': inv.status || '',
-    }))
-    const ws = XLSX.utils.json_to_sheet(rows)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, `Revenue ${year}`)
-    XLSX.writeFile(wb, `revenue_${year}.xlsx`)
+    const GREEN = '2d5a27'
+    const WHITE = 'FFFFFF'
+    const DARK  = '1e293b'
+    const GRAY  = '64748b'
+    const LGRAY = 'f1f5f9'
+
+    // Load logo as base64
+    let logoData = ''
+    try {
+      const res = await fetch('/logo.png')
+      const blob = await res.blob()
+      logoData = await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result as string)
+        reader.readAsDataURL(blob)
+      })
+    } catch { /* skip logo if unavailable */ }
+
+    // ─── Slide 1: Cover ───
+    const s1 = pptx.addSlide()
+    s1.addText('', { x: 0, y: 0, w: '100%', h: 2.4, fill: { color: GREEN } })
+    if (logoData) s1.addImage({ data: logoData, x: 0.5, y: 0.35, h: 1.6, w: 1.6 })
+    s1.addText('iampure Beauty Inc.', { x: 0.5, y: 2.8, w: 12.3, fontSize: 26, fontFace: 'Arial', bold: true, color: DARK })
+    s1.addText(`Annual Report ${selectedYear}`, { x: 0.5, y: 3.5, w: 12.3, fontSize: 44, fontFace: 'Arial', bold: true, color: GREEN })
+    s1.addText('Confidential — Internal Use Only', { x: 0.5, y: 6.6, w: 12.3, fontSize: 11, fontFace: 'Arial', color: GRAY, italic: true })
+
+    // ─── Slide 2: Revenue Summary ───
+    const s2 = pptx.addSlide()
+    s2.addText('', { x: 0, y: 0, w: '100%', h: 1.0, fill: { color: GREEN } })
+    s2.addText(`Revenue Summary — ${selectedYear}`, { x: 0.4, y: 0.18, w: 12.3, fontSize: 24, fontFace: 'Arial', bold: true, color: WHITE })
+    const kpis = [
+      { label: 'Total Revenue',  value: `$${formatCurrency(stats.total_revenue)} CAD` },
+      { label: 'Paid Revenue',   value: `$${formatCurrency(stats.paid_revenue)} CAD` },
+      { label: 'Unpaid Revenue', value: `$${formatCurrency(stats.unpaid_revenue)} CAD` },
+      { label: 'Total Invoices', value: stats.total_invoices.toString() },
+      { label: 'Avg Order Value',value: `$${formatCurrency(stats.avg_order_value)} CAD` },
+      { label: 'Units Sold',     value: stats.total_units_sold.toLocaleString() },
+    ]
+    kpis.forEach((kpi, i) => {
+      const col = i % 3
+      const row = Math.floor(i / 3)
+      const x = 0.4 + col * 4.2
+      const y = 1.3 + row * 2.3
+      s2.addText('', { x, y, w: 3.9, h: 1.9, fill: { color: LGRAY }, line: { color: 'e2e8f0', pt: 1 } })
+      s2.addText(kpi.value, { x, y: y + 0.3, w: 3.9, fontSize: 22, fontFace: 'Arial', bold: true, color: GREEN, align: 'center' })
+      s2.addText(kpi.label, { x, y: y + 1.2, w: 3.9, fontSize: 13, fontFace: 'Arial', color: GRAY, align: 'center' })
+    })
+
+    // ─── Slide 3: Monthly Revenue ───
+    const s3 = pptx.addSlide()
+    s3.addText('', { x: 0, y: 0, w: '100%', h: 1.0, fill: { color: GREEN } })
+    s3.addText(`Monthly Revenue — ${selectedYear}`, { x: 0.4, y: 0.18, w: 12.3, fontSize: 24, fontFace: 'Arial', bold: true, color: WHITE })
+    const hdrOpts = { bold: true, color: WHITE, fill: { color: GREEN }, fontSize: 12, fontFace: 'Arial' }
+    const monthRows = [
+      [{ text: 'Month', options: hdrOpts }, { text: 'Revenue (CAD)', options: hdrOpts }, { text: 'Invoices', options: hdrOpts }, { text: 'Units', options: hdrOpts }],
+      ...monthlySales.map((m, i) => {
+        const bg = { color: i % 2 === 0 ? WHITE : LGRAY }
+        return [
+          { text: m.month, options: { fontSize: 12, fontFace: 'Arial', color: DARK, fill: bg } },
+          { text: `$${formatCurrency(m.revenue)}`, options: { fontSize: 12, fontFace: 'Arial', color: DARK, fill: bg } },
+          { text: m.invoice_count.toString(), options: { fontSize: 12, fontFace: 'Arial', color: DARK, fill: bg } },
+          { text: m.total_qty.toString(), options: { fontSize: 12, fontFace: 'Arial', color: DARK, fill: bg } },
+        ]
+      }),
+    ]
+    s3.addTable(monthRows as any, { x: 0.4, y: 1.2, w: 12.4, rowH: 0.38, border: { color: 'e2e8f0', pt: 1 } })
+
+    // ─── Slide 4: Quarterly Revenue ───
+    const s4 = pptx.addSlide()
+    s4.addText('', { x: 0, y: 0, w: '100%', h: 1.0, fill: { color: GREEN } })
+    s4.addText(`Quarterly Revenue — ${selectedYear}`, { x: 0.4, y: 0.18, w: 12.3, fontSize: 24, fontFace: 'Arial', bold: true, color: WHITE })
+    const qRows = [
+      [{ text: 'Quarter', options: hdrOpts }, { text: 'Period', options: hdrOpts }, { text: 'Revenue (CAD)', options: hdrOpts }, { text: 'Invoices', options: hdrOpts }, { text: 'Units Sold', options: hdrOpts }],
+      ...quarterlySales.map((q, i) => {
+        const bg = { color: i % 2 === 0 ? WHITE : LGRAY }
+        return [
+          { text: q.label, options: { fontSize: 16, fontFace: 'Arial', bold: true, color: GREEN, fill: bg } },
+          { text: q.months, options: { fontSize: 16, fontFace: 'Arial', color: DARK, fill: bg } },
+          { text: `$${formatCurrency(q.revenue)}`, options: { fontSize: 16, fontFace: 'Arial', color: DARK, fill: bg } },
+          { text: q.invoice_count.toString(), options: { fontSize: 16, fontFace: 'Arial', color: DARK, fill: bg } },
+          { text: q.total_qty.toString(), options: { fontSize: 16, fontFace: 'Arial', color: DARK, fill: bg } },
+        ]
+      }),
+    ]
+    s4.addTable(qRows as any, { x: 0.4, y: 1.8, w: 12.4, rowH: 0.9, border: { color: 'e2e8f0', pt: 1 } })
+
+    // ─── Slide 5: Top Products ───
+    const s5 = pptx.addSlide()
+    s5.addText('', { x: 0, y: 0, w: '100%', h: 1.0, fill: { color: GREEN } })
+    s5.addText(`Top Products — ${selectedYear}`, { x: 0.4, y: 0.18, w: 12.3, fontSize: 24, fontFace: 'Arial', bold: true, color: WHITE })
+    const top10 = topProducts.slice(0, 10)
+    const topProdRows = [
+      [{ text: '#', options: hdrOpts }, { text: 'SKU', options: hdrOpts }, { text: 'Product', options: hdrOpts }, { text: 'Units Sold', options: hdrOpts }, { text: 'Revenue (CAD)', options: hdrOpts }],
+      ...top10.map((p, i) => {
+        const bg = { color: i % 2 === 0 ? WHITE : LGRAY }
+        return [
+          { text: (i + 1).toString(), options: { fontSize: 12, fontFace: 'Arial', color: GRAY, fill: bg } },
+          { text: p.sku, options: { fontSize: 12, fontFace: 'Arial', color: DARK, fill: bg } },
+          { text: p.name, options: { fontSize: 12, fontFace: 'Arial', color: DARK, fill: bg } },
+          { text: p.total_qty.toLocaleString(), options: { fontSize: 12, fontFace: 'Arial', color: DARK, fill: bg } },
+          { text: `$${formatCurrency(p.total_revenue)}`, options: { fontSize: 12, fontFace: 'Arial', color: DARK, fill: bg } },
+        ]
+      }),
+    ]
+    s5.addTable(topProdRows as any, { x: 0.4, y: 1.2, w: 12.4, rowH: 0.38, border: { color: 'e2e8f0', pt: 1 } })
+
+    // ─── Slide 6: Production Summary ───
+    const s6 = pptx.addSlide()
+    s6.addText('', { x: 0, y: 0, w: '100%', h: 1.0, fill: { color: GREEN } })
+    s6.addText(`Production Summary — ${selectedYear}`, { x: 0.4, y: 0.18, w: 12.3, fontSize: 24, fontFace: 'Arial', bold: true, color: WHITE })
+    const prodKpis = [
+      { label: 'Total Units Produced', value: prodStats.total_units.toLocaleString() },
+      { label: 'Production Runs',      value: prodStats.total_runs.toString() },
+      { label: 'Avg Batch Size',       value: prodStats.avg_batch.toFixed(1) },
+      { label: 'Most Produced',        value: prodStats.most_produced },
+    ]
+    prodKpis.forEach((kpi, i) => {
+      const x = 0.4 + i * 3.15
+      s6.addText('', { x, y: 1.3, w: 2.9, h: 1.6, fill: { color: LGRAY }, line: { color: 'e2e8f0', pt: 1 } })
+      s6.addText(kpi.value, { x, y: 1.5, w: 2.9, fontSize: 20, fontFace: 'Arial', bold: true, color: GREEN, align: 'center' })
+      s6.addText(kpi.label, { x, y: 2.45, w: 2.9, fontSize: 12, fontFace: 'Arial', color: GRAY, align: 'center' })
+    })
+    const qProdRows = [
+      [{ text: 'Quarter', options: hdrOpts }, { text: 'Period', options: hdrOpts }, { text: 'Units Produced', options: hdrOpts }, { text: 'Runs', options: hdrOpts }],
+      ...quarterlyProduction.map((q, i) => {
+        const bg = { color: i % 2 === 0 ? WHITE : LGRAY }
+        return [
+          { text: q.label, options: { fontSize: 14, fontFace: 'Arial', bold: true, color: GREEN, fill: bg } },
+          { text: q.months, options: { fontSize: 14, fontFace: 'Arial', color: DARK, fill: bg } },
+          { text: q.units.toLocaleString(), options: { fontSize: 14, fontFace: 'Arial', color: DARK, fill: bg } },
+          { text: q.runs.toString(), options: { fontSize: 14, fontFace: 'Arial', color: DARK, fill: bg } },
+        ]
+      }),
+    ]
+    s6.addTable(qProdRows as any, { x: 0.4, y: 3.2, w: 12.4, rowH: 0.6, border: { color: 'e2e8f0', pt: 1 } })
+
+    // ─── Slide 7: Customer Overview ───
+    const s7 = pptx.addSlide()
+    s7.addText('', { x: 0, y: 0, w: '100%', h: 1.0, fill: { color: GREEN } })
+    s7.addText(`Customer Overview — ${selectedYear}`, { x: 0.4, y: 0.18, w: 12.3, fontSize: 24, fontFace: 'Arial', bold: true, color: WHITE })
+    const topCusts = customerSales.filter(c => c.total > 0).slice(0, 12)
+    const custRows = [
+      [{ text: 'Customer', options: hdrOpts }, { text: 'Invoices', options: hdrOpts }, { text: 'Units', options: hdrOpts }, { text: 'Revenue (CAD)', options: hdrOpts }],
+      ...topCusts.map((c, i) => {
+        const bg = { color: i % 2 === 0 ? WHITE : LGRAY }
+        return [
+          { text: c.display_name, options: { fontSize: 12, fontFace: 'Arial', color: DARK, fill: bg } },
+          { text: c.invoice_count.toString(), options: { fontSize: 12, fontFace: 'Arial', color: DARK, fill: bg } },
+          { text: c.total_qty.toLocaleString(), options: { fontSize: 12, fontFace: 'Arial', color: DARK, fill: bg } },
+          { text: `$${formatCurrency(c.total)}`, options: { fontSize: 12, fontFace: 'Arial', color: DARK, fill: bg } },
+        ]
+      }),
+    ]
+    s7.addTable(custRows as any, { x: 0.4, y: 1.2, w: 12.4, rowH: 0.38, border: { color: 'e2e8f0', pt: 1 } })
+
+    await pptx.writeFile({ fileName: `iampure_annual_report_${selectedYear}.pptx` })
   }
 
   return (
     <MainLayout>
-      {/* Year selector */}
+      {/* Year selector + Export */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          {[2024, 2025, 2026].map(y => (
-            <button key={y} onClick={() => setYear(y)} style={yearBtnStyle(year === y)}>{y}</button>
-          ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <label style={{ fontSize: '13px', fontWeight: '500', color: '#374151' }}>Year</label>
+          <select
+            value={selectedYear}
+            onChange={e => setSelectedYear(Number(e.target.value))}
+            style={{ height: '36px', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0 12px', fontSize: '14px', fontWeight: '600', color: '#1e293b', background: '#fff', cursor: 'pointer', outline: 'none' }}
+          >
+            {Array.from({ length: 11 }, (_, i) => 2020 + i).map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
         </div>
-        <button onClick={handleRevenueExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
-          <Download size={14} /> Export Revenue Report
+        <button onClick={handleAnnualReport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#2d5a27', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
+          Export Annual Report (PPT)
         </button>
       </div>
 
@@ -377,7 +515,7 @@ export default function Reports() {
       {/* Monthly chart + Top Products */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
         <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Monthly Revenue {year}</h3>
+          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Monthly Revenue {selectedYear}</h3>
           {loading ? <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>Loading...</div> : (
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '160px' }}>
               {monthlySales.map(m => (
@@ -414,7 +552,7 @@ export default function Reports() {
 
       {/* Quarterly Revenue Breakdown */}
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', marginBottom: '24px' }}>
-        <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Quarterly Revenue {year}</h3>
+        <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Quarterly Revenue {selectedYear}</h3>
         {loading ? <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8' }}>Loading...</div> : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
             {quarterlySales.map((q, qi) => {
@@ -451,7 +589,7 @@ export default function Reports() {
       {/* Monthly Breakdown Table */}
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '24px' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b' }}>Monthly Breakdown {year}</h3>
+          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b' }}>Monthly Breakdown {selectedYear}</h3>
         </div>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -464,7 +602,7 @@ export default function Reports() {
           <tbody>
             {monthlySales.map(m => (
               <tr key={m.month} style={{ borderBottom: '1px solid #f1f5f9', background: m.revenue > 0 ? '#fff' : '#fafafa' }}>
-                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '500', color: '#1e293b' }}>{m.month} {year}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '500', color: '#1e293b' }}>{m.month} {selectedYear}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{m.invoice_count || '-'}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{m.total_qty > 0 ? m.total_qty.toLocaleString() : '-'}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: m.revenue > 0 ? '600' : '400', color: m.revenue > 0 ? '#1e293b' : '#94a3b8' }}>{m.revenue > 0 ? `$${formatCurrency(m.revenue)}` : '-'}</td>
@@ -479,14 +617,11 @@ export default function Reports() {
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '24px' }}>
         <div style={{ padding: '14px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
           <div>
-            <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', margin: 0 }}>Customer Sales {csYear}</h3>
+            <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', margin: 0 }}>Customer Sales {selectedYear}</h3>
             <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>Click a customer name to view product breakdown</div>
           </div>
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            {[2024, 2025, 2026].map(y => (
-              <button key={y} onClick={() => setCsYear(y)} style={{ padding: '5px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: csYear === y ? '#2563eb' : '#fff', color: csYear === y ? '#fff' : '#64748b', cursor: 'pointer', fontSize: '12px', fontWeight: '500' }}>{y}</button>
-            ))}
-            <select value={csStatus} onChange={e => setCsStatus(e.target.value as any)} style={{ height: '30px', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0 10px', fontSize: '12px', color: '#374151', background: '#fff', cursor: 'pointer', outline: 'none', marginLeft: '4px' }}>
+            <select value={csStatus} onChange={e => setCsStatus(e.target.value as any)} style={{ height: '30px', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0 10px', fontSize: '12px', color: '#374151', background: '#fff', cursor: 'pointer', outline: 'none' }}>
               <option value='all'>All Status</option>
               <option value='paid'>Paid</option>
               <option value='sent'>Sent</option>
@@ -506,7 +641,7 @@ export default function Reports() {
               {csLoading ? (
                 <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>Loading...</td></tr>
               ) : customerSales.length === 0 ? (
-                <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>No sales data for {csYear}</td></tr>
+                <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>No sales data for {selectedYear}</td></tr>
               ) : (() => {
                 const grandTotal = customerSales.reduce((s, r) => s + r.total, 0)
                 return customerSales.flatMap(row => {
@@ -584,17 +719,12 @@ export default function Reports() {
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '32px 0 20px', paddingTop: '8px', borderTop: '2px solid #e2e8f0' }}>
         <Factory size={18} color='#d97706' />
         <h2 style={{ fontSize: '16px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Production Report</h2>
-        <div style={{ display: 'flex', gap: '6px', marginLeft: 'auto' }}>
-          {[2024, 2025, 2026].map(y => (
-            <button key={y} onClick={() => setProdYear(y)} style={{ padding: '5px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', background: prodYear === y ? '#d97706' : '#fff', color: prodYear === y ? '#fff' : '#64748b', cursor: 'pointer', fontSize: '12px', fontWeight: '500' }}>{y}</button>
-          ))}
-        </div>
       </div>
 
       {/* Section 1: Yearly Production Summary KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
         {[
-          { label: 'Total Units Produced', value: prodStats.total_units.toLocaleString(), sub: `Completed orders · ${prodYear}` },
+          { label: 'Total Units Produced', value: prodStats.total_units.toLocaleString(), sub: `Completed orders · ${selectedYear}` },
           { label: 'Production Runs',      value: prodStats.total_runs.toString(),        sub: 'Total orders completed' },
           { label: 'Avg Batch Size',       value: prodStats.avg_batch.toLocaleString(),   sub: 'Units per run' },
           { label: 'Most Produced',        value: prodStats.most_produced,                sub: 'Top product by volume', wide: true },
@@ -617,7 +747,7 @@ export default function Reports() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
         {/* Section 2: Monthly Production Chart */}
         <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Monthly Production {prodYear}</h3>
+          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Monthly Production {selectedYear}</h3>
           {prodLoading ? <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>Loading...</div> : (
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '160px' }}>
               {monthlyProduction.map(m => (
@@ -639,7 +769,7 @@ export default function Reports() {
           {prodLoading ? (
             <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>Loading...</div>
           ) : prodByProduct.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8', fontSize: '13px' }}>No production data for {prodYear}</div>
+            <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8', fontSize: '13px' }}>No production data for {selectedYear}</div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
@@ -669,7 +799,7 @@ export default function Reports() {
 
       {/* Section 4: Quarterly Production */}
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', marginBottom: '24px' }}>
-        <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Quarterly Production {prodYear}</h3>
+        <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Quarterly Production {selectedYear}</h3>
         {prodLoading ? <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8' }}>Loading...</div> : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
             {quarterlyProduction.map((q, qi) => {
@@ -711,7 +841,7 @@ export default function Reports() {
               <div>
                 <h2 style={{ fontSize: '16px', fontWeight: '700', color: '#1e293b', margin: 0 }}>{drillDown.display_name}</h2>
                 <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
-                  {drillDown.invoice_count} invoices · {drillDown.total_qty.toLocaleString()} units · ${formatCurrency(drillDown.total)} total ({csYear})
+                  {drillDown.invoice_count} invoices · {drillDown.total_qty.toLocaleString()} units · ${formatCurrency(drillDown.total)} total ({selectedYear})
                 </div>
               </div>
               <button onClick={() => setDrillDown(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '2px' }}>
