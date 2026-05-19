@@ -342,33 +342,26 @@ export default function Purchasing() {
     })
     setUpdateError('')
 
-    // Immediately populate edit map from fetchAll cache so modal is usable right away
-    const cachedItems = poItems[po.id] || []
-    const initialEditMap: Record<string, { quantity: string; unit_price: string }> = {}
-    for (const item of cachedItems) {
-      initialEditMap[item.id] = { quantity: String(item.quantity), unit_price: String(item.unit_price ?? 0) }
-    }
-    setDetailLineItemEdits(initialEditMap)
-    setShowDetail(true)
-
-    // Fetch fresh line items from DB
+    // Always fetch fresh items from DB before opening modal (invoices pattern — eliminates race condition)
     const { data: freshItems, error: itemsErr } = await supabase
       .from('purchase_order_items')
       .select('*, raw_materials(id, item_no, name, unit), packaging(id, item_no, name, type)')
       .eq('po_id', po.id)
 
     if (itemsErr) {
-      console.error('Failed to fetch PO items:', itemsErr)
-      return // Keep using cached fetchAll data
+      console.error('[openDetail] Failed to fetch PO items:', itemsErr)
     }
 
     const items = (freshItems || []) as POItem[]
+    console.log(`[openDetail] PO ${po.id} — fetched ${items.length} line item(s):`, items)
+
     setPoItems(prev => ({ ...prev, [po.id]: items }))
     const editMap: Record<string, { quantity: string; unit_price: string }> = {}
     for (const item of items) {
       editMap[item.id] = { quantity: String(item.quantity), unit_price: String(item.unit_price ?? 0) }
     }
     setDetailLineItemEdits(editMap)
+    setShowDetail(true) // Open modal only after data is ready
   }
 
   async function handleCreate() {
@@ -448,11 +441,14 @@ export default function Purchasing() {
       return
     }
 
-    const { error: itemsError } = await supabase.from('purchase_order_items').insert(
+    const { data: insertedItems, error: itemsError } = await supabase.from('purchase_order_items').insert(
       itemsToInsert.map(i => ({ ...i, po_id: poData.id }))
-    )
+    ).select()
+
+    console.log(`[handleCreate] PO ${poData.id} — inserted ${insertedItems?.length ?? 0} item(s):`, insertedItems)
 
     if (itemsError) {
+      console.error('[handleCreate] Items insert error:', itemsError)
       await supabase.from('purchase_orders').delete().eq('id', poData.id)
       setCreateError(itemsError.message || 'Failed to create PO items.')
       setSaving(false)
