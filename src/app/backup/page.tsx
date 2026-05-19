@@ -331,23 +331,59 @@ export default function BackupPage() {
 
   async function exportInvoices() {
     setExportingKey('invoices')
-    const { data } = await supabase
-      .from('invoices')
-      .select('invoice_no, customers(company_name), issued_at, subtotal_cad, tax_amount_cad, total_cad, currency, status')
-      .order('issued_at', { ascending: true })
-    const rows = (data || []).map((inv: any) => ({
-      'Invoice No': inv.invoice_no,
-      'Customer': inv.customers?.company_name || '',
-      'Date': fmtDate(inv.issued_at),
-      'Subtotal (CAD)': fmtNum(inv.subtotal_cad),
-      'Tax (CAD)': fmtNum(inv.tax_amount_cad),
-      'Total (CAD)': fmtNum(inv.total_cad),
-      'Currency': inv.currency || 'CAD',
-      'Status': inv.status || '',
-    }))
+    const invFields = `
+      invoice_no, issued_at, delivery_date, payment_date,
+      subtotal_cad, tax_rate, tax_amount_cad, total_cad,
+      status, currency, po_number, notes,
+      customers (company_name)
+    `
+    const [{ data: invoicesCAD }, { data: invoicesUSD }, { data: creditMemos }] = await Promise.all([
+      supabase.from('invoices').select(invFields).eq('currency', 'CAD').is('deleted_at', null).order('invoice_no'),
+      supabase.from('invoices').select(invFields + ', wire_fee, received_amount').eq('currency', 'USD').is('deleted_at', null).order('invoice_no'),
+      supabase.from('credit_memos').select(`
+        memo_no, issued_at, applied_date,
+        subtotal_cad, tax_rate, tax_amount_cad, total_cad,
+        status, po_number, notes,
+        customers (company_name)
+      `).is('deleted_at', null).order('memo_no'),
+    ])
+
+    const cadHeaders = ['Invoice No', 'Customer', 'Date', 'Delivery Date', 'Payment Date', 'Subtotal', 'Tax Rate', 'Tax', 'Total', 'Status', 'PO#', 'Notes']
+    const cadRows = (invoicesCAD || []).map((i: any) => [
+      i.invoice_no || '', i.customers?.company_name || '',
+      fmtDate(i.issued_at), fmtDate(i.delivery_date), fmtDate(i.payment_date),
+      i.subtotal_cad ?? 0, i.tax_rate ?? 0, i.tax_amount_cad ?? 0, i.total_cad ?? 0,
+      i.status || '', i.po_number || '', i.notes || '',
+    ])
+
+    const usdHeaders = ['Invoice No', 'Customer', 'Date', 'Delivery Date', 'Payment Date', 'Subtotal', 'Tax Rate', 'Tax', 'Total', 'Status', 'PO#', 'Notes', 'Wire Fee', 'Received Amount']
+    const usdRows = (invoicesUSD || []).map((i: any) => [
+      i.invoice_no || '', i.customers?.company_name || '',
+      fmtDate(i.issued_at), fmtDate(i.delivery_date), fmtDate(i.payment_date),
+      i.subtotal_cad ?? 0, i.tax_rate ?? 0, i.tax_amount_cad ?? 0, i.total_cad ?? 0,
+      i.status || '', i.po_number || '', i.notes || '',
+      i.wire_fee ?? 0, i.received_amount ?? 0,
+    ])
+
+    const cmHeaders = ['Memo No', 'Customer', 'Date', 'Applied Date', 'Subtotal', 'Tax Rate', 'Tax', 'Total', 'Status', 'PO#', 'Notes']
+    const cmRows = (creditMemos || []).map((m: any) => [
+      m.memo_no || '', m.customers?.company_name || '',
+      fmtDate(m.issued_at), fmtDate(m.applied_date),
+      m.subtotal_cad ?? 0, m.tax_rate ?? 0, m.tax_amount_cad ?? 0, m.total_cad ?? 0,
+      m.status || '', m.po_number || '', m.notes || '',
+    ])
+
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Invoices')
-    XLSX.writeFile(wb, `invoices_${TODAY}.xlsx`)
+    XLSX.utils.book_append_sheet(wb, makeAOASheet(cadHeaders, cadRows,
+      ['TOTAL', '', '', '', '', sumIdx(cadRows, 5), '', sumIdx(cadRows, 7), sumIdx(cadRows, 8), '', '', '']
+    ), 'Invoices (CAD)')
+    XLSX.utils.book_append_sheet(wb, makeAOASheet(usdHeaders, usdRows,
+      ['TOTAL', '', '', '', '', sumIdx(usdRows, 5), '', sumIdx(usdRows, 7), sumIdx(usdRows, 8), '', '', '', sumIdx(usdRows, 12), sumIdx(usdRows, 13)]
+    ), 'Invoices (USD)')
+    XLSX.utils.book_append_sheet(wb, makeAOASheet(cmHeaders, cmRows,
+      ['TOTAL', '', '', '', sumIdx(cmRows, 4), '', sumIdx(cmRows, 6), sumIdx(cmRows, 7), '', '', '']
+    ), 'Credit Memos')
+    XLSX.writeFile(wb, `invoices_export_${TODAY}.xlsx`)
     setExportingKey(null)
   }
 
