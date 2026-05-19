@@ -440,16 +440,41 @@ export default function Purchasing() {
       return
     }
 
-    const { data: insertedItems, error: itemsError } = await supabase.from('purchase_order_items').insert(
-      itemsToInsert.map(i => ({ ...i, po_id: poData.id }))
-    ).select()
+    const itemsPayload = itemsToInsert.map(i => ({ ...i, po_id: poData.id }))
+
+    const invalidItem = itemsPayload.find(i => !i.po_id || !i.material_id)
+    if (invalidItem) {
+      console.error('[handleCreate] Invalid item — missing po_id or material_id:', invalidItem)
+      alert('PO item is missing po_id or material_id:\n' + JSON.stringify(invalidItem, null, 2))
+      await supabase.from('purchase_orders').delete().eq('id', poData.id)
+      setCreateError('Failed to build PO items (missing po_id or material_id).')
+      setSaving(false)
+      return
+    }
+
+    console.log('[handleCreate] Saving items:', itemsPayload)
+
+    const { data: insertedItems, error: itemsError } = await supabase
+      .from('purchase_order_items')
+      .insert(itemsPayload)
+      .select()
 
     console.log(`[handleCreate] PO ${poData.id} — inserted ${insertedItems?.length ?? 0} item(s):`, insertedItems)
 
     if (itemsError) {
       console.error('[handleCreate] Items insert error:', itemsError)
+      alert('PO items save failed: ' + itemsError.message)
       await supabase.from('purchase_orders').delete().eq('id', poData.id)
       setCreateError(itemsError.message || 'Failed to create PO items.')
+      setSaving(false)
+      return
+    }
+
+    if (!insertedItems || insertedItems.length === 0) {
+      console.error('[handleCreate] Items insert silent failure — 0 rows returned, no error (check RLS on purchase_order_items)')
+      alert('PO items failed to save (0 rows inserted with no error).\nCheck Supabase RLS policies on purchase_order_items table.')
+      await supabase.from('purchase_orders').delete().eq('id', poData.id)
+      setCreateError('PO items failed to save. Please check permissions.')
       setSaving(false)
       return
     }
