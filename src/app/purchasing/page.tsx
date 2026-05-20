@@ -390,10 +390,10 @@ export default function Purchasing() {
         return { material_type: 'packaging', material_id: item.id, quantity: qty, unit_price: unitPrice }
       })
     } else {
-      const valid = lineItems.filter(li => li.material_id && parseFloat(li.quantity || '0') > 0)
+      const valid = lineItems.filter(li => li.material_id && Number(li.quantity) > 0)
       if (valid.length === 0) { setCreateError('Please add at least one item with a material and quantity.'); return }
       itemsToInsert = valid.map(li => {
-        const qtyInput = parseFloat(li.quantity)
+        const qtyInput = Number(li.quantity) || 0
         const qty = li.material_type === 'raw_material'
           ? qtyInput * 1000
           : (li.moduleQty && li.moduleQty > 1 ? qtyInput * li.moduleQty : qtyInput)
@@ -1092,7 +1092,10 @@ export default function Purchasing() {
                           <input
                             type='number' min='0' step='any'
                             value={li.quantity}
-                            onChange={e => updateLineItem(idx, 'quantity', e.target.value)}
+                            onChange={e => {
+                              const v = e.target.value
+                              setLineItems(prev => prev.map((li2, i2) => i2 === idx ? { ...li2, quantity: v } : li2))
+                            }}
                             placeholder={li.material_type === 'raw_material' ? 'kg' : isModulePkg ? 'mod' : '0'}
                             title={li.material_type === 'raw_material' ? 'Enter quantity in kg (stored as ml)' : isModulePkg ? `Enter modules (1 module = ${li.moduleQty} ea)` : ''}
                             style={{ ...numInp, padding: '6px 8px', fontSize: '12px', width: '100%' }}
