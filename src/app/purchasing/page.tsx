@@ -1,6 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+// -- SQL: CREATE TABLE IF NOT EXISTS purchase_order_attachments (
+// --   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+// --   po_id uuid REFERENCES purchase_orders(id) ON DELETE CASCADE,
+// --   file_name text NOT NULL,
+// --   file_url text NOT NULL,
+// --   uploaded_at timestamptz DEFAULT now()
+// -- );
+
+import { useEffect, useRef, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
@@ -56,6 +64,14 @@ interface POItem {
   unit_price: number
 }
 
+interface POAttachment {
+  id: string
+  po_id: string
+  file_name: string
+  file_url: string
+  uploaded_at: string
+}
+
 const STATUS_STYLE: Record<string, { bg: string; color: string; label: string }> = {
   ordered:   { bg: '#eff6ff', color: '#2563eb', label: 'Ordered' },
   shipped:   { bg: '#fef3c7', color: '#d97706', label: 'Shipped' },
@@ -104,21 +120,30 @@ export default function Purchasing() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  // Attachments
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [poAttachments, setPoAttachments] = useState<Record<string, POAttachment[]>>({})
+  const [showAttachments, setShowAttachments] = useState(false)
+  const [attachmentPO, setAttachmentPO] = useState<PO | null>(null)
+  const [attachmentFiles, setAttachmentFiles] = useState<FileList | null>(null)
+  const [uploadingAttachment, setUploadingAttachment] = useState(false)
+
   useEffect(() => { fetchAll() }, [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       if (showDeleteConfirm) { setShowDeleteConfirm(false); return }
+      if (showAttachments) { setShowAttachments(false); setAttachmentFiles(null); return }
       if (showCreate) { setShowCreate(false); setCreateError(''); return }
       if (showDetail) { setShowDetail(false); setUpdateError(''); return }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [showCreate, showDetail, showDeleteConfirm])
+  }, [showCreate, showDetail, showDeleteConfirm, showAttachments])
 
   async function fetchAll() {
-    const [posRes, suppRes, rawRes, pkgRes, itemsRes] = await Promise.all([
+    const [posRes, suppRes, rawRes, pkgRes, itemsRes, attachRes] = await Promise.all([
       supabase.from('purchase_orders')
         .select('*, suppliers(name)')
         .is('deleted_at', null)
@@ -127,6 +152,7 @@ export default function Purchasing() {
       supabase.from('raw_materials').select('id, item_no, name, unit, cost_per_unit_cad').order('item_no'),
       supabase.from('packaging').select('id, item_no, name, type, cost_cad').order('item_no'),
       supabase.from('purchase_order_items').select('id, po_id, material_type, material_id, quantity, unit_price'),
+      supabase.from('purchase_order_attachments').select('id, po_id, file_name, file_url, uploaded_at').order('uploaded_at'),
     ])
     setPOs(posRes.data || [])
     setSuppliers(suppRes.data || [])
@@ -148,6 +174,13 @@ export default function Purchasing() {
       grouped[item.po_id].push(item)
     }
     setPoItems(grouped)
+
+    const attachGrouped: Record<string, POAttachment[]> = {}
+    for (const a of (attachRes.data || []) as POAttachment[]) {
+      if (!attachGrouped[a.po_id]) attachGrouped[a.po_id] = []
+      attachGrouped[a.po_id].push(a)
+    }
+    setPoAttachments(attachGrouped)
     setLoading(false)
   }
 
@@ -400,6 +433,38 @@ export default function Purchasing() {
     return `${items.length} items`
   }
 
+  function openAttachments(e: React.MouseEvent, po: PO) {
+    e.stopPropagation()
+    setAttachmentPO(po)
+    setAttachmentFiles(null)
+    setShowAttachments(true)
+  }
+
+  async function handleUploadAttachments() {
+    if (!attachmentPO || !attachmentFiles || attachmentFiles.length === 0) return
+    setUploadingAttachment(true)
+    for (const file of Array.from(attachmentFiles)) {
+      const path = `${attachmentPO.id}/${Date.now()}_${file.name}`
+      const { error: uploadError } = await supabase.storage.from('purchase-invoices').upload(path, file)
+      if (uploadError) continue
+      const { data: urlData } = supabase.storage.from('purchase-invoices').getPublicUrl(path)
+      await supabase.from('purchase_order_attachments').insert({
+        po_id: attachmentPO.id,
+        file_name: file.name,
+        file_url: urlData.publicUrl,
+      })
+    }
+    setAttachmentFiles(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    setUploadingAttachment(false)
+    fetchAll()
+  }
+
+  async function handleDeleteAttachment(attachment: POAttachment) {
+    await supabase.from('purchase_order_attachments').delete().eq('id', attachment.id)
+    fetchAll()
+  }
+
   const filtered = pos.filter(po =>
     po.suppliers?.name?.toLowerCase().includes(search.toLowerCase()) ||
     getPOSummary(po).toLowerCase().includes(search.toLowerCase()) ||
@@ -466,10 +531,16 @@ export default function Purchasing() {
                     <td style={{ padding: '12px 16px', color: po.shipped_at ? '#d97706' : '#cbd5e1', fontSize: '13px' }}>{po.shipped_at || '—'}</td>
                     <td style={{ padding: '12px 16px', color: po.received_at ? '#16a34a' : '#cbd5e1', fontSize: '13px' }}>{po.received_at || '—'}</td>
                     <td style={{ padding: '12px 16px' }}>
-                      <button onClick={e => { e.stopPropagation(); setDetailPO(po); setShowDeleteConfirm(true) }}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '4px' }}>
-                        <Trash2 size={15} />
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <button onClick={e => openAttachments(e, po)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: (poAttachments[po.id]?.length ?? 0) > 0 ? '#2563eb' : '#94a3b8' }}>
+                          <Paperclip size={15} />
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); setDetailPO(po); setShowDeleteConfirm(true) }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '4px' }}>
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )
@@ -793,6 +864,63 @@ export default function Purchasing() {
                   {updating ? 'Saving...' : 'Save Changes'}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Attachments Modal ── */}
+      {showAttachments && attachmentPO && (
+        <div className="modal-overlay" onClick={() => { setShowAttachments(false); setAttachmentFiles(null) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 250, padding: '20px' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '520px' }}>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '600', margin: 0 }}>Attachments</h3>
+              <button onClick={() => { setShowAttachments(false); setAttachmentFiles(null) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
+            </div>
+
+            {(poAttachments[attachmentPO.id] || []).length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8', fontSize: '14px', background: '#f8fafc', borderRadius: '8px', marginBottom: '20px' }}>
+                No attachments yet
+              </div>
+            ) : (
+              <div style={{ marginBottom: '20px' }}>
+                {(poAttachments[attachmentPO.id] || []).map(a => (
+                  <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: '8px', marginBottom: '8px' }}>
+                    <a href={a.file_url} target='_blank' rel='noopener noreferrer'
+                      style={{ fontSize: '14px', color: '#2563eb', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, display: 'flex', alignItems: 'center', gap: '6px' }}
+                      onMouseEnter={e => (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'}
+                      onMouseLeave={e => (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'}>
+                      <Paperclip size={13} style={{ flexShrink: 0 }} />
+                      {a.file_name}
+                    </a>
+                    <button onClick={() => handleDeleteAttachment(a)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '4px', marginLeft: '8px', flexShrink: 0 }}>
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ border: '1px dashed #cbd5e1', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
+              <input ref={fileInputRef} type='file' multiple onChange={e => setAttachmentFiles(e.target.files)}
+                style={{ display: 'block', fontSize: '14px', width: '100%' }} />
+              {attachmentFiles && attachmentFiles.length > 0 && (
+                <div style={{ marginTop: '8px', fontSize: '13px', color: '#64748b' }}>{attachmentFiles.length} file(s) selected</div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button onClick={() => { setShowAttachments(false); setAttachmentFiles(null) }}
+                style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Close</button>
+              <button onClick={handleUploadAttachments}
+                disabled={uploadingAttachment || !attachmentFiles || attachmentFiles.length === 0}
+                style={{ padding: '8px 16px', background: uploadingAttachment || !attachmentFiles || attachmentFiles.length === 0 ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: uploadingAttachment || !attachmentFiles || attachmentFiles.length === 0 ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
+                {uploadingAttachment ? 'Uploading...' : 'Upload'}
+              </button>
             </div>
           </div>
         </div>
