@@ -151,7 +151,7 @@ export default function BackupPage() {
         Number(p.current_stock) || 0,
         Math.floor(Number(p.current_stock) / 36),
         Number(p.reorder_threshold) || 0,
-        '',
+        Number(p.max_capacity) || '',
         Number(p.current_stock) * Number(p.unit_cost_cad),
         Number(p.current_stock) * Number(p.price_whs_cad),
         p.is_active ? 'Yes' : 'No',
@@ -165,7 +165,8 @@ export default function BackupPage() {
         'TOTAL', '', '', '', '', '', '', '', '',
         productRows.reduce((s, r) => s + (r[9] || 0), 0),
         productRows.reduce((s, r) => s + (r[10] || 0), 0),
-        '', '',
+        '',
+        productRows.reduce((s, r) => s + (Number(r[12]) || 0), 0),
         productRows.reduce((s, r) => s + (r[13] || 0), 0),
         productRows.reduce((s, r) => s + (r[14] || 0), 0),
         '', '',
@@ -580,7 +581,7 @@ export default function BackupPage() {
       sku, name, size_oz,
       barcode_upc, barcode_itf14,
       unit_cost_cad, price_whs_cad, msrp_cad, price_dist_cad,
-      current_stock, reorder_threshold,
+      current_stock, reorder_threshold, max_capacity,
       is_active
     `).order('sku', { ascending: true })
     // cols: SKU(0) Name(1) Size(2) UPC(3) ITF14(4) MFG Cost(5) WHS Price(6) MSRP(7) Dist Price(8) Stock Units(9) Stock Boxes(10) Replenish(11) Max(12) Total MFG(13) Total WHS(14) Active(15) Notes(16)
@@ -589,7 +590,7 @@ export default function BackupPage() {
       p.barcode_upc || '', p.barcode_itf14 || '',
       p.unit_cost_cad ?? 0, p.price_whs_cad ?? 0, p.msrp_cad ?? 0, p.price_dist_cad ?? 0,
       p.current_stock ?? 0, Math.floor((p.current_stock || 0) / 36),
-      p.reorder_threshold ?? '', '',
+      p.reorder_threshold ?? '', Number(p.max_capacity) || '',
       (p.unit_cost_cad || 0) * (p.current_stock || 0),
       (p.price_whs_cad || 0) * (p.current_stock || 0),
       p.is_active ? 'Yes' : 'No', '',
@@ -598,7 +599,7 @@ export default function BackupPage() {
     XLSX.utils.book_append_sheet(wb, makeAOASheet(
       ['SKU', 'Name', 'Size (oz)', 'Barcode UPC', 'Barcode ITF-14', 'MFG Cost (CAD)', 'WHS Price (CAD)', 'MSRP (CAD)', 'Dist Price (CAD)', 'Stock (Units)', 'Stock (Boxes)', 'Replenish At (Units)', 'Max Capacity (Units)', 'Total MFG Value', 'Total WHS Value', 'Active', 'Notes'],
       rows,
-      ['TOTAL', '', '', '', '', '', '', '', '', sumIdx(rows, 9), sumIdx(rows, 10), '', '', sumIdx(rows, 13), sumIdx(rows, 14), '', '']
+      ['TOTAL', '', '', '', '', '', '', '', '', sumIdx(rows, 9), sumIdx(rows, 10), '', sumIdx(rows, 12), sumIdx(rows, 13), sumIdx(rows, 14), '', '']
     ), 'Products')
     XLSX.writeFile(wb, `products_${TODAY}.xlsx`)
     setExportingKey(null)
