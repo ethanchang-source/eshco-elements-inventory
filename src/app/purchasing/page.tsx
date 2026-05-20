@@ -234,7 +234,6 @@ export default function Purchasing() {
         material_id: item.material_id,
         quantity: item.qty,
         unit_price: item.unit_price,
-        line_total: item.total,
       }))
     )
 
@@ -361,7 +360,6 @@ export default function Purchasing() {
         material_id: item.material_id,
         quantity: item.qty,
         unit_price: item.unit_price,
-        line_total: item.total,
       }))
     )
 
