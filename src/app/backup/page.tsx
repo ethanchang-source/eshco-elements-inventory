@@ -116,7 +116,7 @@ export default function BackupPage() {
     try {
       const { data: products } = await supabase
         .from('products')
-        .select('sku, name, size_oz, barcode_upc, barcode_itf14, unit_cost, price_warehouse, price_msrp, price_dist_cad, stock_quantity, reorder_threshold, active')
+        .select('sku, name, size_oz, barcode_upc, barcode_itf14, unit_cost_cad, price_whs_cad, msrp_cad, price_dist_cad, current_stock, reorder_threshold, is_active')
         .order('sku')
 
       console.log('=== BACKUP DEBUG ===')
@@ -144,17 +144,17 @@ export default function BackupPage() {
         Number(p.size_oz) || 0,
         String(p.barcode_upc || ''),
         String(p.barcode_itf14 || ''),
-        Number(p.unit_cost) || 0,
-        Number(p.price_warehouse) || 0,
-        Number(p.price_msrp) || 0,
+        Number(p.unit_cost_cad) || 0,
+        Number(p.price_whs_cad) || 0,
+        Number(p.msrp_cad) || 0,
         Number(p.price_dist_cad) || 0,
-        Number(p.stock_quantity) || 0,
-        Math.floor(Number(p.stock_quantity) / 36),
+        Number(p.current_stock) || 0,
+        Math.floor(Number(p.current_stock) / 36),
         Number(p.reorder_threshold) || 0,
         '',
-        Number(p.stock_quantity) * Number(p.unit_cost),
-        Number(p.stock_quantity) * Number(p.price_warehouse),
-        p.active ? 'Yes' : 'No',
+        Number(p.current_stock) * Number(p.unit_cost_cad),
+        Number(p.current_stock) * Number(p.price_whs_cad),
+        p.is_active ? 'Yes' : 'No',
         '',
       ])
 
@@ -186,16 +186,16 @@ export default function BackupPage() {
         String(p.sku || ''),
         String(p.name || ''),
         Number(p.size_oz) || 0,
-        Number(p.stock_quantity) || 0,
-        Math.floor(Number(p.stock_quantity) / 36),
+        Number(p.current_stock) || 0,
+        Math.floor(Number(p.current_stock) / 36),
         Number(p.reorder_threshold) || 0,
         Math.floor(Number(p.reorder_threshold) / 36),
         '',
         '',
-        Number(p.unit_cost) || 0,
-        Number(p.stock_quantity) * Number(p.unit_cost),
-        Number(p.price_warehouse) || 0,
-        Number(p.stock_quantity) * Number(p.price_warehouse),
+        Number(p.unit_cost_cad) || 0,
+        Number(p.current_stock) * Number(p.unit_cost_cad),
+        Number(p.price_whs_cad) || 0,
+        Number(p.current_stock) * Number(p.price_whs_cad),
       ])
       const fgInvTotalRow = [
         'TOTAL', '', '',
@@ -485,9 +485,9 @@ export default function BackupPage() {
     ])
     const wb = XLSX.utils.book_new()
     const finishedRows = (products || []).map((p: any) => ({
-      'SKU': p.sku, 'Name': p.name, 'Stock': p.stock_quantity,
-      'MFG Cost': p.unit_cost, 'WHS Price': p.price_warehouse ?? '',
-      'Total Value': (p.unit_cost || 0) * (p.stock_quantity || 0),
+      'SKU': p.sku, 'Name': p.name, 'Stock': p.current_stock,
+      'MFG Cost': p.unit_cost_cad, 'WHS Price': p.price_whs_cad ?? '',
+      'Total Value': (p.unit_cost_cad || 0) * (p.current_stock || 0),
     }))
     const rawRows = (rawMaterials || []).map((r: any) => ({
       'Item No': r.item_no, 'Name': r.name, 'Unit': r.unit, 'Stock': r.current_stock,
@@ -576,20 +576,20 @@ export default function BackupPage() {
     const { data } = await supabase.from('products').select(`
       sku, name, size_oz,
       barcode_upc, barcode_itf14,
-      unit_cost, price_warehouse, price_msrp, price_dist_cad,
-      stock_quantity, reorder_threshold,
-      active
+      unit_cost_cad, price_whs_cad, msrp_cad, price_dist_cad,
+      current_stock, reorder_threshold,
+      is_active
     `).order('sku', { ascending: true })
     // cols: SKU(0) Name(1) Size(2) UPC(3) ITF14(4) MFG Cost(5) WHS Price(6) MSRP(7) Dist Price(8) Stock Units(9) Stock Boxes(10) Replenish(11) Max(12) Total MFG(13) Total WHS(14) Active(15) Notes(16)
     const rows = (data || []).map((p: any) => [
       p.sku || '', p.name || '', p.size_oz ?? '',
       p.barcode_upc || '', p.barcode_itf14 || '',
-      p.unit_cost ?? 0, p.price_warehouse ?? 0, p.price_msrp ?? 0, p.price_dist_cad ?? 0,
-      p.stock_quantity ?? 0, Math.floor((p.stock_quantity || 0) / 36),
+      p.unit_cost_cad ?? 0, p.price_whs_cad ?? 0, p.msrp_cad ?? 0, p.price_dist_cad ?? 0,
+      p.current_stock ?? 0, Math.floor((p.current_stock || 0) / 36),
       p.reorder_threshold ?? '', '',
-      (p.unit_cost || 0) * (p.stock_quantity || 0),
-      (p.price_warehouse || 0) * (p.stock_quantity || 0),
-      p.active ? 'Yes' : 'No', '',
+      (p.unit_cost_cad || 0) * (p.current_stock || 0),
+      (p.price_whs_cad || 0) * (p.current_stock || 0),
+      p.is_active ? 'Yes' : 'No', '',
     ])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, makeAOASheet(
