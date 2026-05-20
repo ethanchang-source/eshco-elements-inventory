@@ -1,20 +1,8 @@
 import { createServerClient } from '@supabase/ssr'
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl
-
-  if (
-    pathname.startsWith('/login') ||
-    pathname.startsWith('/_next') ||
-    pathname.startsWith('/api') ||
-    pathname.includes('.')
-  ) {
-    return NextResponse.next()
-  }
-
-  let supabaseResponse = NextResponse.next({ request })
+export async function middleware(req: NextRequest) {
+  let response = NextResponse.next({ request: req })
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,13 +10,13 @@ export async function middleware(request: NextRequest) {
     {
       cookies: {
         getAll() {
-          return request.cookies.getAll()
+          return req.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
-          supabaseResponse = NextResponse.next({ request })
+          cookiesToSet.forEach(({ name, value }) => req.cookies.set(name, value))
+          response = NextResponse.next({ request: req })
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
+            response.cookies.set(name, value, options)
           )
         },
       },
@@ -37,9 +25,22 @@ export async function middleware(request: NextRequest) {
 
   const { data: { session } } = await supabase.auth.getSession()
 
-  if (!session) {
-    return NextResponse.redirect(new URL('/login', request.url))
+  const isAuthPage = req.nextUrl.pathname.startsWith('/login')
+  const isPublic = req.nextUrl.pathname.startsWith('/_next') ||
+    req.nextUrl.pathname.startsWith('/api') ||
+    req.nextUrl.pathname.match(/\.(ico|png|jpg|svg|json|webmanifest)$/)
+
+  if (!session && !isAuthPage && !isPublic) {
+    return NextResponse.redirect(new URL('/login', req.url))
   }
 
-  return supabaseResponse
+  if (session && isAuthPage) {
+    return NextResponse.redirect(new URL('/dashboard', req.url))
+  }
+
+  return response
+}
+
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 }
