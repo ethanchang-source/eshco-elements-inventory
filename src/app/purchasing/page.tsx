@@ -433,6 +433,7 @@ export default function Purchasing() {
       amount_usd: createForm.amount_usd ? parseFloat(createForm.amount_usd) : null,
       exchange_rate: exchangeRate,
     }]).select('id').single()
+    console.log('[DEBUG] poData:', poData, 'poError:', poError)
 
     if (poError || !poData) {
       setCreateError(poError?.message || 'Failed to create purchase order.')
@@ -441,6 +442,7 @@ export default function Purchasing() {
     }
 
     const itemsPayload = itemsToInsert.map(i => ({ ...i, po_id: poData.id }))
+    console.log('[DEBUG] itemsPayload:', JSON.stringify(itemsPayload))
 
     const invalidItem = itemsPayload.find(i => !i.po_id || !i.material_id)
     if (invalidItem) {
