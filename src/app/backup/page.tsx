@@ -29,7 +29,6 @@ async function fetchAll() {
     { data: creditMemoItemsRaw },
     { data: customersRaw },
     { data: suppliersRaw },
-    { data: productsRaw, error: productsErr },
     { data: rawMaterialsRaw },
     { data: packagingRaw },
     { data: expensesRaw },
@@ -68,9 +67,6 @@ async function fetchAll() {
     supabase.from('suppliers').select(`
       name, contact_name, contact_email, contact_phone, country, ship_to_address
     `).order('name', { ascending: true }),
-    supabase.from('products').select(
-      'sku, name, size_oz, barcode_upc, barcode_itf14, unit_cost_cad, price_whs_cad, price_msrp, price_dist_cad, current_stock, reorder_threshold, max_capacity, is_active, notes'
-    ).eq('is_active', true).order('sku', { ascending: true }),
     supabase.from('raw_materials').select(`
       item_no, name, unit, current_stock, cost_per_unit_cad, avg_cost_cad,
       reorder_threshold, max_capacity
@@ -94,7 +90,6 @@ async function fetchAll() {
     `).order('produced_at', { ascending: false }),
   ])
 
-  console.log('products fetch:', productsRaw?.length, productsErr)
   console.log('production fetch:', productionRaw?.length, productionErr)
 
   return {
@@ -104,7 +99,6 @@ async function fetchAll() {
     creditMemoItems: creditMemoItemsRaw || [],
     customers: customersRaw || [],
     suppliers: suppliersRaw || [],
-    products: productsRaw || [],
     rawMaterials: rawMaterialsRaw || [],
     packaging: packagingRaw || [],
     expenses: expensesRaw || [],
@@ -120,7 +114,21 @@ export default function BackupPage() {
   async function handleFullBackup() {
     setLoading(true)
     try {
-      const { invoices, invoiceItems, creditMemos, creditMemoItems, customers, suppliers, products, rawMaterials, packaging, expenses, purchaseOrders, production } = await fetchAll()
+      const { data: products } = await supabase
+        .from('products')
+        .select('sku, name, size_oz, barcode_upc, barcode_itf14, unit_cost_cad, price_whs_cad, price_msrp, price_dist_cad, current_stock, reorder_threshold, max_capacity, is_active, notes')
+        .order('sku')
+
+      console.log('=== BACKUP DEBUG ===')
+      console.log('products count:', products?.length)
+      console.log('first product:', products?.[0])
+
+      if (!products || products.length === 0) {
+        alert('No products data found!')
+        return
+      }
+
+      const { invoices, invoiceItems, creditMemos, creditMemoItems, customers, suppliers, rawMaterials, packaging, expenses, purchaseOrders, production } = await fetchAll()
       const wb = XLSX.utils.book_new()
 
       // ── 1. Products ──
@@ -131,24 +139,28 @@ export default function BackupPage() {
         'Total MFG Value', 'Total WHS Value', 'Active', 'Notes',
       ]
       const productRows = (products as any[]).map(p => [
-        p.sku ?? '',
-        p.name ?? '',
-        p.size_oz ?? 0,
-        p.barcode_upc ?? '',
-        p.barcode_itf14 ?? '',
+        String(p.sku || ''),
+        String(p.name || ''),
+        Number(p.size_oz) || 0,
+        String(p.barcode_upc || ''),
+        String(p.barcode_itf14 || ''),
         Number(p.unit_cost_cad) || 0,
         Number(p.price_whs_cad) || 0,
         Number(p.price_msrp) || 0,
         Number(p.price_dist_cad) || 0,
         Number(p.current_stock) || 0,
-        Math.floor((Number(p.current_stock) || 0) / 36),
+        Math.floor(Number(p.current_stock) / 36),
         Number(p.reorder_threshold) || 0,
         Number(p.max_capacity) || 0,
-        (Number(p.current_stock) || 0) * (Number(p.unit_cost_cad) || 0),
-        (Number(p.current_stock) || 0) * (Number(p.price_whs_cad) || 0),
+        Number(p.current_stock) * Number(p.unit_cost_cad),
+        Number(p.current_stock) * Number(p.price_whs_cad),
         p.is_active ? 'Yes' : 'No',
-        p.notes ?? '',
+        String(p.notes || ''),
       ])
+
+      console.log('productRows count:', productRows.length)
+      console.log('first row:', productRows[0])
+
       const productTotalRow = [
         'TOTAL', '', '', '', '', '', '', '', '',
         productRows.reduce((s, r) => s + (r[9] || 0), 0),
@@ -171,19 +183,19 @@ export default function BackupPage() {
         'WHS Price (CAD)', 'Total WHS Value',
       ]
       const fgInvRows = (products as any[]).map(p => [
-        p.sku ?? '',
-        p.name ?? '',
-        p.size_oz ?? 0,
+        String(p.sku || ''),
+        String(p.name || ''),
+        Number(p.size_oz) || 0,
         Number(p.current_stock) || 0,
-        Math.floor((Number(p.current_stock) || 0) / 36),
+        Math.floor(Number(p.current_stock) / 36),
         Number(p.reorder_threshold) || 0,
-        Math.floor((Number(p.reorder_threshold) || 0) / 36),
+        Math.floor(Number(p.reorder_threshold) / 36),
         Number(p.max_capacity) || 0,
-        Math.floor((Number(p.max_capacity) || 0) / 36),
+        Math.floor(Number(p.max_capacity) / 36),
         Number(p.unit_cost_cad) || 0,
-        (Number(p.current_stock) || 0) * (Number(p.unit_cost_cad) || 0),
+        Number(p.current_stock) * Number(p.unit_cost_cad),
         Number(p.price_whs_cad) || 0,
-        (Number(p.current_stock) || 0) * (Number(p.price_whs_cad) || 0),
+        Number(p.current_stock) * Number(p.price_whs_cad),
       ])
       const fgInvTotalRow = [
         'TOTAL', '', '',
