@@ -122,11 +122,13 @@ export default function Purchasing() {
 
   // Attachments
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const createFileInputRef = useRef<HTMLInputElement>(null)
   const [poAttachments, setPoAttachments] = useState<Record<string, POAttachment[]>>({})
   const [showAttachments, setShowAttachments] = useState(false)
   const [attachmentPO, setAttachmentPO] = useState<PO | null>(null)
-  const [attachmentFiles, setAttachmentFiles] = useState<FileList | null>(null)
+  const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
+  const [createAttachFiles, setCreateAttachFiles] = useState<File[]>([])
 
   useEffect(() => { fetchAll() }, [])
 
@@ -134,8 +136,8 @@ export default function Purchasing() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       if (showDeleteConfirm) { setShowDeleteConfirm(false); return }
-      if (showAttachments) { setShowAttachments(false); setAttachmentFiles(null); return }
-      if (showCreate) { setShowCreate(false); setCreateError(''); return }
+      if (showAttachments) { setShowAttachments(false); setAttachmentFiles([]); return }
+      if (showCreate) { setShowCreate(false); setCreateError(''); setCreateAttachFiles([]); return }
       if (showDetail) { setShowDetail(false); setUpdateError(''); return }
     }
     window.addEventListener('keydown', onKey)
@@ -157,7 +159,6 @@ export default function Purchasing() {
     setPOs(posRes.data || [])
     setSuppliers(suppRes.data || [])
 
-    // Merge raw materials + packaging into unified materials list
     const raw: Material[] = (rawRes.data || []).map(m => ({
       id: m.id, item_no: m.item_no, name: m.name, unit: m.unit,
       cost_per_unit: m.cost_per_unit_cad ?? 0, material_type: 'raw_material',
@@ -184,7 +185,6 @@ export default function Purchasing() {
     setLoading(false)
   }
 
-  // Supplier 선택 시 전체 자재 리스트 로드 (invoice의 handleCustomerChange 패턴)
   function handleSupplierChange(supplierId: string) {
     const supplier = suppliers.find(s => s.id === supplierId) || null
     setCreateSupplier(supplier)
@@ -225,6 +225,12 @@ export default function Purchasing() {
   const createTotal = createSubtotal + createShipping + createBrokerage + createDuty
   const createExchangeRate = createForm.amount_usd && createForm.amount_cad && parseFloat(createForm.amount_usd) > 0
     ? (parseFloat(createForm.amount_cad) / parseFloat(createForm.amount_usd)).toFixed(4) : null
+
+  function closeCreate() {
+    setShowCreate(false)
+    setCreateError('')
+    setCreateAttachFiles([])
+  }
 
   async function handleCreate() {
     setCreateError('')
@@ -275,12 +281,26 @@ export default function Purchasing() {
       return
     }
 
+    // Upload attachments — best effort, PO is already created
+    for (const file of createAttachFiles) {
+      const path = `${poData.id}/${Date.now()}_${file.name}`
+      const { error: uploadError } = await supabase.storage.from('purchase-invoices').upload(path, file)
+      if (uploadError) continue
+      const { data: urlData } = supabase.storage.from('purchase-invoices').getPublicUrl(path)
+      await supabase.from('purchase_order_attachments').insert({
+        po_id: poData.id,
+        file_name: file.name,
+        file_url: urlData.publicUrl,
+      })
+    }
+
     setSaving(false)
     setShowCreate(false)
     setCreateError('')
     setCreateForm({ supplier_id: '', ordered_at: new Date().toISOString().slice(0, 10), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '' })
     setCreateLineItems([])
     setCreateSupplier(null)
+    setCreateAttachFiles([])
     fetchAll()
   }
 
@@ -301,7 +321,6 @@ export default function Purchasing() {
     })
     setUpdateError('')
 
-    // 기존 PO items 로드 후 전체 자재 리스트에 qty 매핑 (invoice openEditModal 패턴)
     const { data: freshItems } = await supabase
       .from('purchase_order_items')
       .select('id, po_id, material_type, material_id, quantity, unit_price')
@@ -361,7 +380,6 @@ export default function Purchasing() {
     const exchangeRate = editForm.amount_usd && editForm.amount_cad && parseFloat(editForm.amount_usd) > 0
       ? parseFloat(editForm.amount_cad) / parseFloat(editForm.amount_usd) : detailPO.exchange_rate ?? null
 
-    // Status 변경 시 날짜 자동 처리
     const updatePayload: Record<string, unknown> = {
       supplier_id: editForm.supplier_id,
       ordered_at: editForm.ordered_at,
@@ -382,7 +400,6 @@ export default function Purchasing() {
     const { error } = await supabase.from('purchase_orders').update(updatePayload).eq('id', detailPO.id)
     if (error) { setUpdateError(error.message); setUpdating(false); return }
 
-    // items 전체 교체 (invoice 패턴)
     await supabase.from('purchase_order_items').delete().eq('po_id', detailPO.id)
     await supabase.from('purchase_order_items').insert(
       activeEditItems.map(item => ({
@@ -394,7 +411,6 @@ export default function Purchasing() {
       }))
     )
 
-    // Received 상태로 변경 시 재고 업데이트
     if (editForm.status === 'received' && detailPO.status !== 'received') {
       for (const item of activeEditItems) {
         if (item.material_type === 'raw_material') {
@@ -436,14 +452,14 @@ export default function Purchasing() {
   function openAttachments(e: React.MouseEvent, po: PO) {
     e.stopPropagation()
     setAttachmentPO(po)
-    setAttachmentFiles(null)
+    setAttachmentFiles([])
     setShowAttachments(true)
   }
 
   async function handleUploadAttachments() {
-    if (!attachmentPO || !attachmentFiles || attachmentFiles.length === 0) return
+    if (!attachmentPO || attachmentFiles.length === 0) return
     setUploadingAttachment(true)
-    for (const file of Array.from(attachmentFiles)) {
+    for (const file of attachmentFiles) {
       const path = `${attachmentPO.id}/${Date.now()}_${file.name}`
       const { error: uploadError } = await supabase.storage.from('purchase-invoices').upload(path, file)
       if (uploadError) continue
@@ -454,8 +470,7 @@ export default function Purchasing() {
         file_url: urlData.publicUrl,
       })
     }
-    setAttachmentFiles(null)
-    if (fileInputRef.current) fileInputRef.current.value = ''
+    setAttachmentFiles([])
     setUploadingAttachment(false)
     fetchAll()
   }
@@ -487,7 +502,7 @@ export default function Purchasing() {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search supplier, item, status...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
         </div>
         <button
-          onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ supplier_id: '', ordered_at: new Date().toISOString().slice(0, 10), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '' }); setCreateLineItems([]); setCreateSupplier(null) }}
+          onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ supplier_id: '', ordered_at: new Date().toISOString().slice(0, 10), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '' }); setCreateLineItems([]); setCreateSupplier(null); setCreateAttachFiles([]) }}
           style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}
         >
           <Plus size={16} /> New PO
@@ -552,14 +567,14 @@ export default function Purchasing() {
 
       {/* ── Create PO Modal ── */}
       {showCreate && (
-        <div className="modal-overlay" onClick={() => { setShowCreate(false); setCreateError('') }}
+        <div className="modal-overlay" onClick={closeCreate}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '20px' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()}
             style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '900px', margin: '20px auto' }}>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>New Purchase Order</h2>
-              <button onClick={() => { setShowCreate(false); setCreateError('') }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
+              <button onClick={closeCreate} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
             </div>
 
             {/* Supplier + Date */}
@@ -577,7 +592,7 @@ export default function Purchasing() {
               </div>
             </div>
 
-            {/* Materials table — invoice 패턴과 동일 */}
+            {/* Materials table */}
             {createSupplier && (
               <div style={{ marginBottom: '20px' }}>
                 <label style={{ ...lbl, marginBottom: '8px' }}>Materials — enter qty for items to include</label>
@@ -685,12 +700,41 @@ export default function Purchasing() {
               <textarea value={createForm.notes} onChange={e => setCreateForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder='Optional notes...' style={{ ...inp, resize: 'vertical', fontFamily: 'inherit' }} />
             </div>
 
+            {/* Attachments */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={lbl}>Attachments</label>
+              <input ref={createFileInputRef} type='file' multiple style={{ display: 'none' }}
+                onChange={e => {
+                  if (e.target.files) {
+                    setCreateAttachFiles(prev => [...prev, ...Array.from(e.target.files!)])
+                    e.target.value = ''
+                  }
+                }} />
+              <button type='button' onClick={() => createFileInputRef.current?.click()}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', cursor: 'pointer', fontSize: '13px', color: '#374151' }}>
+                <Paperclip size={14} /> Choose Files
+              </button>
+              {createAttachFiles.length > 0 && (
+                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {createAttachFiles.map((f, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '13px' }}>
+                      <span style={{ color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{f.name}</span>
+                      <button type='button' onClick={() => setCreateAttachFiles(prev => prev.filter((_, j) => j !== i))}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '2px 4px', marginLeft: '8px', flexShrink: 0 }}>
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {createError && (
               <div style={{ marginBottom: '14px', padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '13px', color: '#dc2626' }}>{createError}</div>
             )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button onClick={() => { setShowCreate(false); setCreateError('') }} style={{ padding: '9px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={closeCreate} style={{ padding: '9px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
               <button onClick={handleCreate} disabled={saving} style={{ padding: '9px 20px', background: saving ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: saving ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
                 {saving ? 'Saving...' : 'Create PO'}
               </button>
@@ -871,14 +915,14 @@ export default function Purchasing() {
 
       {/* ── Attachments Modal ── */}
       {showAttachments && attachmentPO && (
-        <div className="modal-overlay" onClick={() => { setShowAttachments(false); setAttachmentFiles(null) }}
+        <div className="modal-overlay" onClick={() => { setShowAttachments(false); setAttachmentFiles([]) }}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 250, padding: '20px' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()}
             style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '520px' }}>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h3 style={{ fontSize: '16px', fontWeight: '600', margin: 0 }}>Attachments</h3>
-              <button onClick={() => { setShowAttachments(false); setAttachmentFiles(null) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
+              <button onClick={() => { setShowAttachments(false); setAttachmentFiles([]) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
             </div>
 
             {(poAttachments[attachmentPO.id] || []).length === 0 ? (
@@ -905,20 +949,39 @@ export default function Purchasing() {
               </div>
             )}
 
-            <div style={{ border: '1px dashed #cbd5e1', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
-              <input ref={fileInputRef} type='file' multiple onChange={e => setAttachmentFiles(e.target.files)}
-                style={{ display: 'block', fontSize: '14px', width: '100%' }} />
-              {attachmentFiles && attachmentFiles.length > 0 && (
-                <div style={{ marginTop: '8px', fontSize: '13px', color: '#64748b' }}>{attachmentFiles.length} file(s) selected</div>
+            <div style={{ marginBottom: '16px' }}>
+              <input ref={fileInputRef} type='file' multiple style={{ display: 'none' }}
+                onChange={e => {
+                  if (e.target.files) {
+                    setAttachmentFiles(prev => [...prev, ...Array.from(e.target.files!)])
+                    e.target.value = ''
+                  }
+                }} />
+              <button type='button' onClick={() => fileInputRef.current?.click()}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', cursor: 'pointer', fontSize: '13px', color: '#374151' }}>
+                <Paperclip size={14} /> Choose Files
+              </button>
+              {attachmentFiles.length > 0 && (
+                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {attachmentFiles.map((f, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '13px' }}>
+                      <span style={{ color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{f.name}</span>
+                      <button type='button' onClick={() => setAttachmentFiles(prev => prev.filter((_, j) => j !== i))}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '2px 4px', marginLeft: '8px', flexShrink: 0 }}>
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button onClick={() => { setShowAttachments(false); setAttachmentFiles(null) }}
+              <button onClick={() => { setShowAttachments(false); setAttachmentFiles([]) }}
                 style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Close</button>
               <button onClick={handleUploadAttachments}
-                disabled={uploadingAttachment || !attachmentFiles || attachmentFiles.length === 0}
-                style={{ padding: '8px 16px', background: uploadingAttachment || !attachmentFiles || attachmentFiles.length === 0 ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: uploadingAttachment || !attachmentFiles || attachmentFiles.length === 0 ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
+                disabled={uploadingAttachment || attachmentFiles.length === 0}
+                style={{ padding: '8px 16px', background: uploadingAttachment || attachmentFiles.length === 0 ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: uploadingAttachment || attachmentFiles.length === 0 ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
                 {uploadingAttachment ? 'Uploading...' : 'Upload'}
               </button>
             </div>
