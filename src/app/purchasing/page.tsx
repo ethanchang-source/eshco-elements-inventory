@@ -54,8 +54,6 @@ interface POItem {
   material_id: string
   quantity: number
   unit_price: number
-  raw_materials?: { item_no: string; name: string; unit: string }
-  packaging?: { item_no: string; name: string; type?: string }
 }
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; label: string }> = {
@@ -128,7 +126,7 @@ export default function Purchasing() {
       supabase.from('suppliers').select('id, name').order('name'),
       supabase.from('raw_materials').select('id, item_no, name, unit, cost_per_unit_cad').order('item_no'),
       supabase.from('packaging').select('id, item_no, name, type, cost_cad').order('item_no'),
-      supabase.from('purchase_order_items').select('*, raw_materials(item_no, name, unit), packaging(item_no, name)'),
+      supabase.from('purchase_order_items').select('id, po_id, material_type, material_id, quantity, unit_price'),
     ])
     setPOs(posRes.data || [])
     setSuppliers(suppRes.data || [])
@@ -273,7 +271,7 @@ export default function Purchasing() {
     // 기존 PO items 로드 후 전체 자재 리스트에 qty 매핑 (invoice openEditModal 패턴)
     const { data: freshItems } = await supabase
       .from('purchase_order_items')
-      .select('*, raw_materials(id, item_no, name, unit), packaging(id, item_no, name)')
+      .select('id, po_id, material_type, material_id, quantity, unit_price')
       .eq('po_id', po.id)
 
     const existingMap: Record<string, { qty: number; unit_price: number }> = {}
@@ -396,11 +394,8 @@ export default function Purchasing() {
     const items = poItems[po.id]
     if (!items || items.length === 0) return '—'
     if (items.length === 1) {
-      const item = items[0]
-      const label = item.material_type === 'raw_material'
-        ? item.raw_materials ? `${item.raw_materials.item_no} — ${item.raw_materials.name}` : '—'
-        : item.packaging ? `${item.packaging.item_no} — ${item.packaging.name}` : '—'
-      return label
+      const mat = materials.find(m => m.id === items[0].material_id)
+      return mat ? `${mat.item_no} — ${mat.name}` : '—'
     }
     return `${items.length} items`
   }
@@ -707,7 +702,7 @@ export default function Purchasing() {
                     </tr>
                   </thead>
                   <tbody>
-                    {editLineItems.map((item, idx) => (
+                    {(isReadOnly ? editLineItems.filter(item => item.qty > 0) : editLineItems).map((item, idx) => (
                       <tr key={item.material_id} style={{ borderBottom: '1px solid #f1f5f9', background: item.qty > 0 ? '#f0fdf4' : idx % 2 === 0 ? '#fff' : '#fafafa' }}>
                         <td style={{ padding: '7px 14px' }}>
                           <span style={{ fontSize: '11px', padding: '2px 7px', borderRadius: '10px', fontWeight: '500', background: item.material_type === 'raw_material' ? '#eff6ff' : '#fef3c7', color: item.material_type === 'raw_material' ? '#2563eb' : '#d97706' }}>
