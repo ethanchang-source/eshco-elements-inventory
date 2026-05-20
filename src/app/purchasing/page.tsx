@@ -1,16 +1,51 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
-import { ShoppingCart, Plus, Search, X, Trash2, Clock, Paperclip } from 'lucide-react'
-import { logActivity } from '@/lib/activityLog'
-import UndoToast from '@/components/UndoToast'
+import { ShoppingCart, Plus, Search, X, Trash2, Paperclip } from 'lucide-react'
 
 interface Supplier { id: string; name: string }
-interface RawMaterial { id: string; item_no: string; name: string; unit: string; cost_per_unit_cad: number }
-interface PackagingItem { id: string; item_no: string; name: string; type: string | null; cost_cad: number; module_qty?: number | null }
+
+interface Material {
+  id: string
+  item_no: string
+  name: string
+  unit: string
+  cost_per_unit: number
+  material_type: 'raw_material' | 'packaging'
+}
+
+interface POLineItem {
+  material_id: string
+  item_no: string
+  name: string
+  unit: string
+  material_type: 'raw_material' | 'packaging'
+  unit_price: number
+  qty: number
+  total: number
+}
+
+interface PO {
+  id: string
+  po_number: string | null
+  supplier_id: string
+  ordered_at: string
+  status: 'ordered' | 'shipped' | 'received' | 'cancelled'
+  cost_total_cad: number
+  shipping_cad: number | null
+  brokerage_cad: number | null
+  duty_cad: number | null
+  amount_usd: number | null
+  exchange_rate: number | null
+  notes: string | null
+  invoice_url: string | null
+  shipped_at: string | null
+  received_at: string | null
+  suppliers?: { name: string }
+}
 
 interface POItem {
   id: string
@@ -19,236 +54,96 @@ interface POItem {
   material_id: string
   quantity: number
   unit_price: number
-  line_total: number
-  raw_materials?: { item_no?: string; name: string; unit: string }
-  packaging?: { item_no?: string; name: string; type?: string }
-}
-
-interface LineItemForm {
-  material_type: 'raw_material' | 'packaging'
-  material_id: string
-  quantity: string
-  unit_price: string
-  moduleQty?: number | null
-}
-
-interface PO {
-  id: string
-  supplier_id: string
-  item_type: 'raw_material' | 'packaging'
-  raw_material_id: string | null
-  packaging_id: string | null
-  qty_ordered: number
-  qty_received: number | null
-  unit: string | null
-  cost_total_cad: number
-  shipping_cad: number | null
-  brokerage_cad: number | null
-  duty_cad: number | null
-  status: 'draft' | 'ordered' | 'shipped' | 'received' | 'cancelled'
-  ordered_at: string
-  shipped_at: string | null
-  received_at: string | null
-  notes: string | null
-  po_number: string | null
-  invoice_url?: string | null
-  amount_usd?: number | null
-  exchange_rate?: number | null
-  suppliers?: { name: string }
-  raw_materials?: { item_no: string; name: string }
-  packaging?: { item_no: string; name: string }
-}
-
-interface HistoryEntry {
-  id: string
-  ordered_at: string
-  qty_ordered: number
-  unit: string | null
-  cost_total_cad: number
-  status: string
-  suppliers?: { name: string }
+  raw_materials?: { item_no: string; name: string; unit: string }
+  packaging?: { item_no: string; name: string; type?: string }
 }
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; label: string }> = {
-  draft:     { bg: '#f1f5f9', color: '#64748b', label: 'Draft' },
   ordered:   { bg: '#eff6ff', color: '#2563eb', label: 'Ordered' },
   shipped:   { bg: '#fef3c7', color: '#d97706', label: 'Shipped' },
   received:  { bg: '#f0fdf4', color: '#16a34a', label: 'Received' },
   cancelled: { bg: '#fef2f2', color: '#dc2626', label: 'Cancelled' },
 }
 
-const emptyCreateForm = {
-  supplier_id: '',
-  ordered_at: new Date().toISOString().slice(0, 10),
-  notes: '',
-  shipping_cad: '',
-  brokerage_cad: '',
-  duty_cad: '',
-  amount_usd: '',
-  amount_cad: '',
-}
-
-const emptyEditForm = {
-  supplier_id: '',
-  item_type: 'raw_material' as 'raw_material' | 'packaging',
-  raw_material_id: '',
-  packaging_id: '',
-  qty_ordered: '',
-  unit: '',
-  cost_total_cad: '',
-  shipping_cad: '',
-  brokerage_cad: '',
-  duty_cad: '',
-  ordered_at: new Date().toISOString().slice(0, 10),
-  notes: '',
-  amount_usd: '',
-  amount_cad: '',
-}
-
-const emptyLineItem: LineItemForm = { material_type: 'raw_material', material_id: '', quantity: '', unit_price: '', moduleQty: null }
-
-function calcDays(from: string | null, to: string | null): number | null {
-  if (!from || !to) return null
-  const d = Math.round((new Date(to).getTime() - new Date(from).getTime()) / 86400000)
-  return d >= 0 ? d : null
-}
-
-const UNIT_SELECT = (value: string, onChange: (v: string) => void, style: React.CSSProperties) => (
-  <select value={value} onChange={e => onChange(e.target.value)} style={style}>
-    <option value=''>—</option>
-    <optgroup label='Volume'>
-      <option value='mL'>mL</option><option value='L'>L</option>
-      <option value='fl oz'>fl oz</option><option value='gal'>gal</option>
-    </optgroup>
-    <optgroup label='Weight'>
-      <option value='g'>g</option><option value='kg'>kg</option>
-      <option value='lb'>lb</option><option value='oz'>oz</option>
-    </optgroup>
-    <optgroup label='Count'>
-      <option value='ea'>ea</option><option value='box'>box</option>
-      <option value='case'>case</option><option value='pack'>pack</option>
-      <option value='roll'>roll</option><option value='sheet'>sheet</option>
-      <option value='bag'>bag</option><option value='bottle'>bottle</option>
-      <option value='jar'>jar</option><option value='tube'>tube</option>
-      <option value='pallet'>pallet</option>
-    </optgroup>
-    <optgroup label='Length'>
-      <option value='mm'>mm</option><option value='cm'>cm</option>
-      <option value='m'>m</option><option value='inch'>inch</option>
-      <option value='ft'>ft</option>
-    </optgroup>
-  </select>
-)
+const inp: React.CSSProperties = { width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }
+const lbl: React.CSSProperties = { display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '5px' }
+const numInp: React.CSSProperties = { ...inp, textAlign: 'right' }
 
 export default function Purchasing() {
   const [pos, setPOs] = useState<PO[]>([])
   const [poItems, setPoItems] = useState<Record<string, POItem[]>>({})
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [materials, setMaterials] = useState<Material[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [suppliers, setSuppliers] = useState<Supplier[]>([])
-  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([])
-  const [packaging, setPackaging] = useState<PackagingItem[]>([])
 
+  // Create modal
   const [showCreate, setShowCreate] = useState(false)
-  const [createForm, setCreateForm] = useState({ ...emptyCreateForm })
-  const [lineItems, setLineItems] = useState<LineItemForm[]>([{ ...emptyLineItem }])
+  const [createSupplier, setCreateSupplier] = useState<Supplier | null>(null)
+  const [createLineItems, setCreateLineItems] = useState<POLineItem[]>([])
+  const [createForm, setCreateForm] = useState({
+    supplier_id: '', ordered_at: new Date().toISOString().slice(0, 10),
+    shipping_cad: '', brokerage_cad: '', duty_cad: '',
+    amount_usd: '', amount_cad: '', notes: '',
+  })
   const [saving, setSaving] = useState(false)
   const [createError, setCreateError] = useState('')
-  const [invoiceFile, setInvoiceFile] = useState<File | null>(null)
-  const invoiceInputRef = useRef<HTMLInputElement>(null)
-  const editInvoiceInputRef = useRef<HTMLInputElement>(null)
-  const attachmentInputRef = useRef<HTMLInputElement>(null)
-  const [labelQtys, setLabelQtys] = useState<Record<string, string>>({})
-  const [labelPrices, setLabelPrices] = useState<Record<string, string>>({})
-  const [detailLineItemEdits, setDetailLineItemEdits] = useState<Record<string, { quantity: string; unit_price: string }>>({})
 
+  // Detail/Edit modal
   const [showDetail, setShowDetail] = useState(false)
-  const [detail, setDetail] = useState<PO | null>(null)
-  const [editForm, setEditForm] = useState({ ...emptyEditForm })
-  const [updateError, setUpdateError] = useState('')
+  const [detailPO, setDetailPO] = useState<PO | null>(null)
+  const [editLineItems, setEditLineItems] = useState<POLineItem[]>([])
+  const [editForm, setEditForm] = useState({
+    supplier_id: '', ordered_at: '', status: 'ordered',
+    shipping_cad: '', brokerage_cad: '', duty_cad: '',
+    amount_usd: '', amount_cad: '', notes: '',
+    shipped_at: '', received_at: '',
+  })
   const [updating, setUpdating] = useState(false)
+  const [updateError, setUpdateError] = useState('')
 
-  const [showStatusModal, setShowStatusModal] = useState(false)
-  const [pendingStatus, setPendingStatus] = useState<'shipped' | 'received' | 'cancelled' | 'ordered'>('shipped')
-  const [statusDate, setStatusDate] = useState(new Date().toISOString().slice(0, 10))
-  const [statusTransitioning, setStatusTransitioning] = useState(false)
-
+  // Delete
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [deleteError, setDeleteError] = useState('')
-
-  const [showRollbackConfirm, setShowRollbackConfirm] = useState(false)
-  const [pendingRollbackStatus, setPendingRollbackStatus] = useState<'ordered' | 'shipped'>('ordered')
-  const [rollbackTransitioning, setRollbackTransitioning] = useState(false)
-
-  const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
-
-  const [showHistory, setShowHistory] = useState(false)
-  const [historyLabel, setHistoryLabel] = useState('')
-  const [historyData, setHistoryData] = useState<HistoryEntry[]>([])
-  const [historyLoading, setHistoryLoading] = useState(false)
-
-  const [showAttachment, setShowAttachment] = useState(false)
-  const [attachmentPO, setAttachmentPO] = useState<PO | null>(null)
-  const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
-  const [attachmentUploading, setAttachmentUploading] = useState(false)
-  const [attachmentError, setAttachmentError] = useState('')
 
   useEffect(() => { fetchAll() }, [])
 
   useEffect(() => {
-    const channel = supabase
-      .channel('purchasing-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'purchase_orders' }, () => fetchAll())
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [])
-
-  useEffect(() => {
-    const selectedName = suppliers.find(s => s.id === createForm.supplier_id)?.name || ''
-    if (selectedName === 'Digital Labels') {
-      const items = packaging.filter(p => p.item_no.startsWith('LABEL-'))
-      setLabelPrices(prev => {
-        const next = { ...prev }
-        for (const item of items) {
-          if (!(item.id in next)) next[item.id] = item.cost_cad != null ? String(item.cost_cad) : ''
-        }
-        return next
-      })
-    }
-  }, [createForm.supplier_id, suppliers, packaging])
-
-  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      if (showAttachment) { setShowAttachment(false); return }
-      if (showHistory) { setShowHistory(false); return }
-      if (showRollbackConfirm) { setShowRollbackConfirm(false); return }
-      if (showDeleteConfirm) { setShowDeleteConfirm(false); setDeleteError(''); return }
-      if (showStatusModal) { setShowStatusModal(false); return }
+      if (showDeleteConfirm) { setShowDeleteConfirm(false); return }
       if (showCreate) { setShowCreate(false); setCreateError(''); return }
       if (showDetail) { setShowDetail(false); setUpdateError(''); return }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [showCreate, showDetail, showStatusModal, showDeleteConfirm, showHistory, showRollbackConfirm, showAttachment])
+  }, [showCreate, showDetail, showDeleteConfirm])
 
   async function fetchAll() {
     const [posRes, suppRes, rawRes, pkgRes, itemsRes] = await Promise.all([
-      supabase
-        .from('purchase_orders')
-        .select('*, suppliers(name), raw_materials(item_no, name), packaging(item_no, name)')
+      supabase.from('purchase_orders')
+        .select('*, suppliers(name)')
         .is('deleted_at', null)
         .order('ordered_at', { ascending: false }),
       supabase.from('suppliers').select('id, name').order('name'),
       supabase.from('raw_materials').select('id, item_no, name, unit, cost_per_unit_cad').order('item_no'),
-      supabase.from('packaging').select('id, item_no, name, type, cost_cad, module_qty').order('item_no'),
+      supabase.from('packaging').select('id, item_no, name, type, cost_cad').order('item_no'),
       supabase.from('purchase_order_items').select('*, raw_materials(item_no, name, unit), packaging(item_no, name)'),
     ])
     setPOs(posRes.data || [])
     setSuppliers(suppRes.data || [])
-    setRawMaterials(rawRes.data || [])
-    setPackaging(pkgRes.data || [])
+
+    // Merge raw materials + packaging into unified materials list
+    const raw: Material[] = (rawRes.data || []).map(m => ({
+      id: m.id, item_no: m.item_no, name: m.name, unit: m.unit,
+      cost_per_unit: m.cost_per_unit_cad ?? 0, material_type: 'raw_material',
+    }))
+    const pkg: Material[] = (pkgRes.data || []).map(p => ({
+      id: p.id, item_no: p.item_no, name: p.name, unit: p.type || 'ea',
+      cost_per_unit: p.cost_cad ?? 0, material_type: 'packaging',
+    }))
+    setMaterials([...raw, ...pkg])
+
     const grouped: Record<string, POItem[]> = {}
     for (const item of (itemsRes.data || []) as POItem[]) {
       if (!grouped[item.po_id]) grouped[item.po_id] = []
@@ -258,225 +153,94 @@ export default function Purchasing() {
     setLoading(false)
   }
 
-  async function fetchMaterialHistory(itemType: 'raw_material' | 'packaging', itemId: string, label: string) {
-    setHistoryLabel(label)
-    setHistoryData([])
-    setHistoryLoading(true)
-    setShowHistory(true)
-    const col = itemType === 'raw_material' ? 'raw_material_id' : 'packaging_id'
-    const { data } = await supabase
-      .from('purchase_orders')
-      .select('id, ordered_at, qty_ordered, unit, cost_total_cad, status, suppliers(name)')
-      .eq(col, itemId)
-      .order('ordered_at', { ascending: false })
-    setHistoryData((data || []) as HistoryEntry[])
-    setHistoryLoading(false)
+  // Supplier 선택 시 전체 자재 리스트 로드 (invoice의 handleCustomerChange 패턴)
+  function handleSupplierChange(supplierId: string) {
+    const supplier = suppliers.find(s => s.id === supplierId) || null
+    setCreateSupplier(supplier)
+    setCreateForm(prev => ({ ...prev, supplier_id: supplierId }))
+    setCreateLineItems(materials.map(m => ({
+      material_id: m.id,
+      item_no: m.item_no,
+      name: m.name,
+      unit: m.unit,
+      material_type: m.material_type,
+      unit_price: m.cost_per_unit,
+      qty: 0,
+      total: 0,
+    })))
   }
 
-  function getMaterialLabel(po: PO): string {
-    if (po.item_type === 'raw_material' && po.raw_materials) return `${po.raw_materials.item_no} — ${po.raw_materials.name}`
-    if (po.item_type === 'packaging' && po.packaging) return `${po.packaging.item_no} — ${po.packaging.name}`
-    return '—'
-  }
-
-  function getPODisplayLabel(po: PO): string {
-    const items = poItems[po.id]
-    if (items && items.length > 0) {
-      if (items.length === 1) {
-        const item = items[0]
-        if (item.material_type === 'raw_material' && item.raw_materials) return `${item.raw_materials.item_no} — ${item.raw_materials.name}`
-        if (item.material_type === 'packaging' && item.packaging) return `${item.packaging.item_no} — ${item.packaging.name}`
-      }
-      return `${items.length} items`
-    }
-    return getMaterialLabel(po)
-  }
-
-  function getLineItemLabel(item: POItem): string {
-    if (item.material_type === 'raw_material' && item.raw_materials)
-      return item.raw_materials.item_no ? `${item.raw_materials.item_no} — ${item.raw_materials.name}` : item.raw_materials.name
-    if (item.material_type === 'packaging' && item.packaging)
-      return item.packaging.item_no ? `${item.packaging.item_no} — ${item.packaging.name}` : item.packaging.name
-    return item.material_id
-  }
-
-  function updateLineItem(index: number, field: keyof LineItemForm, value: string) {
-    setLineItems(prev => {
+  function updateCreateQty(index: number, qty: number) {
+    setCreateLineItems(prev => {
       const updated = [...prev]
-      const item = { ...updated[index], [field]: value }
-      if (field === 'material_type') { item.material_id = ''; item.unit_price = ''; item.moduleQty = null }
-      if (field === 'material_id') {
-        if (item.material_type === 'raw_material') {
-          const mat = rawMaterials.find(m => m.id === value)
-          if (mat?.cost_per_unit_cad != null) item.unit_price = String(mat.cost_per_unit_cad)
-          item.moduleQty = null
-        } else {
-          const pkg = packaging.find(p => p.id === value)
-          if (pkg?.cost_cad != null) item.unit_price = String(pkg.cost_cad)
-          item.moduleQty = pkg?.module_qty ?? null
-        }
-      }
-      updated[index] = item
+      updated[index] = { ...updated[index], qty, total: updated[index].unit_price * qty }
       return updated
     })
   }
 
-  async function openDetail(po: PO) {
-    setDetail(po)
-    setEditForm({
-      supplier_id: po.supplier_id,
-      item_type: po.item_type,
-      raw_material_id: po.raw_material_id || '',
-      packaging_id: po.packaging_id || '',
-      qty_ordered: String(po.qty_ordered),
-      unit: po.unit || '',
-      cost_total_cad: String(po.cost_total_cad ?? ''),
-      shipping_cad: po.shipping_cad != null ? String(po.shipping_cad) : '',
-      brokerage_cad: po.brokerage_cad != null ? String(po.brokerage_cad) : '',
-      duty_cad: po.duty_cad != null ? String(po.duty_cad) : '',
-      ordered_at: po.ordered_at,
-      notes: po.notes || '',
-      amount_usd: po.amount_usd != null ? String(po.amount_usd) : '',
-      amount_cad: '',
+  function updateCreatePrice(index: number, price: number) {
+    setCreateLineItems(prev => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], unit_price: price, total: price * updated[index].qty }
+      return updated
     })
-    setUpdateError('')
-
-    // Always fetch fresh items from DB before opening modal (invoices pattern — eliminates race condition)
-    const { data: freshItems, error: itemsErr } = await supabase
-      .from('purchase_order_items')
-      .select('*, raw_materials(id, item_no, name, unit), packaging(id, item_no, name, type)')
-      .eq('po_id', po.id)
-
-    if (itemsErr) {
-      console.error('[openDetail] Failed to fetch PO items:', itemsErr)
-    }
-
-    const items = (freshItems || []) as POItem[]
-    console.log(`[openDetail] PO ${po.id} — fetched ${items.length} line item(s):`, items)
-
-    setPoItems(prev => ({ ...prev, [po.id]: items }))
-    const editMap: Record<string, { quantity: string; unit_price: string }> = {}
-    for (const item of items) {
-      editMap[item.id] = { quantity: String(item.quantity), unit_price: String(item.unit_price ?? 0) }
-    }
-    setDetailLineItemEdits(editMap)
-    setShowDetail(true) // Open modal only after data is ready
   }
+
+  const activeCreateItems = createLineItems.filter(item => item.qty > 0)
+  const createSubtotal = activeCreateItems.reduce((s, i) => s + i.total, 0)
+  const createShipping = parseFloat(createForm.shipping_cad || '0') || 0
+  const createBrokerage = parseFloat(createForm.brokerage_cad || '0') || 0
+  const createDuty = parseFloat(createForm.duty_cad || '0') || 0
+  const createTotal = createSubtotal + createShipping + createBrokerage + createDuty
+  const createExchangeRate = createForm.amount_usd && createForm.amount_cad && parseFloat(createForm.amount_usd) > 0
+    ? (parseFloat(createForm.amount_cad) / parseFloat(createForm.amount_usd)).toFixed(4) : null
 
   async function handleCreate() {
     setCreateError('')
     if (!createForm.supplier_id) { setCreateError('Please select a supplier.'); return }
-    if (!createForm.ordered_at) { setCreateError('Please enter an order date.'); return }
-
-    async function uploadInvoice(): Promise<string | null> {
-      if (!invoiceFile) return null
-      const ext = invoiceFile.name.split('.').pop()
-      const path = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
-      const { error: uploadErr } = await supabase.storage.from('purchase-invoices').upload(path, invoiceFile)
-      if (uploadErr) { console.error('Invoice upload error:', uploadErr); return null }
-      const { data: urlData } = supabase.storage.from('purchase-invoices').getPublicUrl(path)
-      return urlData.publicUrl
-    }
-
-    type ItemInsert = { material_type: string; material_id: string; quantity: number; unit_price: number }
-    let itemsToInsert: ItemInsert[]
-
-    if (isDigitalLabels) {
-      const filtered = labelItems.filter(item => parseFloat(labelQtys[item.id] || '0') > 0)
-      if (filtered.length === 0) { setCreateError('Please enter a quantity for at least one label item.'); return }
-      itemsToInsert = filtered.map(item => {
-        const qty = parseFloat(labelQtys[item.id])
-        const unitPrice = parseFloat(labelPrices[item.id] || '0') || (item.cost_cad || 0)
-        return { material_type: 'packaging', material_id: item.id, quantity: qty, unit_price: unitPrice }
-      })
-    } else {
-      const valid = lineItems.filter(li => li.material_id && Number(li.quantity) > 0)
-      if (valid.length === 0) { setCreateError('Please add at least one item with a material and quantity.'); return }
-      itemsToInsert = valid.map(li => {
-        const qtyInput = Number(li.quantity) || 0
-        const qty = li.material_type === 'raw_material'
-          ? qtyInput * 1000
-          : (li.moduleQty && li.moduleQty > 1 ? qtyInput * li.moduleQty : qtyInput)
-        const unitPrice = parseFloat(li.unit_price || '0')
-        return { material_type: li.material_type, material_id: li.material_id, quantity: qty, unit_price: unitPrice }
-      })
-    }
-
-    const itemsSubtotal = itemsToInsert.reduce((s, i) => s + i.quantity * i.unit_price, 0)
-    const shippingCad = parseFloat(createForm.shipping_cad || '0') || 0
-    const brokerageCad = parseFloat(createForm.brokerage_cad || '0') || 0
-    const dutyCad = parseFloat(createForm.duty_cad || '0') || 0
-    const costTotalCad = itemsSubtotal + shippingCad + brokerageCad + dutyCad
+    if (activeCreateItems.length === 0) { setCreateError('Please enter a quantity for at least one item.'); return }
 
     setSaving(true)
-    const invoice_url = await uploadInvoice()
     const exchangeRate = createForm.amount_usd && createForm.amount_cad && parseFloat(createForm.amount_usd) > 0
-      ? parseFloat(createForm.amount_cad) / parseFloat(createForm.amount_usd)
-      : null
+      ? parseFloat(createForm.amount_cad) / parseFloat(createForm.amount_usd) : null
 
     const { data: poData, error: poError } = await supabase.from('purchase_orders').insert([{
       supplier_id: createForm.supplier_id,
-      item_type: itemsToInsert[0].material_type,
+      item_type: activeCreateItems[0].material_type,
       raw_material_id: null,
       packaging_id: null,
       qty_ordered: 0,
-      qty_received: null,
-      unit: null,
-      cost_total_cad: costTotalCad,
-      shipping_cad: shippingCad || null,
-      brokerage_cad: brokerageCad || null,
-      duty_cad: dutyCad || null,
+      cost_total_cad: createTotal,
+      shipping_cad: createShipping || null,
+      brokerage_cad: createBrokerage || null,
+      duty_cad: createDuty || null,
       status: 'ordered',
       ordered_at: createForm.ordered_at,
       notes: createForm.notes || null,
-      invoice_url,
       amount_usd: createForm.amount_usd ? parseFloat(createForm.amount_usd) : null,
       exchange_rate: exchangeRate,
     }]).select('id').single()
-    console.log('[DEBUG] poData:', poData, 'poError:', poError)
 
     if (poError || !poData) {
-      setCreateError(poError?.message || 'Failed to create purchase order.')
+      setCreateError(poError?.message || 'Failed to create PO.')
       setSaving(false)
       return
     }
 
-    const itemsPayload = itemsToInsert.map(i => ({ ...i, po_id: poData.id }))
-    console.log('[DEBUG] itemsPayload:', JSON.stringify(itemsPayload))
-
-    const invalidItem = itemsPayload.find(i => !i.po_id || !i.material_id)
-    if (invalidItem) {
-      console.error('[handleCreate] Invalid item — missing po_id or material_id:', invalidItem)
-      alert('PO item is missing po_id or material_id:\n' + JSON.stringify(invalidItem, null, 2))
-      await supabase.from('purchase_orders').delete().eq('id', poData.id)
-      setCreateError('Failed to build PO items (missing po_id or material_id).')
-      setSaving(false)
-      return
-    }
-
-    console.log('[handleCreate] Saving items:', itemsPayload)
-
-    const { data: insertedItems, error: itemsError } = await supabase
-      .from('purchase_order_items')
-      .insert(itemsPayload)
-      .select()
-
-    console.log(`[handleCreate] PO ${poData.id} — inserted ${insertedItems?.length ?? 0} item(s):`, insertedItems)
+    const { error: itemsError } = await supabase.from('purchase_order_items').insert(
+      activeCreateItems.map(item => ({
+        po_id: poData.id,
+        material_type: item.material_type,
+        material_id: item.material_id,
+        quantity: item.qty,
+        unit_price: item.unit_price,
+        line_total: item.total,
+      }))
+    )
 
     if (itemsError) {
-      console.error('[handleCreate] Items insert error:', itemsError)
-      alert('PO items save failed: ' + itemsError.message)
+      setCreateError(itemsError.message || 'Failed to save items.')
       await supabase.from('purchase_orders').delete().eq('id', poData.id)
-      setCreateError(itemsError.message || 'Failed to create PO items.')
-      setSaving(false)
-      return
-    }
-
-    if (!insertedItems || insertedItems.length === 0) {
-      console.error('[handleCreate] Items insert silent failure — 0 rows returned, no error (check RLS on purchase_order_items)')
-      alert('PO items failed to save (0 rows inserted with no error).\nCheck Supabase RLS policies on purchase_order_items table.')
-      await supabase.from('purchase_orders').delete().eq('id', poData.id)
-      setCreateError('PO items failed to save. Please check permissions.')
       setSaving(false)
       return
     }
@@ -484,368 +248,170 @@ export default function Purchasing() {
     setSaving(false)
     setShowCreate(false)
     setCreateError('')
-    setCreateForm({ ...emptyCreateForm })
-    setLineItems([{ ...emptyLineItem }])
-    setLabelQtys({})
-    setLabelPrices({})
-    setInvoiceFile(null)
+    setCreateForm({ supplier_id: '', ordered_at: new Date().toISOString().slice(0, 10), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '' })
+    setCreateLineItems([])
+    setCreateSupplier(null)
     fetchAll()
   }
 
-  async function handleUpdate() {
-    if (!detail) return
+  async function openDetail(po: PO) {
+    setDetailPO(po)
+    setEditForm({
+      supplier_id: po.supplier_id,
+      ordered_at: po.ordered_at,
+      status: po.status,
+      shipping_cad: po.shipping_cad != null ? String(po.shipping_cad) : '',
+      brokerage_cad: po.brokerage_cad != null ? String(po.brokerage_cad) : '',
+      duty_cad: po.duty_cad != null ? String(po.duty_cad) : '',
+      amount_usd: po.amount_usd != null ? String(po.amount_usd) : '',
+      amount_cad: '',
+      notes: po.notes || '',
+      shipped_at: po.shipped_at || '',
+      received_at: po.received_at || '',
+    })
     setUpdateError('')
-    if (!editForm.supplier_id) { setUpdateError('Please select a supplier.'); return }
-    if (!editForm.ordered_at) { setUpdateError('Please enter an order date.'); return }
 
-    const isMultiItem = (poItems[detail.id]?.length ?? 0) > 0
+    // 기존 PO items 로드 후 전체 자재 리스트에 qty 매핑 (invoice openEditModal 패턴)
+    const { data: freshItems } = await supabase
+      .from('purchase_order_items')
+      .select('*, raw_materials(id, item_no, name, unit), packaging(id, item_no, name)')
+      .eq('po_id', po.id)
 
-    if (!isMultiItem) {
-      if (!editForm.qty_ordered || parseFloat(editForm.qty_ordered) <= 0) { setUpdateError('Please enter a valid quantity.'); return }
-      if (!editForm.cost_total_cad || parseFloat(editForm.cost_total_cad) < 0) { setUpdateError('Please enter the total cost.'); return }
-      if (editForm.item_type === 'raw_material' && !editForm.raw_material_id) { setUpdateError('Please select a raw material.'); return }
-      if (editForm.item_type === 'packaging' && !editForm.packaging_id) { setUpdateError('Please select a packaging item.'); return }
+    const existingMap: Record<string, { qty: number; unit_price: number }> = {}
+    for (const item of (freshItems || []) as POItem[]) {
+      existingMap[item.material_id] = { qty: item.quantity, unit_price: item.unit_price }
     }
 
-    setUpdating(true)
-    const exchangeRate = editForm.amount_usd && editForm.amount_cad
-      ? parseFloat(editForm.amount_cad) / parseFloat(editForm.amount_usd)
-      : detail.exchange_rate ?? null
+    setEditLineItems(materials.map(m => ({
+      material_id: m.id,
+      item_no: m.item_no,
+      name: m.name,
+      unit: m.unit,
+      material_type: m.material_type,
+      unit_price: existingMap[m.id]?.unit_price ?? m.cost_per_unit,
+      qty: existingMap[m.id]?.qty ?? 0,
+      total: (existingMap[m.id]?.unit_price ?? m.cost_per_unit) * (existingMap[m.id]?.qty ?? 0),
+    })))
 
+    setShowDetail(true)
+  }
+
+  function updateEditQty(index: number, qty: number) {
+    setEditLineItems(prev => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], qty, total: updated[index].unit_price * qty }
+      return updated
+    })
+  }
+
+  function updateEditPrice(index: number, price: number) {
+    setEditLineItems(prev => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], unit_price: price, total: price * updated[index].qty }
+      return updated
+    })
+  }
+
+  const activeEditItems = editLineItems.filter(item => item.qty > 0)
+  const editSubtotal = activeEditItems.reduce((s, i) => s + i.total, 0)
+  const editShipping = parseFloat(editForm.shipping_cad || '0') || 0
+  const editBrokerage = parseFloat(editForm.brokerage_cad || '0') || 0
+  const editDuty = parseFloat(editForm.duty_cad || '0') || 0
+  const editTotal = editSubtotal + editShipping + editBrokerage + editDuty
+  const editExchangeRate = editForm.amount_usd && editForm.amount_cad && parseFloat(editForm.amount_usd) > 0
+    ? (parseFloat(editForm.amount_cad) / parseFloat(editForm.amount_usd)).toFixed(4) : null
+  const isReadOnly = detailPO?.status === 'received' || detailPO?.status === 'cancelled'
+
+  async function handleUpdate() {
+    if (!detailPO) return
+    setUpdateError('')
+    if (activeEditItems.length === 0) { setUpdateError('At least one item with quantity is required.'); return }
+
+    setUpdating(true)
+    const exchangeRate = editForm.amount_usd && editForm.amount_cad && parseFloat(editForm.amount_usd) > 0
+      ? parseFloat(editForm.amount_cad) / parseFloat(editForm.amount_usd) : detailPO.exchange_rate ?? null
+
+    // Status 변경 시 날짜 자동 처리
     const updatePayload: Record<string, unknown> = {
       supplier_id: editForm.supplier_id,
       ordered_at: editForm.ordered_at,
+      status: editForm.status,
+      cost_total_cad: editTotal,
+      shipping_cad: editShipping || null,
+      brokerage_cad: editBrokerage || null,
+      duty_cad: editDuty || null,
       notes: editForm.notes || null,
-      shipping_cad: editForm.shipping_cad ? parseFloat(editForm.shipping_cad) : null,
-      brokerage_cad: editForm.brokerage_cad ? parseFloat(editForm.brokerage_cad) : null,
-      duty_cad: editForm.duty_cad ? parseFloat(editForm.duty_cad) : null,
       amount_usd: editForm.amount_usd ? parseFloat(editForm.amount_usd) : null,
       exchange_rate: exchangeRate,
+      shipped_at: editForm.status === 'shipped' || editForm.status === 'received'
+        ? (editForm.shipped_at || new Date().toISOString().slice(0, 10)) : null,
+      received_at: editForm.status === 'received'
+        ? (editForm.received_at || new Date().toISOString().slice(0, 10)) : null,
     }
 
-    if (isMultiItem) {
-      const items = poItems[detail.id] || []
-      for (const item of items) {
-        const edits = detailLineItemEdits[item.id]
-        if (edits) {
-          const qty = parseFloat(edits.quantity || '0')
-          const price = parseFloat(edits.unit_price || '0')
-          await supabase.from('purchase_order_items').update({ quantity: qty, unit_price: price }).eq('id', item.id)
+    const { error } = await supabase.from('purchase_orders').update(updatePayload).eq('id', detailPO.id)
+    if (error) { setUpdateError(error.message); setUpdating(false); return }
+
+    // items 전체 교체 (invoice 패턴)
+    await supabase.from('purchase_order_items').delete().eq('po_id', detailPO.id)
+    await supabase.from('purchase_order_items').insert(
+      activeEditItems.map(item => ({
+        po_id: detailPO.id,
+        material_type: item.material_type,
+        material_id: item.material_id,
+        quantity: item.qty,
+        unit_price: item.unit_price,
+        line_total: item.total,
+      }))
+    )
+
+    // Received 상태로 변경 시 재고 업데이트
+    if (editForm.status === 'received' && detailPO.status !== 'received') {
+      for (const item of activeEditItems) {
+        if (item.material_type === 'raw_material') {
+          const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', item.material_id).single()
+          await supabase.from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + item.qty }).eq('id', item.material_id)
+        } else {
+          const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', item.material_id).single()
+          await supabase.from('packaging').update({ current_stock: (pkg?.current_stock || 0) + item.qty }).eq('id', item.material_id)
         }
       }
-      const itemsSubtotal = items.reduce((s, i) => {
-        const edits = detailLineItemEdits[i.id]
-        if (edits) return s + parseFloat(edits.quantity || '0') * parseFloat(edits.unit_price || '0')
-        return s + (i.line_total != null ? i.line_total : i.quantity * i.unit_price)
-      }, 0)
-      const shippingCad = editForm.shipping_cad ? parseFloat(editForm.shipping_cad) : 0
-      const brokerageCad = editForm.brokerage_cad ? parseFloat(editForm.brokerage_cad) : 0
-      const dutyCad = editForm.duty_cad ? parseFloat(editForm.duty_cad) : 0
-      updatePayload.cost_total_cad = itemsSubtotal + shippingCad + brokerageCad + dutyCad
-    } else {
-      updatePayload.item_type = editForm.item_type
-      updatePayload.raw_material_id = editForm.item_type === 'raw_material' ? editForm.raw_material_id : null
-      updatePayload.packaging_id = editForm.item_type === 'packaging' ? editForm.packaging_id : null
-      updatePayload.qty_ordered = parseFloat(editForm.qty_ordered)
-      updatePayload.unit = editForm.unit || null
-      updatePayload.cost_total_cad = parseFloat(editForm.cost_total_cad) || 0
     }
 
-    const { error } = await supabase.from('purchase_orders').update(updatePayload).eq('id', detail.id)
-    if (error) { console.error('PO update error:', error); setUpdateError(error.message || 'Failed to update purchase order.'); setUpdating(false); return }
     setUpdating(false)
     setShowDetail(false)
     fetchAll()
   }
 
-  function initiateStatusChange(next: 'shipped' | 'received' | 'cancelled' | 'ordered') {
-    if (next === detail?.status) return
-    if (detail?.status === 'received' && (next === 'ordered' || next === 'shipped')) {
-      setPendingRollbackStatus(next)
-      setShowRollbackConfirm(true)
-      return
-    }
-    if (next === 'ordered') { confirmDirectStatus('ordered'); return }
-    setPendingStatus(next)
-    setStatusDate(new Date().toISOString().slice(0, 10))
-    setShowStatusModal(true)
-  }
-
-  async function confirmDirectStatus(newStatus: 'ordered') {
-    if (!detail) return
-    const { error } = await supabase.from('purchase_orders').update({ status: newStatus }).eq('id', detail.id)
-    if (error) { console.error('Status update error:', error); return }
-    setShowDetail(false)
-    fetchAll()
-  }
-
-  async function confirmStatusTransition() {
-    if (!detail) return
-    setStatusTransitioning(true)
-
-    const { data: currentPO, error: fetchErr } = await supabase
-      .from('purchase_orders').select('status').eq('id', detail.id).single()
-    if (fetchErr) { console.error('PO fetch error:', fetchErr); setStatusTransitioning(false); return }
-
-    if (currentPO?.status === 'received') {
-      setStatusTransitioning(false)
-      setShowStatusModal(false)
-      setShowDetail(false)
-      fetchAll()
-      return
-    }
-
-    const updatePayload: Record<string, unknown> = { status: pendingStatus }
-    const items = poItems[detail.id]
-    const isMultiItem = items && items.length > 0
-
-    if (pendingStatus === 'shipped') {
-      updatePayload.shipped_at = statusDate
-    } else if (pendingStatus === 'received') {
-      updatePayload.received_at = statusDate
-      if (isMultiItem) {
-        for (const item of items) {
-          if (item.material_type === 'raw_material') {
-            const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', item.material_id).single()
-            await supabase.from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
-          } else {
-            const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', item.material_id).single()
-            await supabase.from('packaging').update({ current_stock: (pkg?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
-          }
-        }
-      } else {
-        updatePayload.qty_received = detail.qty_ordered
-      }
-    }
-
-    const { error } = await supabase.from('purchase_orders').update(updatePayload).eq('id', detail.id)
-    if (error) { console.error('PO status update error:', error); setStatusTransitioning(false); return }
-
-    setStatusTransitioning(false)
-    setShowStatusModal(false)
-    setShowDetail(false)
-    fetchAll()
-  }
-
-  async function handleRollback() {
-    if (!detail) return
-    setRollbackTransitioning(true)
-
-    const items = poItems[detail.id]
-    const isMultiItem = items && items.length > 0
-
-    if (isMultiItem) {
-      for (const item of items) {
-        if (item.material_type === 'raw_material') {
-          const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', item.material_id).single()
-          await supabase.from('raw_materials').update({ current_stock: Math.max(0, (mat?.current_stock || 0) - item.quantity) }).eq('id', item.material_id)
-        } else {
-          const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', item.material_id).single()
-          await supabase.from('packaging').update({ current_stock: Math.max(0, (pkg?.current_stock || 0) - item.quantity) }).eq('id', item.material_id)
-        }
-      }
-    } else {
-      if (detail.item_type === 'raw_material' && detail.raw_material_id) {
-        const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', detail.raw_material_id).single()
-        await supabase.from('raw_materials').update({ current_stock: Math.max(0, (mat?.current_stock || 0) - detail.qty_ordered) }).eq('id', detail.raw_material_id)
-      } else if (detail.item_type === 'packaging' && detail.packaging_id) {
-        const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', detail.packaging_id).single()
-        await supabase.from('packaging').update({ current_stock: Math.max(0, (pkg?.current_stock || 0) - detail.qty_ordered) }).eq('id', detail.packaging_id)
-      }
-    }
-
-    const updatePayload: Record<string, unknown> = { status: pendingRollbackStatus, qty_received: null, received_at: null }
-    if (pendingRollbackStatus === 'ordered') updatePayload.shipped_at = null
-    await supabase.from('purchase_orders').update(updatePayload).eq('id', detail.id)
-
-    setRollbackTransitioning(false)
-    setShowRollbackConfirm(false)
-    setShowDetail(false)
-    fetchAll()
-  }
-
   async function handleDelete() {
-    if (!detail) return
+    if (!detailPO) return
     setDeleting(true)
-    setDeleteError('')
-
-    const old = { ...detail }
-    const wasReceived = old.status === 'received'
-    const items = poItems[old.id] || []
-    const isMultiItem = items.length > 0
-
-    if (wasReceived) {
-      if (isMultiItem) {
-        for (const item of items) {
-          if (item.material_type === 'raw_material') {
-            const { data: mat, error: e } = await supabase.from('raw_materials').select('current_stock').eq('id', item.material_id).single()
-            if (e) { setDeleteError(e.message); setDeleting(false); return }
-            await supabase.from('raw_materials').update({ current_stock: Math.max(0, (mat?.current_stock || 0) - item.quantity) }).eq('id', item.material_id)
-          } else {
-            const { data: pkg, error: e } = await supabase.from('packaging').select('current_stock').eq('id', item.material_id).single()
-            if (e) { setDeleteError(e.message); setDeleting(false); return }
-            await supabase.from('packaging').update({ current_stock: Math.max(0, (pkg?.current_stock || 0) - item.quantity) }).eq('id', item.material_id)
-          }
-        }
-      } else {
-        if (old.item_type === 'raw_material' && old.raw_material_id) {
-          const { data: mat, error: matErr } = await supabase.from('raw_materials').select('current_stock').eq('id', old.raw_material_id).single()
-          if (matErr) { setDeleteError(matErr.message || 'Failed to fetch stock.'); setDeleting(false); return }
-          const { error: updErr } = await supabase.from('raw_materials').update({ current_stock: Math.max(0, (mat?.current_stock || 0) - old.qty_ordered) }).eq('id', old.raw_material_id)
-          if (updErr) { setDeleteError(updErr.message || 'Failed to update raw material stock.'); setDeleting(false); return }
-        } else if (old.item_type === 'packaging' && old.packaging_id) {
-          const { data: pkg, error: pkgErr } = await supabase.from('packaging').select('current_stock').eq('id', old.packaging_id).single()
-          if (pkgErr) { setDeleteError(pkgErr.message || 'Failed to fetch stock.'); setDeleting(false); return }
-          const { error: updErr } = await supabase.from('packaging').update({ current_stock: Math.max(0, (pkg?.current_stock || 0) - old.qty_ordered) }).eq('id', old.packaging_id)
-          if (updErr) { setDeleteError(updErr.message || 'Failed to update packaging stock.'); setDeleting(false); return }
-        }
-      }
-    }
-
-    await logActivity(supabase, 'purchase_orders', old.id, 'DELETE', old)
-    if (isMultiItem) await supabase.from('purchase_order_items').delete().eq('po_id', old.id)
-    const { error } = await supabase.from('purchase_orders').delete().eq('id', old.id)
-    if (error) { setDeleteError(error.message || 'Failed to delete purchase order.'); setDeleting(false); return }
-
+    await supabase.from('purchase_order_items').delete().eq('po_id', detailPO.id)
+    await supabase.from('purchase_orders').delete().eq('id', detailPO.id)
     setDeleting(false)
     setShowDeleteConfirm(false)
     setShowDetail(false)
     fetchAll()
-    setUndoToast({
-      message: `PO "${old.po_number || old.id.slice(0, 8)}" deleted.`,
-      onUndo: async () => {
-        const { suppliers: _s, raw_materials: _r, packaging: _p, ...poRow } = old
-        await supabase.from('purchase_orders').upsert([poRow])
-        if (isMultiItem && items.length > 0) {
-          await supabase.from('purchase_order_items').insert(
-            items.map(({ id, po_id, material_type, material_id, quantity, unit_price }) =>
-              ({ id, po_id, material_type, material_id, quantity, unit_price }))
-          )
-        }
-        if (wasReceived) {
-          if (isMultiItem) {
-            for (const item of items) {
-              if (item.material_type === 'raw_material') {
-                const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', item.material_id).single()
-                await supabase.from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
-              } else {
-                const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', item.material_id).single()
-                await supabase.from('packaging').update({ current_stock: (pkg?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
-              }
-            }
-          } else {
-            if (old.item_type === 'raw_material' && old.raw_material_id) {
-              const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', old.raw_material_id).single()
-              await supabase.from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + old.qty_ordered }).eq('id', old.raw_material_id)
-            } else if (old.item_type === 'packaging' && old.packaging_id) {
-              const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', old.packaging_id).single()
-              await supabase.from('packaging').update({ current_stock: (pkg?.current_stock || 0) + old.qty_ordered }).eq('id', old.packaging_id)
-            }
-          }
-        }
-        await logActivity(supabase, 'purchase_orders', old.id, 'UPDATE', null, old)
-        setUndoToast(null)
-        fetchAll()
-      },
-    })
   }
 
-  async function handleAttachmentUpload() {
-    if (!attachmentPO || !attachmentFile) return
-    setAttachmentUploading(true)
-    setAttachmentError('')
-    const ext = attachmentFile.name.split('.').pop()
-    const path = `${attachmentPO.id}_${Date.now()}.${ext}`
-    const { error: uploadErr } = await supabase.storage.from('purchase-orders').upload(path, attachmentFile, { upsert: true })
-    if (uploadErr) {
-      setAttachmentError(uploadErr.message || 'Upload failed')
-      setAttachmentUploading(false)
-      return
+  function getPOSummary(po: PO): string {
+    const items = poItems[po.id]
+    if (!items || items.length === 0) return '—'
+    if (items.length === 1) {
+      const item = items[0]
+      const label = item.material_type === 'raw_material'
+        ? item.raw_materials ? `${item.raw_materials.item_no} — ${item.raw_materials.name}` : '—'
+        : item.packaging ? `${item.packaging.item_no} — ${item.packaging.name}` : '—'
+      return label
     }
-    const { data: urlData } = supabase.storage.from('purchase-orders').getPublicUrl(path)
-    const { error: updateErr } = await supabase.from('purchase_orders').update({ invoice_url: urlData.publicUrl }).eq('id', attachmentPO.id)
-    if (updateErr) {
-      setAttachmentError(updateErr.message || 'Failed to save attachment URL')
-      setAttachmentUploading(false)
-      return
-    }
-    setAttachmentUploading(false)
-    setAttachmentFile(null)
-    setShowAttachment(false)
-    fetchAll()
-  }
-
-  function handleTableStatusChange(po: PO, newStatus: string) {
-    if (newStatus === po.status) return
-    if (po.status === 'cancelled') return
-    setDetail(po)
-    if (po.status === 'received' && (newStatus === 'ordered' || newStatus === 'shipped')) {
-      setPendingRollbackStatus(newStatus as 'ordered' | 'shipped')
-      setShowRollbackConfirm(true)
-      return
-    }
-    setPendingStatus(newStatus as 'shipped' | 'received' | 'ordered')
-    setStatusDate(new Date().toISOString().slice(0, 10))
-    setShowStatusModal(true)
+    return `${items.length} items`
   }
 
   const filtered = pos.filter(po =>
     po.suppliers?.name?.toLowerCase().includes(search.toLowerCase()) ||
-    getPODisplayLabel(po).toLowerCase().includes(search.toLowerCase()) ||
+    getPOSummary(po).toLowerCase().includes(search.toLowerCase()) ||
     po.status?.toLowerCase().includes(search.toLowerCase())
   )
-
-  const inp: React.CSSProperties = { width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }
-  const lbl: React.CSSProperties = { display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '5px' }
-  const numInp: React.CSSProperties = { ...inp, textAlign: 'right' }
-  const roInp: React.CSSProperties = { ...inp, background: '#f8fafc', color: '#64748b' }
-
-  const selectedSupplierName = suppliers.find(s => s.id === createForm.supplier_id)?.name || ''
-  const isDigitalLabels = selectedSupplierName === 'Digital Labels'
-  const labelItems = packaging.filter(p => p.item_no.startsWith('LABEL-'))
-
-  const isReadOnly = detail?.status !== 'ordered' && detail?.status !== 'shipped'
-  const detailItems = detail ? (poItems[detail.id] || []) : []
-  const detailIsMultiItem = detailItems.length > 0
-
-  const lineItemsSubtotal = lineItems.reduce((s, li) => {
-    const qtyInput = parseFloat(li.quantity || '0')
-    const qty = li.material_type === 'raw_material'
-      ? qtyInput * 1000
-      : (li.moduleQty && li.moduleQty > 1 ? qtyInput * li.moduleQty : qtyInput)
-    return s + qty * parseFloat(li.unit_price || '0')
-  }, 0)
-  const createShipping = parseFloat(createForm.shipping_cad || '0') || 0
-  const createBrokerage = parseFloat(createForm.brokerage_cad || '0') || 0
-  const createDuty = parseFloat(createForm.duty_cad || '0') || 0
-  const createGrandTotal = lineItemsSubtotal + createShipping + createBrokerage + createDuty
-
-  const labelSubtotal = labelItems.reduce((s, item) => {
-    const qty = parseFloat(labelQtys[item.id] || '0')
-    const price = parseFloat(labelPrices[item.id] ?? String(item.cost_cad || 0))
-    return s + qty * price
-  }, 0)
-
-  const createExchangeRate = createForm.amount_usd && createForm.amount_cad && parseFloat(createForm.amount_usd) > 0
-    ? (parseFloat(createForm.amount_cad) / parseFloat(createForm.amount_usd)).toFixed(4)
-    : null
-  const editExchangeRate = editForm.amount_usd && editForm.amount_cad && parseFloat(editForm.amount_usd) > 0
-    ? (parseFloat(editForm.amount_cad) / parseFloat(editForm.amount_usd)).toFixed(4)
-    : null
-
-  const supplierSummary = historyData.reduce((acc, row) => {
-    if (row.status === 'received') {
-      const s = row.suppliers?.name || 'Unknown'
-      if (!acc[s]) acc[s] = { totalCost: 0, totalQty: 0 }
-      acc[s].totalCost += row.cost_total_cad || 0
-      acc[s].totalQty += row.qty_ordered || 0
-    }
-    return acc
-  }, {} as Record<string, { totalCost: number; totalQty: number }>)
-
-  const editMatOpts = editForm.item_type === 'raw_material'
-    ? rawMaterials.map(m => ({ id: m.id, label: `${m.item_no} — ${m.name}${m.unit ? ` (${m.unit})` : ''}` }))
-    : packaging.map(p => ({ id: p.id, label: `${p.item_no} — ${p.name}${p.type ? ` [${p.type}]` : ''}` }))
 
   return (
     <MainLayout>
@@ -853,24 +419,21 @@ export default function Purchasing() {
         @media (max-width: 640px) {
           .modal-overlay { align-items: flex-start !important; padding: 0 !important; }
           .modal-box { border-radius: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; min-height: 100svh; }
-          .modal-grid-2, .modal-grid-3, .modal-grid-4 { grid-template-columns: 1fr !important; }
         }
       `}</style>
 
-      {/* Header row */}
+      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', width: '300px' }}>
           <Search size={16} color='#94a3b8' />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search supplier, material, status...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search supplier, item, status...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ ...emptyCreateForm }); setLineItems([{ ...emptyLineItem }]); setLabelQtys({}); setLabelPrices({}); setInvoiceFile(null) }}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}
-          >
-            <Plus size={16} /> New PO
-          </button>
-        </div>
+        <button
+          onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ supplier_id: '', ordered_at: new Date().toISOString().slice(0, 10), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '' }); setCreateLineItems([]); setCreateSupplier(null) }}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}
+        >
+          <Plus size={16} /> New PO
+        </button>
       </div>
 
       {/* PO Table */}
@@ -883,87 +446,37 @@ export default function Purchasing() {
         </div>
       ) : (
         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', minWidth: '1000px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', minWidth: '800px' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                {['Supplier', 'Items', 'Cost (CAD)', 'Status', 'Order Date', 'Shipped', 'Received', 'Lead Time', ''].map((h, i) => (
+                {['Supplier', 'Items', 'Cost (CAD)', 'Status', 'Order Date', 'Shipped', 'Received', ''].map((h, i) => (
                   <th key={i} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {filtered.map((po, i) => {
-                const st = STATUS_STYLE[po.status] || STATUS_STYLE.draft
-                const os = calcDays(po.ordered_at, po.shipped_at)
-                const sr = calcDays(po.shipped_at, po.received_at)
-                const total = calcDays(po.ordered_at, po.received_at)
-                const legacyMatId = po.item_type === 'raw_material' ? po.raw_material_id : po.packaging_id
-                const rowItems = poItems[po.id]
+                const st = STATUS_STYLE[po.status] || STATUS_STYLE.ordered
                 return (
-                  <tr
-                    key={po.id}
-                    onClick={() => openDetail(po)}
-                    style={{ borderBottom: i < filtered.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer', transition: 'background 0.1s' }}
+                  <tr key={po.id} onClick={() => openDetail(po)}
+                    style={{ borderBottom: i < filtered.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer' }}
                     onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = '#f8fafc'}
                     onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}
                   >
-                    <td style={{ padding: '12px 16px', color: '#374151', fontWeight: '500' }}>{po.suppliers?.name || '—'}</td>
-                    <td style={{ padding: '12px 16px', color: '#374151' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span>{getPODisplayLabel(po)}</span>
-                        {!rowItems?.length && legacyMatId && (
-                          <button
-                            onClick={e => { e.stopPropagation(); fetchMaterialHistory(po.item_type, legacyMatId, getMaterialLabel(po)) }}
-                            title='View purchase history'
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '2px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-                          >
-                            <Clock size={13} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                    <td style={{ padding: '12px 16px', color: '#1e293b', fontWeight: '500' }}>${formatCurrency(po.cost_total_cad || 0)}</td>
+                    <td style={{ padding: '12px 16px', fontWeight: '500', color: '#374151' }}>{po.suppliers?.name || '—'}</td>
+                    <td style={{ padding: '12px 16px', color: '#374151' }}>{getPOSummary(po)}</td>
+                    <td style={{ padding: '12px 16px', fontWeight: '500', color: '#1e293b' }}>${formatCurrency(po.cost_total_cad || 0)}</td>
                     <td style={{ padding: '12px 16px' }}>
-                      <select
-                        value={po.status}
-                        onClick={e => e.stopPropagation()}
-                        onChange={e => handleTableStatusChange(po, e.target.value)}
-                        disabled={po.status === 'cancelled'}
-                        style={{ background: st.bg, color: st.color, border: `1px solid ${st.color}30`, borderRadius: '20px', padding: '3px 8px', fontSize: '12px', fontWeight: '500', cursor: po.status === 'cancelled' ? 'default' : 'pointer' }}
-                      >
-                        {po.status === 'draft' && <option value='draft'>Draft</option>}
-                        {po.status === 'cancelled' && <option value='cancelled'>Cancelled</option>}
-                        <option value='ordered'>Ordered</option>
-                        <option value='shipped'>Shipped</option>
-                        <option value='received'>Received</option>
-                      </select>
+                      <span style={{ background: st.bg, color: st.color, borderRadius: '20px', padding: '3px 10px', fontSize: '12px', fontWeight: '500' }}>{st.label}</span>
                     </td>
-                    <td style={{ padding: '12px 16px', color: '#64748b', whiteSpace: 'nowrap', fontSize: '13px' }}>{po.ordered_at}</td>
-                    <td style={{ padding: '12px 16px', color: po.shipped_at ? '#d97706' : '#cbd5e1', whiteSpace: 'nowrap', fontSize: '13px' }}>{po.shipped_at || '—'}</td>
-                    <td style={{ padding: '12px 16px', color: po.received_at ? '#16a34a' : '#cbd5e1', whiteSpace: 'nowrap', fontSize: '13px' }}>{po.received_at || '—'}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '12px', lineHeight: '1.7', color: '#64748b' }}>
-                      {os != null && <div>O→S: <strong style={{ color: '#374151' }}>{os}d</strong></div>}
-                      {sr != null && <div>S→R: <strong style={{ color: '#374151' }}>{sr}d</strong></div>}
-                      {total != null && <div>Total: <strong style={{ color: '#374151' }}>{total}d</strong></div>}
-                      {os == null && sr == null && total == null && '—'}
-                    </td>
+                    <td style={{ padding: '12px 16px', color: '#64748b', fontSize: '13px' }}>{po.ordered_at}</td>
+                    <td style={{ padding: '12px 16px', color: po.shipped_at ? '#d97706' : '#cbd5e1', fontSize: '13px' }}>{po.shipped_at || '—'}</td>
+                    <td style={{ padding: '12px 16px', color: po.received_at ? '#16a34a' : '#cbd5e1', fontSize: '13px' }}>{po.received_at || '—'}</td>
                     <td style={{ padding: '12px 16px' }}>
-                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                        <button
-                          onClick={e => { e.stopPropagation(); setAttachmentPO(po); setAttachmentFile(null); setAttachmentError(''); setShowAttachment(true) }}
-                          title='Attachments'
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: po.invoice_url ? '#2563eb' : '#94a3b8', padding: '4px', display: 'flex', alignItems: 'center' }}
-                        >
-                          <Paperclip size={15} />
-                        </button>
-                        <button
-                          onClick={e => { e.stopPropagation(); setDetail(po); setShowDeleteConfirm(true) }}
-                          title='Delete PO'
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '4px', display: 'flex', alignItems: 'center' }}
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
+                      <button onClick={e => { e.stopPropagation(); setDetailPO(po); setShowDeleteConfirm(true) }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '4px' }}>
+                        <Trash2 size={15} />
+                      </button>
                     </td>
                   </tr>
                 )
@@ -975,18 +488,21 @@ export default function Purchasing() {
 
       {/* ── Create PO Modal ── */}
       {showCreate && (
-        <div className="modal-overlay" onClick={() => { setShowCreate(false); setCreateError('') }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '20px' }}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '760px', margin: '20px auto' }}>
+        <div className="modal-overlay" onClick={() => { setShowCreate(false); setCreateError('') }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '20px' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '900px', margin: '20px auto' }}>
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>New Purchase Order</h2>
               <button onClick={() => { setShowCreate(false); setCreateError('') }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
             </div>
 
             {/* Supplier + Date */}
-            <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '20px' }}>
               <div>
                 <label style={lbl}>Supplier *</label>
-                <select value={createForm.supplier_id} onChange={e => setCreateForm(f => ({ ...f, supplier_id: e.target.value }))} style={inp}>
+                <select value={createForm.supplier_id} onChange={e => handleSupplierChange(e.target.value)} style={inp}>
                   <option value=''>Select supplier...</option>
                   {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
@@ -997,220 +513,112 @@ export default function Purchasing() {
               </div>
             </div>
 
-            {/* Items section */}
-            {isDigitalLabels ? (
+            {/* Materials table — invoice 패턴과 동일 */}
+            {createSupplier && (
               <div style={{ marginBottom: '20px' }}>
-                <label style={lbl}>Label Items — enter qty for each item to include in this PO</label>
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', maxHeight: '280px', overflowY: 'auto' }}>
-                  {/* Header */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px 90px', gap: '0', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '7px 14px', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    <span>Item</span><span style={{ textAlign: 'right' }}>Qty</span><span style={{ textAlign: 'right' }}>Unit Price</span><span style={{ textAlign: 'right' }}>Total</span>
-                  </div>
-                  {labelItems.length === 0 ? (
-                    <div style={{ padding: '16px', color: '#94a3b8', fontSize: '13px', textAlign: 'center' }}>No LABEL- items found in packaging.</div>
-                  ) : labelItems.map((item, i) => {
-                    const qty = parseFloat(labelQtys[item.id] || '0')
-                    const price = parseFloat(labelPrices[item.id] ?? String(item.cost_cad || 0))
-                    const lineTotal = qty * price
-                    return (
-                      <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px 90px', gap: '0', alignItems: 'center', padding: '8px 14px', borderBottom: i < labelItems.length - 1 ? '1px solid #f1f5f9' : 'none', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                        <div style={{ fontSize: '13px' }}>
-                          <span style={{ fontWeight: '600', color: '#2563eb' }}>{item.item_no}</span>
-                          <span style={{ color: '#64748b', marginLeft: '8px' }}>{item.name}</span>
-                        </div>
-                        <input
-                          type='number' min='0' step='1'
-                          value={labelQtys[item.id] || ''}
-                          onChange={e => setLabelQtys(q => ({ ...q, [item.id]: e.target.value }))}
-                          placeholder='0'
-                          style={{ ...numInp, padding: '5px 7px', fontSize: '12px' }}
-                        />
-                        <input
-                          type='number' min='0' step='0.01'
-                          value={labelPrices[item.id] ?? ''}
-                          onChange={e => setLabelPrices(p => ({ ...p, [item.id]: e.target.value }))}
-                          placeholder='0.00'
-                          style={{ ...numInp, padding: '5px 7px', fontSize: '12px', marginLeft: '6px' }}
-                        />
-                        <div style={{ textAlign: 'right', fontSize: '12px', fontWeight: '500', color: qty > 0 && price > 0 ? '#1e293b' : '#94a3b8', paddingRight: '2px' }}>
-                          {qty > 0 && price > 0 ? `$${formatCurrency(lineTotal)}` : '—'}
-                        </div>
-                      </div>
-                    )
-                  })}
+                <label style={{ ...lbl, marginBottom: '8px' }}>Materials — enter qty for items to include</label>
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', maxHeight: '400px', overflowY: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        <th style={{ padding: '9px 14px', textAlign: 'left', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Type</th>
+                        <th style={{ padding: '9px 14px', textAlign: 'left', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Item No</th>
+                        <th style={{ padding: '9px 14px', textAlign: 'left', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Name</th>
+                        <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Unit</th>
+                        <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Qty</th>
+                        <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Unit Price</th>
+                        <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {createLineItems.map((item, idx) => (
+                        <tr key={item.material_id} style={{ borderBottom: '1px solid #f1f5f9', background: item.qty > 0 ? '#f0fdf4' : idx % 2 === 0 ? '#fff' : '#fafafa' }}>
+                          <td style={{ padding: '7px 14px' }}>
+                            <span style={{ fontSize: '11px', padding: '2px 7px', borderRadius: '10px', fontWeight: '500', background: item.material_type === 'raw_material' ? '#eff6ff' : '#fef3c7', color: item.material_type === 'raw_material' ? '#2563eb' : '#d97706' }}>
+                              {item.material_type === 'raw_material' ? 'Raw' : 'Pkg'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '7px 14px', color: '#2563eb', fontWeight: '600', whiteSpace: 'nowrap' }}>{item.item_no}</td>
+                          <td style={{ padding: '7px 14px', color: '#374151' }}>{item.name}</td>
+                          <td style={{ padding: '7px 14px', textAlign: 'right', color: '#64748b' }}>{item.unit}</td>
+                          <td style={{ padding: '7px 14px', textAlign: 'right' }}>
+                            <input type='number' min='0' step='any'
+                              value={item.qty || ''}
+                              onChange={e => updateCreateQty(idx, parseFloat(e.target.value) || 0)}
+                              placeholder='0'
+                              style={{ ...numInp, padding: '4px 8px', fontSize: '13px', width: '80px' }}
+                            />
+                          </td>
+                          <td style={{ padding: '7px 14px', textAlign: 'right' }}>
+                            <input type='number' min='0' step='0.0001'
+                              value={item.unit_price || ''}
+                              onChange={e => updateCreatePrice(idx, parseFloat(e.target.value) || 0)}
+                              placeholder='0.00'
+                              style={{ ...numInp, padding: '4px 8px', fontSize: '13px', width: '90px' }}
+                            />
+                          </td>
+                          <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: '500', color: item.qty > 0 ? '#1e293b' : '#94a3b8' }}>
+                            {item.qty > 0 ? `$${formatCurrency(item.total)}` : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '12px', color: '#64748b' }}>
-                    {Object.values(labelQtys).filter(q => parseFloat(q || '0') > 0).length} item(s) with qty &gt; 0 → 1 PO created
-                  </span>
-                  {labelSubtotal > 0 && <span style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>Subtotal: ${formatCurrency(labelSubtotal)}</span>}
+                <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#64748b' }}>
+                  <span>{activeCreateItems.length} item(s) with qty &gt; 0</span>
+                  {createSubtotal > 0 && <span style={{ fontWeight: '600', color: '#1e293b' }}>Subtotal: ${formatCurrency(createSubtotal)}</span>}
                 </div>
-              </div>
-            ) : (
-              <div style={{ marginBottom: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <label style={{ ...lbl, marginBottom: 0 }}>Line Items *</label>
-                  <button
-                    onClick={() => setLineItems(prev => [...prev, { ...emptyLineItem }])}
-                    style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', color: '#374151', cursor: 'pointer' }}
-                  >
-                    <Plus size={13} /> Add Item
-                  </button>
-                </div>
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
-                  {/* Table header */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 80px 100px 90px 32px', gap: '0', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '8px 12px', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    <span>Type</span><span>Material</span><span style={{ textAlign: 'right' }}>Qty*</span><span style={{ textAlign: 'right' }}>Unit Price</span><span style={{ textAlign: 'right' }}>Total</span><span />
-                  </div>
-                  {lineItems.map((li, idx) => {
-                    const matOpts = li.material_type === 'raw_material'
-                      ? rawMaterials.map(m => ({ id: m.id, label: `${m.item_no} — ${m.name}` }))
-                      : packaging.map(p => ({ id: p.id, label: `${p.item_no} — ${p.name}` }))
-                    const isModulePkg = li.material_type === 'packaging' && li.moduleQty && li.moduleQty > 1
-                    const qtyInput = parseFloat(li.quantity || '0')
-                    const actualQty = li.material_type === 'raw_material'
-                      ? qtyInput * 1000
-                      : (isModulePkg ? qtyInput * li.moduleQty! : qtyInput)
-                    const lineTotal = actualQty * parseFloat(li.unit_price || '0')
-                    return (
-                      <div key={idx} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 80px 100px 90px 32px', gap: '0', padding: '8px 12px', borderBottom: idx < lineItems.length - 1 ? '1px solid #f1f5f9' : 'none', alignItems: 'start' }}>
-                        <select
-                          value={li.material_type}
-                          onChange={e => updateLineItem(idx, 'material_type', e.target.value)}
-                          style={{ ...inp, padding: '6px 8px', fontSize: '12px', marginTop: '2px' }}
-                        >
-                          <option value='raw_material'>Raw Material</option>
-                          <option value='packaging'>Packaging</option>
-                        </select>
-                        <select
-                          value={li.material_id}
-                          onChange={e => updateLineItem(idx, 'material_id', e.target.value)}
-                          style={{ ...inp, padding: '6px 8px', fontSize: '12px', marginLeft: '6px', marginTop: '2px' }}
-                        >
-                          <option value=''>Select...</option>
-                          {matOpts.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                        </select>
-                        <div style={{ marginLeft: '6px' }}>
-                          <input
-                            type='number' min='0' step='any'
-                            value={li.quantity}
-                            onChange={e => {
-                              const v = e.target.value
-                              setLineItems(prev => prev.map((li2, i2) => i2 === idx ? { ...li2, quantity: v } : li2))
-                            }}
-                            placeholder={li.material_type === 'raw_material' ? 'kg' : isModulePkg ? 'mod' : '0'}
-                            title={li.material_type === 'raw_material' ? 'Enter quantity in kg (stored as ml)' : isModulePkg ? `Enter modules (1 module = ${li.moduleQty} ea)` : ''}
-                            style={{ ...numInp, padding: '6px 8px', fontSize: '12px', width: '100%' }}
-                          />
-                          {isModulePkg && li.quantity && (
-                            <div style={{ fontSize: '10px', color: '#2563eb', marginTop: '2px', textAlign: 'right' }}>
-                              = {(qtyInput * li.moduleQty!).toLocaleString()} ea
-                            </div>
-                          )}
-                        </div>
-                        <input
-                          type='number' min='0' step='0.01'
-                          value={li.unit_price}
-                          onChange={e => updateLineItem(idx, 'unit_price', e.target.value)}
-                          placeholder='0.00'
-                          style={{ ...numInp, padding: '6px 8px', fontSize: '12px', marginLeft: '6px', marginTop: '2px' }}
-                        />
-                        <div style={{ textAlign: 'right', fontSize: '13px', fontWeight: '500', color: '#1e293b', paddingRight: '4px', marginTop: '6px' }}>
-                          ${formatCurrency(lineTotal)}
-                        </div>
-                        <button
-                          onClick={() => setLineItems(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev)}
-                          style={{ background: 'none', border: 'none', cursor: lineItems.length > 1 ? 'pointer' : 'default', color: lineItems.length > 1 ? '#dc2626' : '#e2e8f0', padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '2px' }}
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    )
-                  })}
-                  {/* Subtotal row */}
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 12px', borderTop: '1px solid #e2e8f0', background: '#f8fafc' }}>
-                    <span style={{ fontSize: '13px', color: '#64748b', marginRight: '12px' }}>Items Subtotal:</span>
-                    <span style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b', minWidth: '80px', textAlign: 'right' }}>${formatCurrency(lineItemsSubtotal)}</span>
-                  </div>
-                </div>
-                {(lineItems.some(li => li.material_type === 'raw_material') || lineItems.some(li => li.moduleQty && li.moduleQty > 1)) && (
-                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '6px' }}>
-                    {lineItems.some(li => li.material_type === 'raw_material') && <div>* Raw material qty in kg — saved as ml (×1000)</div>}
-                    {lineItems.some(li => li.moduleQty && li.moduleQty > 1) && <div>* Packaging qty in modules — saved as ea (×module size)</div>}
-                  </div>
-                )}
               </div>
             )}
 
-            {/* Cost fields: Shipping, Brokerage, Duty */}
-            {!isDigitalLabels && (
-              <>
-                <div className="modal-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-                  <div>
-                    <label style={lbl}>Shipping (CAD)</label>
-                    <input type='number' min='0' step='0.01' value={createForm.shipping_cad} onChange={e => setCreateForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                  </div>
-                  <div>
-                    <label style={lbl}>Brokerage (CAD)</label>
-                    <input type='number' min='0' step='0.01' value={createForm.brokerage_cad} onChange={e => setCreateForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                  </div>
-                  <div>
-                    <label style={lbl}>Duty (CAD)</label>
-                    <input type='number' min='0' step='0.01' value={createForm.duty_cad} onChange={e => setCreateForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                  </div>
-                </div>
+            {/* Cost fields */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+              <div>
+                <label style={lbl}>Shipping (CAD)</label>
+                <input type='number' min='0' step='0.01' value={createForm.shipping_cad} onChange={e => setCreateForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+              </div>
+              <div>
+                <label style={lbl}>Brokerage (CAD)</label>
+                <input type='number' min='0' step='0.01' value={createForm.brokerage_cad} onChange={e => setCreateForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+              </div>
+              <div>
+                <label style={lbl}>Duty (CAD)</label>
+                <input type='number' min='0' step='0.01' value={createForm.duty_cad} onChange={e => setCreateForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+              </div>
+            </div>
 
-                {/* USD section */}
-                <div style={{ marginBottom: '14px', padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>USD Invoice (optional)</div>
-                  <div className="modal-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                    <div>
-                      <label style={lbl}>Amount (USD)</label>
-                      <input type='number' min='0' step='0.01' value={createForm.amount_usd} onChange={e => setCreateForm(f => ({ ...f, amount_usd: e.target.value }))} placeholder='0.00' style={numInp} />
-                    </div>
-                    <div>
-                      <label style={lbl}>Amount (CAD)</label>
-                      <input type='number' min='0' step='0.01' value={createForm.amount_cad} onChange={e => setCreateForm(f => ({ ...f, amount_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                    </div>
-                    <div>
-                      <label style={lbl}>Exchange Rate</label>
-                      <input readOnly value={createExchangeRate ?? ''} placeholder='auto' style={{ ...roInp, textAlign: 'right' }} />
-                    </div>
-                  </div>
+            {/* USD section */}
+            <div style={{ marginBottom: '14px', padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>USD Invoice (optional)</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={lbl}>Amount (USD)</label>
+                  <input type='number' min='0' step='0.01' value={createForm.amount_usd} onChange={e => setCreateForm(f => ({ ...f, amount_usd: e.target.value }))} placeholder='0.00' style={numInp} />
                 </div>
+                <div>
+                  <label style={lbl}>Amount (CAD)</label>
+                  <input type='number' min='0' step='0.01' value={createForm.amount_cad} onChange={e => setCreateForm(f => ({ ...f, amount_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                </div>
+                <div>
+                  <label style={lbl}>Exchange Rate</label>
+                  <input readOnly value={createExchangeRate ?? ''} placeholder='auto' style={{ ...inp, background: '#f8fafc', color: '#64748b', textAlign: 'right' }} />
+                </div>
+              </div>
+            </div>
 
-                {/* Grand Total */}
-                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px', marginBottom: '14px', padding: '10px 14px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
-                  <span style={{ fontSize: '14px', color: '#1d4ed8', fontWeight: '600' }}>Grand Total (CAD):</span>
-                  <span style={{ fontSize: '18px', fontWeight: '700', color: '#1d4ed8' }}>${formatCurrency(createGrandTotal)}</span>
-                </div>
-              </>
+            {/* Grand Total */}
+            {createSupplier && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px', marginBottom: '14px', padding: '10px 14px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                <span style={{ fontSize: '14px', color: '#1d4ed8', fontWeight: '600' }}>Grand Total (CAD):</span>
+                <span style={{ fontSize: '18px', fontWeight: '700', color: '#1d4ed8' }}>${formatCurrency(createTotal)}</span>
+              </div>
             )}
 
             {/* Notes */}
-            <div style={{ marginBottom: '14px' }}>
+            <div style={{ marginBottom: '16px' }}>
               <label style={lbl}>Notes</label>
               <textarea value={createForm.notes} onChange={e => setCreateForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder='Optional notes...' style={{ ...inp, resize: 'vertical', fontFamily: 'inherit' }} />
-            </div>
-
-            {/* Invoice attachment */}
-            <div style={{ marginBottom: '16px' }}>
-              <label style={lbl}>Invoice Attachment</label>
-              <div
-                onClick={() => invoiceInputRef.current?.click()}
-                style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', border: '1px dashed #cbd5e1', borderRadius: '6px', cursor: 'pointer', background: '#fafafa' }}
-              >
-                <Paperclip size={16} color='#94a3b8' />
-                <span style={{ fontSize: '13px', color: invoiceFile ? '#374151' : '#94a3b8' }}>
-                  {invoiceFile ? invoiceFile.name : 'Click to attach invoice (jpg, png, pdf)'}
-                </span>
-                {invoiceFile && (
-                  <button onClick={e => { e.stopPropagation(); setInvoiceFile(null) }} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-              <input ref={invoiceInputRef} type='file' accept='.jpg,.jpeg,.png,.pdf' style={{ display: 'none' }} onChange={e => setInvoiceFile(e.target.files?.[0] || null)} />
             </div>
 
             {createError && (
@@ -1228,603 +636,198 @@ export default function Purchasing() {
       )}
 
       {/* ── Detail / Edit Modal ── */}
-      {showDetail && detail && (
-        <div className="modal-overlay" onClick={() => { setShowDetail(false); setUpdateError('') }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '20px' }}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '680px', margin: '20px auto' }}>
-            {/* Header */}
+      {showDetail && detailPO && (
+        <div className="modal-overlay" onClick={() => { setShowDetail(false); setUpdateError('') }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '20px' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '900px', margin: '20px auto' }}>
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
               <div>
-                <h2 style={{ fontSize: '18px', fontWeight: '600', margin: '0 0 2px' }}>
-                  {isReadOnly ? 'Purchase Order' : 'Edit Purchase Order'}
-                </h2>
-                {detail.po_number && <div style={{ fontSize: '12px', color: '#94a3b8' }}>PO# {detail.po_number}</div>}
+                <h2 style={{ fontSize: '18px', fontWeight: '600', margin: '0 0 2px' }}>Purchase Order</h2>
+                {detailPO.po_number && <div style={{ fontSize: '12px', color: '#94a3b8' }}>PO# {detailPO.po_number}</div>}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ background: STATUS_STYLE[detail.status]?.bg, color: STATUS_STYLE[detail.status]?.color, borderRadius: '20px', padding: '4px 12px', fontSize: '13px', fontWeight: '500' }}>
-                  {STATUS_STYLE[detail.status]?.label}
-                </span>
-                <button onClick={() => setShowDeleteConfirm(true)} title='Delete PO' style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '4px' }}>
-                  <Trash2 size={16} />
-                </button>
+                <button onClick={() => setShowDeleteConfirm(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '4px' }}><Trash2 size={16} /></button>
                 <button onClick={() => { setShowDetail(false); setUpdateError('') }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
               </div>
             </div>
 
-            {/* Date timeline */}
-            <div style={{ marginBottom: '16px', padding: '10px 16px', background: '#f8fafc', borderRadius: '8px', display: 'flex', gap: '24px', flexWrap: 'wrap', fontSize: '13px' }}>
-              <span style={{ color: '#64748b' }}>Ordered: <strong style={{ color: '#374151' }}>{detail.ordered_at}</strong></span>
-              <span style={{ color: '#64748b' }}>Shipped: <strong style={{ color: detail.shipped_at ? '#d97706' : '#cbd5e1' }}>{detail.shipped_at || '—'}</strong></span>
-              <span style={{ color: '#64748b' }}>Received: <strong style={{ color: detail.received_at ? '#16a34a' : '#cbd5e1' }}>{detail.received_at || '—'}</strong></span>
+            {/* Supplier + Date + Status */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '20px' }}>
+              <div>
+                <label style={lbl}>Supplier</label>
+                <select value={editForm.supplier_id} onChange={e => setEditForm(f => ({ ...f, supplier_id: e.target.value }))} style={inp} disabled={isReadOnly}>
+                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={lbl}>Order Date</label>
+                <input type='date' value={editForm.ordered_at} onChange={e => setEditForm(f => ({ ...f, ordered_at: e.target.value }))} style={inp} disabled={isReadOnly} />
+              </div>
+              <div>
+                <label style={lbl}>Status</label>
+                <select value={editForm.status} onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))} style={inp} disabled={isReadOnly}>
+                  <option value='ordered'>Ordered</option>
+                  <option value='shipped'>Shipped</option>
+                  <option value='received'>Received</option>
+                  <option value='cancelled'>Cancelled</option>
+                </select>
+              </div>
             </div>
 
-            {isReadOnly ? (
-              <>
-                {/* Line items table (new-style PO) */}
-                {detailIsMultiItem ? (
-                  <div style={{ marginBottom: '20px' }}>
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                        <thead>
-                          <tr style={{ background: '#f8fafc' }}>
-                            <th style={{ padding: '9px 14px', textAlign: 'left', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Type</th>
-                            <th style={{ padding: '9px 14px', textAlign: 'left', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Item</th>
-                            <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Qty</th>
-                            <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Unit Price</th>
-                            <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {detailItems.map((item, i) => (
-                            <tr key={item.id} style={{ borderTop: '1px solid #f1f5f9' }}>
-                              <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '12px', whiteSpace: 'nowrap' }}>{item.material_type === 'raw_material' ? 'Raw Material' : 'Packaging'}</td>
-                              <td style={{ padding: '10px 14px', color: '#374151' }}>{getLineItemLabel(item)}</td>
-                              <td style={{ padding: '10px 14px', textAlign: 'right', color: '#374151' }}>{item.quantity}</td>
-                              <td style={{ padding: '10px 14px', textAlign: 'right', color: '#64748b' }}>${formatCurrency(item.unit_price || 0)}</td>
-                              <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: '500', color: '#1e293b' }}>${formatCurrency(item.line_total != null ? item.line_total : item.quantity * item.unit_price)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {/* Cost summary */}
-                      <div style={{ borderTop: '1px solid #e2e8f0', padding: '10px 14px', background: '#f8fafc' }}>
-                        {(() => {
-                          const subtotal = detailItems.reduce((s, i) => s + (i.line_total != null ? i.line_total : i.quantity * i.unit_price), 0)
-                          return (
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', fontSize: '13px' }}>
-                              <div style={{ color: '#64748b' }}>Items: <strong style={{ color: '#374151' }}>${formatCurrency(subtotal)}</strong></div>
-                              {detail.shipping_cad != null && <div style={{ color: '#64748b' }}>Shipping: <strong style={{ color: '#374151' }}>${formatCurrency(detail.shipping_cad)}</strong></div>}
-                              {detail.brokerage_cad != null && <div style={{ color: '#64748b' }}>Brokerage: <strong style={{ color: '#374151' }}>${formatCurrency(detail.brokerage_cad)}</strong></div>}
-                              {detail.duty_cad != null && <div style={{ color: '#64748b' }}>Duty: <strong style={{ color: '#374151' }}>${formatCurrency(detail.duty_cad)}</strong></div>}
-                              <div style={{ color: '#1d4ed8', fontWeight: '700', fontSize: '14px', borderTop: '1px solid #e2e8f0', paddingTop: '6px', marginTop: '2px' }}>
-                                Total: ${formatCurrency(detail.cost_total_cad || 0)}
-                              </div>
-                            </div>
-                          )
-                        })()}
-                      </div>
-                    </div>
-                    <div style={{ marginTop: '12px', display: 'flex', gap: '16px', fontSize: '13px', color: '#64748b', flexWrap: 'wrap' }}>
-                      <span>Supplier: <strong style={{ color: '#374151' }}>{detail.suppliers?.name || '—'}</strong></span>
-                      {detail.amount_usd && <span>USD: <strong style={{ color: '#374151' }}>${formatCurrency(detail.amount_usd)}</strong></span>}
-                      {detail.exchange_rate && <span>Rate: <strong style={{ color: '#374151' }}>{detail.exchange_rate.toFixed(4)}</strong></span>}
-                    </div>
+            {/* Shipped / Received dates */}
+            {(editForm.status === 'shipped' || editForm.status === 'received') && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                <div>
+                  <label style={lbl}>Shipped Date</label>
+                  <input type='date' value={editForm.shipped_at} onChange={e => setEditForm(f => ({ ...f, shipped_at: e.target.value }))} style={inp} disabled={isReadOnly} />
+                </div>
+                {editForm.status === 'received' && (
+                  <div>
+                    <label style={lbl}>Received Date</label>
+                    <input type='date' value={editForm.received_at} onChange={e => setEditForm(f => ({ ...f, received_at: e.target.value }))} style={inp} disabled={isReadOnly} />
                   </div>
-                ) : (
-                  /* Legacy single-item read-only grid */
-                  <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', padding: '16px', background: '#f8fafc', borderRadius: '8px', marginBottom: '20px' }}>
-                    {([
-                      ['Supplier', detail.suppliers?.name || '—'],
-                      ['Item Type', detail.item_type === 'raw_material' ? 'Raw Material' : 'Packaging'],
-                      ['Material', getMaterialLabel(detail)],
-                      ['Qty Ordered', `${detail.qty_ordered} ${detail.unit || ''}`.trim()],
-                      ['Qty Received', detail.qty_received != null ? `${detail.qty_received} ${detail.unit || ''}`.trim() : '—'],
-                      ['Cost Total (CAD)', `$${formatCurrency(detail.cost_total_cad || 0)}`],
-                      ...(detail.amount_usd ? [['Amount (USD)', `$${formatCurrency(detail.amount_usd)}`], ['Exchange Rate', detail.exchange_rate ? detail.exchange_rate.toFixed(4) : '—']] as [string,string][] : []),
-                      ['Shipping (CAD)', detail.shipping_cad != null ? `$${formatCurrency(detail.shipping_cad)}` : '—'],
-                      ['Brokerage (CAD)', detail.brokerage_cad != null ? `$${formatCurrency(detail.brokerage_cad)}` : '—'],
-                      ['Duty (CAD)', detail.duty_cad != null ? `$${formatCurrency(detail.duty_cad)}` : '—'],
-                    ] as [string, string][]).map(([label, value]) => (
-                      <div key={label}>
-                        <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '3px' }}>{label}</div>
-                        <div style={{ fontSize: '14px', color: '#374151' }}>{value}</div>
-                      </div>
+                )}
+              </div>
+            )}
+
+            {/* Materials table */}
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ ...lbl, marginBottom: '8px' }}>Materials</label>
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', maxHeight: '400px', overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                      <th style={{ padding: '9px 14px', textAlign: 'left', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Type</th>
+                      <th style={{ padding: '9px 14px', textAlign: 'left', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Item No</th>
+                      <th style={{ padding: '9px 14px', textAlign: 'left', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Name</th>
+                      <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Unit</th>
+                      <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Qty</th>
+                      <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Unit Price</th>
+                      <th style={{ padding: '9px 14px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {editLineItems.map((item, idx) => (
+                      <tr key={item.material_id} style={{ borderBottom: '1px solid #f1f5f9', background: item.qty > 0 ? '#f0fdf4' : idx % 2 === 0 ? '#fff' : '#fafafa' }}>
+                        <td style={{ padding: '7px 14px' }}>
+                          <span style={{ fontSize: '11px', padding: '2px 7px', borderRadius: '10px', fontWeight: '500', background: item.material_type === 'raw_material' ? '#eff6ff' : '#fef3c7', color: item.material_type === 'raw_material' ? '#2563eb' : '#d97706' }}>
+                            {item.material_type === 'raw_material' ? 'Raw' : 'Pkg'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '7px 14px', color: '#2563eb', fontWeight: '600', whiteSpace: 'nowrap' }}>{item.item_no}</td>
+                        <td style={{ padding: '7px 14px', color: '#374151' }}>{item.name}</td>
+                        <td style={{ padding: '7px 14px', textAlign: 'right', color: '#64748b' }}>{item.unit}</td>
+                        <td style={{ padding: '7px 14px', textAlign: 'right' }}>
+                          {isReadOnly ? (
+                            <span style={{ color: '#374151' }}>{item.qty > 0 ? item.qty : '—'}</span>
+                          ) : (
+                            <input type='number' min='0' step='any'
+                              value={item.qty || ''}
+                              onChange={e => updateEditQty(idx, parseFloat(e.target.value) || 0)}
+                              placeholder='0'
+                              style={{ ...numInp, padding: '4px 8px', fontSize: '13px', width: '80px' }}
+                            />
+                          )}
+                        </td>
+                        <td style={{ padding: '7px 14px', textAlign: 'right' }}>
+                          {isReadOnly ? (
+                            <span style={{ color: '#64748b' }}>${formatCurrency(item.unit_price)}</span>
+                          ) : (
+                            <input type='number' min='0' step='0.0001'
+                              value={item.unit_price || ''}
+                              onChange={e => updateEditPrice(idx, parseFloat(e.target.value) || 0)}
+                              placeholder='0.00'
+                              style={{ ...numInp, padding: '4px 8px', fontSize: '13px', width: '90px' }}
+                            />
+                          )}
+                        </td>
+                        <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: '500', color: item.qty > 0 ? '#1e293b' : '#94a3b8' }}>
+                          {item.qty > 0 ? `$${formatCurrency(item.total)}` : '—'}
+                        </td>
+                      </tr>
                     ))}
-                    {(calcDays(detail.ordered_at, detail.shipped_at) != null || calcDays(detail.ordered_at, detail.received_at) != null) && (
-                      <div style={{ gridColumn: '1 / -1' }}>
-                        <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '3px' }}>Lead Time</div>
-                        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '14px', color: '#374151' }}>
-                          {calcDays(detail.ordered_at, detail.shipped_at) != null && <span>O→S: <strong>{calcDays(detail.ordered_at, detail.shipped_at)}d</strong></span>}
-                          {calcDays(detail.shipped_at, detail.received_at) != null && <span>S→R: <strong>{calcDays(detail.shipped_at, detail.received_at)}d</strong></span>}
-                          {calcDays(detail.ordered_at, detail.received_at) != null && <span>Total: <strong>{calcDays(detail.ordered_at, detail.received_at)}d</strong></span>}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#64748b' }}>
+                <span>{activeEditItems.length} item(s) with qty &gt; 0</span>
+                {editSubtotal > 0 && <span style={{ fontWeight: '600', color: '#1e293b' }}>Subtotal: ${formatCurrency(editSubtotal)}</span>}
+              </div>
+            </div>
 
-                {detail.invoice_url && (
-                  <div style={{ marginBottom: '12px' }}>
-                    <a href={detail.invoice_url} target='_blank' rel='noreferrer' style={{ fontSize: '14px', color: '#2563eb', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Paperclip size={13} /> View Invoice
-                    </a>
-                  </div>
-                )}
-                {detail.notes && (
-                  <div style={{ marginBottom: '16px', padding: '10px 14px', background: '#f8fafc', borderRadius: '6px', fontSize: '13px', color: '#374151' }}>
-                    <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '3px' }}>Notes</div>
-                    {detail.notes}
-                  </div>
-                )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  {detail.status === 'received' ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <label style={{ ...lbl, marginBottom: 0, whiteSpace: 'nowrap', fontSize: '13px' }}>Change Status:</label>
-                      <select
-                        defaultValue=""
-                        onChange={e => { if (e.target.value) initiateStatusChange(e.target.value as 'ordered' | 'shipped') }}
-                        style={{ ...inp, width: 'auto', paddingRight: '28px' }}
-                      >
-                        <option value="">— Rollback to —</option>
-                        <option value="shipped">Shipped</option>
-                        <option value="ordered">Ordered</option>
-                      </select>
-                    </div>
-                  ) : <div />}
-                  <button onClick={() => setShowDetail(false)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Close</button>
+            {/* Cost fields */}
+            {!isReadOnly && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                <div>
+                  <label style={lbl}>Shipping (CAD)</label>
+                  <input type='number' min='0' step='0.01' value={editForm.shipping_cad} onChange={e => setEditForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
                 </div>
-              </>
-            ) : (
-              /* Edit form */
-              <>
-                <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-                  <div>
-                    <label style={lbl}>Supplier *</label>
-                    <select value={editForm.supplier_id} onChange={e => setEditForm(f => ({ ...f, supplier_id: e.target.value }))} style={inp}>
-                      <option value=''>Select supplier...</option>
-                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={lbl}>Order Date *</label>
-                    <input type='date' value={editForm.ordered_at} onChange={e => setEditForm(f => ({ ...f, ordered_at: e.target.value }))} style={inp} />
-                  </div>
+                <div>
+                  <label style={lbl}>Brokerage (CAD)</label>
+                  <input type='number' min='0' step='0.01' value={editForm.brokerage_cad} onChange={e => setEditForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={numInp} />
                 </div>
-
-                {/* Line items display for multi-item PO */}
-                {detailIsMultiItem ? (
-                  <div style={{ marginBottom: '14px' }}>
-                    <label style={lbl}>Line Items</label>
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                        <thead>
-                          <tr style={{ background: '#f8fafc' }}>
-                            <th style={{ padding: '8px 12px', textAlign: 'left', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Type</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'left', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Item</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Qty</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Unit Price</th>
-                            <th style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b', fontWeight: '600', fontSize: '11px', textTransform: 'uppercase' }}>Total</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {detailItems.map(item => {
-                            const edits = detailLineItemEdits[item.id]
-                            const qty = parseFloat(edits?.quantity ?? String(item.quantity))
-                            const price = parseFloat(edits?.unit_price ?? String(item.unit_price || 0))
-                            return (
-                              <tr key={item.id} style={{ borderTop: '1px solid #f1f5f9' }}>
-                                <td style={{ padding: '8px 12px', color: '#64748b', fontSize: '12px', whiteSpace: 'nowrap' }}>{item.material_type === 'raw_material' ? 'Raw Material' : 'Packaging'}</td>
-                                <td style={{ padding: '8px 12px', color: '#374151' }}>{getLineItemLabel(item)}</td>
-                                <td style={{ padding: '6px 12px', textAlign: 'right' }}>
-                                  <input
-                                    type='number' min='0' step='any'
-                                    value={edits?.quantity ?? String(item.quantity)}
-                                    onChange={e => setDetailLineItemEdits(prev => ({ ...prev, [item.id]: { ...prev[item.id], quantity: e.target.value } }))}
-                                    style={{ ...numInp, padding: '4px 6px', fontSize: '12px', width: '70px' }}
-                                  />
-                                </td>
-                                <td style={{ padding: '6px 12px', textAlign: 'right' }}>
-                                  <input
-                                    type='number' min='0' step='0.01'
-                                    value={edits?.unit_price ?? String(item.unit_price || 0)}
-                                    onChange={e => setDetailLineItemEdits(prev => ({ ...prev, [item.id]: { ...prev[item.id], unit_price: e.target.value } }))}
-                                    style={{ ...numInp, padding: '4px 6px', fontSize: '12px', width: '80px' }}
-                                  />
-                                </td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: '500', color: '#1e293b' }}>
-                                  ${formatCurrency(qty * price)}
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : (
-                  /* Legacy item fields */
-                  <>
-                    <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-                      <div>
-                        <label style={lbl}>Item Type *</label>
-                        <select value={editForm.item_type} onChange={e => setEditForm(f => ({ ...f, item_type: e.target.value as 'raw_material' | 'packaging', raw_material_id: '', packaging_id: '' }))} style={inp}>
-                          <option value='raw_material'>Raw Material</option>
-                          <option value='packaging'>Packaging</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label style={lbl}>Material *</label>
-                        <select value={editForm.item_type === 'raw_material' ? editForm.raw_material_id : editForm.packaging_id} onChange={e => {
-                          const id = e.target.value
-                          if (editForm.item_type === 'raw_material') {
-                            const mat = rawMaterials.find(m => m.id === id)
-                            setEditForm(f => ({ ...f, raw_material_id: id, unit: mat?.unit || f.unit, cost_total_cad: mat?.cost_per_unit_cad != null ? String(mat.cost_per_unit_cad) : f.cost_total_cad }))
-                          } else {
-                            const pkg = packaging.find(p => p.id === id)
-                            setEditForm(f => ({ ...f, packaging_id: id, cost_total_cad: pkg?.cost_cad != null ? String(pkg.cost_cad) : f.cost_total_cad }))
-                          }
-                        }} style={inp}>
-                          <option value=''>Select material...</option>
-                          {editMatOpts.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                    <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-                      <div>
-                        <label style={lbl}>Qty Ordered *</label>
-                        <input type='number' min='0' step='any' value={editForm.qty_ordered} onChange={e => setEditForm(f => ({ ...f, qty_ordered: e.target.value }))} placeholder='0' style={numInp} />
-                      </div>
-                      <div>
-                        <label style={lbl}>Unit</label>
-                        {UNIT_SELECT(editForm.unit, v => setEditForm(f => ({ ...f, unit: v })), inp)}
-                      </div>
-                    </div>
-                    <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-                      <div>
-                        <label style={lbl}>Cost Total (CAD) *</label>
-                        <input type='number' min='0' step='0.01' value={editForm.cost_total_cad} onChange={e => setEditForm(f => ({ ...f, cost_total_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                      </div>
-                      <div>
-                        <label style={lbl}>Shipping (CAD)</label>
-                        <input type='number' min='0' step='0.01' value={editForm.shipping_cad} onChange={e => setEditForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                      </div>
-                      <div>
-                        <label style={lbl}>Brokerage (CAD)</label>
-                        <input type='number' min='0' step='0.01' value={editForm.brokerage_cad} onChange={e => setEditForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                      </div>
-                      <div>
-                        <label style={lbl}>Duty (CAD)</label>
-                        <input type='number' min='0' step='0.01' value={editForm.duty_cad} onChange={e => setEditForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {/* For multi-item: show shipping/brokerage/duty editable */}
-                {detailIsMultiItem && (
-                  <div className="modal-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-                    <div>
-                      <label style={lbl}>Shipping (CAD)</label>
-                      <input type='number' min='0' step='0.01' value={editForm.shipping_cad} onChange={e => setEditForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                    </div>
-                    <div>
-                      <label style={lbl}>Brokerage (CAD)</label>
-                      <input type='number' min='0' step='0.01' value={editForm.brokerage_cad} onChange={e => setEditForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                    </div>
-                    <div>
-                      <label style={lbl}>Duty (CAD)</label>
-                      <input type='number' min='0' step='0.01' value={editForm.duty_cad} onChange={e => setEditForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                    </div>
-                  </div>
-                )}
-
-                {/* USD section */}
-                <div style={{ marginBottom: '14px', padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>USD Invoice (optional)</div>
-                  <div className="modal-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                    <div>
-                      <label style={lbl}>Amount (USD)</label>
-                      <input type='number' min='0' step='0.01' value={editForm.amount_usd} onChange={e => setEditForm(f => ({ ...f, amount_usd: e.target.value }))} placeholder='0.00' style={numInp} />
-                    </div>
-                    <div>
-                      <label style={lbl}>Amount (CAD)</label>
-                      <input type='number' min='0' step='0.01' value={editForm.amount_cad}
-                        onChange={e => setEditForm(f => ({ ...f, amount_cad: e.target.value, ...(!detailIsMultiItem ? { cost_total_cad: e.target.value } : {}) }))}
-                        placeholder='0.00' style={numInp} />
-                    </div>
-                    <div>
-                      <label style={lbl}>Exchange Rate</label>
-                      <input readOnly value={editExchangeRate ?? (detail.exchange_rate ? detail.exchange_rate.toFixed(4) : '')} placeholder='auto' style={{ ...roInp, textAlign: 'right' }} />
-                    </div>
-                  </div>
+                <div>
+                  <label style={lbl}>Duty (CAD)</label>
+                  <input type='number' min='0' step='0.01' value={editForm.duty_cad} onChange={e => setEditForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
                 </div>
-
-                <div style={{ marginBottom: '14px' }}>
-                  <label style={lbl}>Notes</label>
-                  <textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder='Optional notes...' style={{ ...inp, resize: 'vertical', fontFamily: 'inherit' }} />
-                </div>
-
-                {detail.invoice_url && (
-                  <div style={{ marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
-                    <Paperclip size={13} color='#94a3b8' />
-                    <a href={detail.invoice_url} target='_blank' rel='noreferrer' style={{ color: '#2563eb' }}>View attached invoice</a>
-                  </div>
-                )}
-
-                {updateError && (
-                  <div style={{ marginBottom: '14px', padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '13px', color: '#dc2626' }}>{updateError}</div>
-                )}
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <label style={{ ...lbl, marginBottom: 0, whiteSpace: 'nowrap' }}>Status:</label>
-                    <select
-                      value={detail.status}
-                      onChange={e => initiateStatusChange(e.target.value as 'shipped' | 'received' | 'cancelled' | 'ordered')}
-                      disabled={detail.status === 'cancelled'}
-                      style={{ ...inp, width: 'auto', paddingRight: '28px' }}
-                    >
-                      <option value='draft'>Draft</option>
-                      <option value='ordered'>Ordered</option>
-                      <option value='shipped'>Shipped</option>
-                      <option value='received'>Received</option>
-                      <option value='cancelled'>Cancelled</option>
-                    </select>
-                    {(detail.status === 'ordered' || detail.status === 'shipped' || detail.status === 'draft') && (
-                      <button onClick={() => initiateStatusChange('cancelled')} style={{ padding: '8px 12px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', whiteSpace: 'nowrap' }}>
-                        Cancel PO
-                      </button>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: '10px' }}>
-                    <button onClick={() => { setShowDetail(false); setUpdateError('') }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-                    <button onClick={handleUpdate} disabled={updating} style={{ padding: '8px 20px', background: updating ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: updating ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
-                      {updating ? 'Saving...' : 'Save Changes'}
-                    </button>
-                  </div>
-                </div>
-              </>
+              </div>
             )}
-          </div>
-        </div>
-      )}
 
-      {/* ── Status Transition Modal ── */}
-      {showStatusModal && detail && (
-        <div className="modal-overlay" onClick={() => setShowStatusModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '20px' }}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '380px' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: '600', margin: '0 0 12px' }}>
-              {pendingStatus === 'shipped' ? 'Mark as Shipped' : pendingStatus === 'received' ? 'Mark as Received' : 'Cancel Purchase Order'}
-            </h3>
-            {pendingStatus !== 'cancelled' ? (
-              <>
-                <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 16px' }}>
-                  {pendingStatus === 'shipped'
-                    ? 'Select the date this order was shipped.'
-                    : detailIsMultiItem
-                      ? `Select the received date. Inventory will be updated for all ${detailItems.length} line item(s).`
-                      : `Select the received date. Inventory will be updated: +${detail.qty_ordered}${detail.unit ? ' ' + detail.unit : ''}.`
-                  }
-                </p>
-                <div style={{ marginBottom: '20px' }}>
-                  <label style={lbl}>{pendingStatus === 'shipped' ? 'Shipped Date' : 'Received Date'}</label>
-                  <input type='date' value={statusDate} onChange={e => setStatusDate(e.target.value)} style={inp} />
-                </div>
-              </>
-            ) : (
-              <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 20px' }}>Are you sure you want to cancel this purchase order?</p>
+            {/* Grand Total */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px', marginBottom: '14px', padding: '10px 14px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+              <span style={{ fontSize: '14px', color: '#1d4ed8', fontWeight: '600' }}>Grand Total (CAD):</span>
+              <span style={{ fontSize: '18px', fontWeight: '700', color: '#1d4ed8' }}>${formatCurrency(isReadOnly ? detailPO.cost_total_cad : editTotal)}</span>
+            </div>
+
+            {/* Notes */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={lbl}>Notes</label>
+              <textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder='Optional notes...' style={{ ...inp, resize: 'vertical', fontFamily: 'inherit' }} disabled={isReadOnly} />
+            </div>
+
+            {updateError && (
+              <div style={{ marginBottom: '14px', padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '13px', color: '#dc2626' }}>{updateError}</div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button onClick={() => setShowStatusModal(false)} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Back</button>
-              <button
-                onClick={confirmStatusTransition}
-                disabled={statusTransitioning}
-                style={{ padding: '8px 16px', background: pendingStatus === 'cancelled' ? '#dc2626' : pendingStatus === 'received' ? '#16a34a' : '#d97706', color: '#fff', border: 'none', borderRadius: '6px', cursor: statusTransitioning ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500', opacity: statusTransitioning ? 0.7 : 1 }}
-              >
-                {statusTransitioning ? 'Processing...' : 'Confirm'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* ── Rollback Confirm Modal ── */}
-      {showRollbackConfirm && detail && (
-        <div className="modal-overlay" onClick={() => setShowRollbackConfirm(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400, padding: '20px' }}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '400px' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: '600', margin: '0 0 12px', color: '#92400e' }}>Rollback from Received</h3>
-            <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 16px' }}>
-              Changing status back from <strong>Received</strong> will deduct inventory.
-            </p>
-            <div style={{ padding: '10px 14px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '6px', fontSize: '13px', color: '#92400e', marginBottom: '20px' }}>
-              {detailIsMultiItem
-                ? <><strong>{detailItems.length} item(s)</strong> will be deducted from inventory.</>
-                : <><strong>{detail.qty_ordered}{detail.unit ? ' ' + detail.unit : ''}</strong> of {getMaterialLabel(detail)} will be deducted from inventory.</>
-              }
-              <div style={{ marginTop: '4px', color: '#78350f' }}>New status: <strong>{pendingRollbackStatus === 'shipped' ? 'Shipped' : 'Ordered'}</strong></div>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button onClick={() => setShowRollbackConfirm(false)} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-              <button
-                onClick={handleRollback}
-                disabled={rollbackTransitioning}
-                style={{ padding: '8px 16px', background: rollbackTransitioning ? '#fdba74' : '#d97706', color: '#fff', border: 'none', borderRadius: '6px', cursor: rollbackTransitioning ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500', opacity: rollbackTransitioning ? 0.7 : 1 }}
-              >
-                {rollbackTransitioning ? 'Processing...' : 'Yes, Rollback'}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button onClick={() => { setShowDetail(false); setUpdateError('') }} style={{ padding: '9px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>
+                {isReadOnly ? 'Close' : 'Cancel'}
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Delete Confirm Modal ── */}
-      {showDeleteConfirm && detail && (
-        <div className="modal-overlay" onClick={() => { setShowDeleteConfirm(false); setDeleteError('') }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '20px' }}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '380px' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: '600', margin: '0 0 12px', color: '#dc2626' }}>Delete Purchase Order</h3>
-            <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 12px' }}>
-              {detailIsMultiItem
-                ? `Delete this PO with ${detailItems.length} line item(s)?`
-                : `Delete this PO for ${getMaterialLabel(detail)} (${detail.qty_ordered}${detail.unit ? ' ' + detail.unit : ''})?`
-              }
-            </p>
-            <div style={{ padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '13px', color: '#64748b', marginBottom: '16px' }}>
-              If status is <strong>Received</strong>, inventory will be reduced accordingly.
-              {detail.status === 'received' && (
-                <div style={{ marginTop: '6px', color: '#92400e', fontWeight: '500' }}>
-                  {detailIsMultiItem
-                    ? `This PO is Received — ${detailItems.length} item(s) will be deducted from inventory.`
-                    : `This PO is Received — ${detail.qty_ordered}${detail.unit ? ' ' + detail.unit : ''} will be deducted from inventory.`
-                  }
-                </div>
+              {!isReadOnly && (
+                <button onClick={handleUpdate} disabled={updating} style={{ padding: '9px 20px', background: updating ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: updating ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
+                  {updating ? 'Saving...' : 'Save Changes'}
+                </button>
               )}
             </div>
-            {deleteError && (
-              <div style={{ marginBottom: '14px', padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '13px', color: '#dc2626' }}>{deleteError}</div>
-            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Confirm ── */}
+      {showDeleteConfirm && detailPO && (
+        <div className="modal-overlay" onClick={() => setShowDeleteConfirm(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '20px' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '380px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: '600', margin: '0 0 12px', color: '#dc2626' }}>Delete Purchase Order</h3>
+            <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 20px' }}>
+              Are you sure? This cannot be undone.
+              {detailPO.status === 'received' && (
+                <span style={{ display: 'block', marginTop: '8px', color: '#92400e', fontWeight: '500' }}>
+                  ⚠️ This PO is Received — inventory will NOT be automatically reversed.
+                </span>
+              )}
+            </p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button onClick={() => { setShowDeleteConfirm(false); setDeleteError('') }} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={() => setShowDeleteConfirm(false)} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
               <button onClick={handleDelete} disabled={deleting} style={{ padding: '8px 16px', background: deleting ? '#fca5a5' : '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: deleting ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
                 {deleting ? 'Deleting...' : 'Delete'}
               </button>
             </div>
           </div>
         </div>
-      )}
-
-      {/* ── Material History Modal ── */}
-      {showHistory && (
-        <div className="modal-overlay" onClick={() => setShowHistory(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 300, overflowY: 'auto', padding: '20px' }}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '700px', margin: '20px auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <div>
-                <h2 style={{ fontSize: '18px', fontWeight: '600', margin: '0 0 2px' }}>Purchase History</h2>
-                <div style={{ fontSize: '13px', color: '#64748b' }}>{historyLabel}</div>
-              </div>
-              <button onClick={() => setShowHistory(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
-            </div>
-            {Object.keys(supplierSummary).length > 0 && (
-              <div style={{ marginBottom: '20px', padding: '14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px' }}>
-                <div style={{ fontSize: '12px', fontWeight: '600', color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Avg Price by Supplier (Received POs)</div>
-                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-                  {Object.entries(supplierSummary).map(([supplier, { totalCost, totalQty }]) => (
-                    <div key={supplier} style={{ fontSize: '13px' }}>
-                      <span style={{ color: '#374151', fontWeight: '500' }}>{supplier}</span>
-                      <span style={{ color: '#64748b' }}>: </span>
-                      <strong style={{ color: '#15803d' }}>${formatCurrency(totalQty > 0 ? totalCost / totalQty : 0)}/unit</strong>
-                      <span style={{ color: '#94a3b8', marginLeft: '4px' }}>({totalQty} units, ${formatCurrency(totalCost)} total)</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {historyLoading ? (
-              <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>Loading...</div>
-            ) : historyData.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>No purchase history found.</div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                  <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                      {['Supplier', 'Order Date', 'Qty', 'Cost (CAD)', 'Unit Price', 'Status'].map(h => (
-                        <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {historyData.map((row, i) => {
-                      const st = STATUS_STYLE[row.status] || STATUS_STYLE.draft
-                      const unitPrice = row.qty_ordered > 0 ? row.cost_total_cad / row.qty_ordered : null
-                      return (
-                        <tr key={row.id} style={{ borderBottom: i < historyData.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
-                          <td style={{ padding: '12px 14px', color: '#374151' }}>{row.suppliers?.name || '—'}</td>
-                          <td style={{ padding: '12px 14px', color: '#64748b' }}>{row.ordered_at}</td>
-                          <td style={{ padding: '12px 14px', color: '#374151' }}>{row.qty_ordered} {row.unit || ''}</td>
-                          <td style={{ padding: '12px 14px', color: '#1e293b', fontWeight: '500' }}>${formatCurrency(row.cost_total_cad || 0)}</td>
-                          <td style={{ padding: '12px 14px', color: '#64748b' }}>{unitPrice != null ? `$${formatCurrency(unitPrice)}` : '—'}</td>
-                          <td style={{ padding: '12px 14px' }}>
-                            <span style={{ display: 'inline-block', background: st.bg, color: st.color, borderRadius: '20px', padding: '2px 10px', fontSize: '12px', fontWeight: '500' }}>{st.label}</span>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
-              <button onClick={() => setShowHistory(false)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Attachment Modal ── */}
-      {showAttachment && attachmentPO && (
-        <div className="modal-overlay" onClick={() => { setShowAttachment(false) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '20px' }}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '480px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-              <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>Attachments</h2>
-              <button onClick={() => setShowAttachment(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
-            </div>
-            <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '20px' }}>
-              {attachmentPO.po_number ? `PO# ${attachmentPO.po_number}` : attachmentPO.id.slice(0, 8)} — {attachmentPO.suppliers?.name || '—'}
-            </div>
-
-            {attachmentPO.invoice_url ? (
-              <div style={{ marginBottom: '20px', padding: '12px 16px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Paperclip size={16} color='#16a34a' />
-                <a href={attachmentPO.invoice_url} target='_blank' rel='noreferrer' style={{ color: '#15803d', fontSize: '14px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  View Current Attachment
-                </a>
-              </div>
-            ) : (
-              <div style={{ marginBottom: '20px', padding: '12px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', color: '#94a3b8', textAlign: 'center' }}>
-                No attachment yet
-              </div>
-            )}
-
-            <div style={{ marginBottom: '16px' }}>
-              <label style={lbl}>Upload New File</label>
-              <div
-                onClick={() => attachmentInputRef.current?.click()}
-                style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', border: '1px dashed #cbd5e1', borderRadius: '6px', cursor: 'pointer', background: '#fafafa' }}
-              >
-                <Paperclip size={16} color='#94a3b8' />
-                <span style={{ fontSize: '13px', color: attachmentFile ? '#374151' : '#94a3b8' }}>
-                  {attachmentFile ? attachmentFile.name : 'Click to select file (jpg, png, pdf)'}
-                </span>
-                {attachmentFile && (
-                  <button onClick={e => { e.stopPropagation(); setAttachmentFile(null) }} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-              <input ref={attachmentInputRef} type='file' accept='.jpg,.jpeg,.png,.pdf' style={{ display: 'none' }} onChange={e => setAttachmentFile(e.target.files?.[0] || null)} />
-            </div>
-
-            {attachmentError && (
-              <div style={{ marginBottom: '14px', padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '13px', color: '#dc2626' }}>{attachmentError}</div>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button onClick={() => setShowAttachment(false)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Close</button>
-              {attachmentFile && (
-                <button onClick={handleAttachmentUpload} disabled={attachmentUploading} style={{ padding: '8px 20px', background: attachmentUploading ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: attachmentUploading ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
-                  {attachmentUploading ? 'Uploading...' : 'Upload & Save'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {undoToast && (
-        <UndoToast
-          message={undoToast.message}
-          onUndo={undoToast.onUndo}
-          onDismiss={() => setUndoToast(null)}
-        />
       )}
     </MainLayout>
   )
