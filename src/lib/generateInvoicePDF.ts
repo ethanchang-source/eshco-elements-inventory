@@ -206,5 +206,16 @@ export function generateInvoicePDF(data: InvoiceData) {
   doc.setFont('helvetica', 'bold')
   doc.text(`HST / GST #: ${COMPANY.hst}`, pageWidth / 2, bottomY + 10, { align: 'center' })
 
+  // Add "Page X of Y" to each page after all content is rendered
+  const totalPages = doc.getNumberOfPages()
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.setTextColor(148, 163, 184)
+    doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, doc.internal.pageSize.getHeight() - 5, { align: 'center' })
+  }
+  doc.setTextColor(0, 0, 0)
+
   doc.save(`${data.invoice_no}.pdf`)
 }
