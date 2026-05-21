@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, getLocalDateString } from '@/lib/utils'
 import { FileText, Plus, Search, Download, Trash2, Upload } from 'lucide-react'
 import { generateInvoicePDF } from '@/lib/generateInvoicePDF'
 import { generateCreditMemoPDF } from '@/lib/generateCreditMemoPDF'
@@ -106,9 +106,9 @@ function InvoicesContent() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
-  const [paymentInfo, setPaymentInfo] = useState({ invoiceId: '', date: new Date().toISOString().split('T')[0] })
+  const [paymentInfo, setPaymentInfo] = useState({ invoiceId: '', date: getLocalDateString() })
   const [showDeliveryModal, setShowDeliveryModal] = useState(false)
-  const [deliveryInfo, setDeliveryInfo] = useState({ invoiceId: '', date: new Date().toISOString().split('T')[0] })
+  const [deliveryInfo, setDeliveryInfo] = useState({ invoiceId: '', date: getLocalDateString() })
   const [search, setSearch] = useState('')
   const [filterCustomer, setFilterCustomer] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
@@ -121,12 +121,12 @@ function InvoicesContent() {
   const [cmFilterCustomer, setCmFilterCustomer] = useState('')
   const [cmFilterStatus, setCmFilterStatus] = useState('')
   const [showAppliedModal, setShowAppliedModal] = useState(false)
-  const [appliedInfo, setAppliedInfo] = useState({ memoId: '', date: new Date().toISOString().split('T')[0] })
+  const [appliedInfo, setAppliedInfo] = useState({ memoId: '', date: getLocalDateString() })
   const [showCmModal, setShowCmModal] = useState(false)
   const [editCm, setEditCm] = useState<CreditMemo | null>(null)
   const [cmSelectedCustomer, setCmSelectedCustomer] = useState<Customer | null>(null)
   const [cmLineItems, setCmLineItems] = useState<InvoiceLineItem[]>([])
-  const [cmForm, setCmForm] = useState({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '', applied_date: '', memo_no: '' })
+  const [cmForm, setCmForm] = useState({ customer_id: '', issued_at: getLocalDateString(), po_number: '', tax_rate: '13', notes: '', applied_date: '', memo_no: '' })
 
   const [showImportModal, setShowImportModal] = useState(false)
   const [importRows, setImportRows] = useState<any[]>([])
@@ -158,7 +158,7 @@ function InvoicesContent() {
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([])
   const [form, setForm] = useState({
     customer_id: '',
-    issued_at: new Date().toISOString().split('T')[0],
+    issued_at: getLocalDateString(),
     po_number: '',
     shipping: '0',
     tax_rate: '13',
@@ -304,7 +304,7 @@ function InvoicesContent() {
     setLineItems([])
     setSelectedCustomer(null)
     const invoice_no = await generateInvoiceNo(currency)
-    setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: currency === 'USD' ? '0' : '13', notes: '', wire_fee: '0', invoice_no })
+    setForm({ customer_id: '', issued_at: getLocalDateString(), po_number: '', shipping: '0', tax_rate: currency === 'USD' ? '0' : '13', notes: '', wire_fee: '0', invoice_no })
     setInvoiceError('')
     setShowModal(true)
   }
@@ -314,7 +314,7 @@ function InvoicesContent() {
     setCmLineItems([])
     setCmSelectedCustomer(null)
     const memo_no = await generateMemoNo()
-    setCmForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '', applied_date: '', memo_no })
+    setCmForm({ customer_id: '', issued_at: getLocalDateString(), po_number: '', tax_rate: '13', notes: '', applied_date: '', memo_no })
     setCmError('')
     setShowCmModal(true)
   }
@@ -407,7 +407,7 @@ function InvoicesContent() {
     setEditInvoice(null)
     setLineItems([])
     setSelectedCustomer(null)
-    setForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', shipping: '0', tax_rate: '13', notes: '', wire_fee: '0', invoice_no: '' })
+    setForm({ customer_id: '', issued_at: getLocalDateString(), po_number: '', shipping: '0', tax_rate: '13', notes: '', wire_fee: '0', invoice_no: '' })
     fetchAll()
   }
 
@@ -936,7 +936,7 @@ function InvoicesContent() {
         }
       }
       setShowCmModal(false); setEditCm(null); setCmLineItems([]); setCmSelectedCustomer(null)
-      setCmForm({ customer_id: '', issued_at: new Date().toISOString().split('T')[0], po_number: '', tax_rate: '13', notes: '', applied_date: '', memo_no: '' })
+      setCmForm({ customer_id: '', issued_at: getLocalDateString(), po_number: '', tax_rate: '13', notes: '', applied_date: '', memo_no: '' })
       fetchAll()
     } catch (err: any) {
       setCmError(err?.message || 'An error occurred. Please try again.')
@@ -1134,7 +1134,7 @@ function InvoicesContent() {
 
   async function updateCmStatus(id: string, status: string) {
     if (status === 'applied') {
-      setAppliedInfo({ memoId: id, date: new Date().toISOString().split('T')[0] })
+      setAppliedInfo({ memoId: id, date: getLocalDateString() })
       setShowAppliedModal(true)
     } else {
       await supabase.from('credit_memos').update({ status, applied_date: null }).eq('id', id)
@@ -1189,7 +1189,7 @@ function InvoicesContent() {
 
   async function updateStatus(invoiceId: string, status: string) {
     if (status === 'paid') {
-      setPaymentInfo({ invoiceId, date: new Date().toISOString().split('T')[0] })
+      setPaymentInfo({ invoiceId, date: getLocalDateString() })
       setShowPaymentModal(true)
     } else {
       await supabase.from('invoices').update({ status, payment_date: null }).eq('id', invoiceId)
@@ -1301,7 +1301,7 @@ function InvoicesContent() {
                   )}
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{inv.customers?.company_name}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{new Date(inv.issued_at).toLocaleDateString('en-CA')}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{inv.issued_at.slice(0, 10)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${formatCurrency(inv.subtotal_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>${formatCurrency(inv.tax_amount_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(inv.total_cad)} CAD</td>
@@ -1312,8 +1312,8 @@ function InvoicesContent() {
                     <option value='paid'>Paid</option>
                   </select>
                 </td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#2563eb' }}><span onClick={() => { setDeliveryInfo({ invoiceId: inv.id, date: inv.delivery_date || new Date().toISOString().split('T')[0] }); setShowDeliveryModal(true) }} style={{ cursor: 'pointer', textDecoration: inv.delivery_date ? 'underline' : 'none' }}>{inv.delivery_date ? inv.delivery_date : <button style={{ background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer' }}>+ Add</button>}</span></td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#16a34a' }}><span onClick={() => { setPaymentInfo({ invoiceId: inv.id, date: inv.payment_date || new Date().toISOString().split('T')[0] }); setShowPaymentModal(true) }} style={{ cursor: 'pointer', textDecoration: inv.payment_date ? 'underline' : 'none' }}>{inv.payment_date || '-'}</span></td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#2563eb' }}><span onClick={() => { setDeliveryInfo({ invoiceId: inv.id, date: inv.delivery_date || getLocalDateString() }); setShowDeliveryModal(true) }} style={{ cursor: 'pointer', textDecoration: inv.delivery_date ? 'underline' : 'none' }}>{inv.delivery_date ? inv.delivery_date : <button style={{ background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer' }}>+ Add</button>}</span></td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#16a34a' }}><span onClick={() => { setPaymentInfo({ invoiceId: inv.id, date: inv.payment_date || getLocalDateString() }); setShowPaymentModal(true) }} style={{ cursor: 'pointer', textDecoration: inv.payment_date ? 'underline' : 'none' }}>{inv.payment_date || '-'}</span></td>
                 <td style={{ padding: '12px 16px' }}>
                   <div style={{ display: 'flex', gap: '6px' }}>
                     <button onClick={() => handleDownloadPDF(inv)} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer', fontWeight: '500' }}>
@@ -1396,7 +1396,7 @@ function InvoicesContent() {
                   <span onClick={() => openEditCm(cm)} style={{ color: '#7c3aed', cursor: 'pointer', textDecoration: 'underline' }}>{cm.memo_no}</span>
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{cm.customers?.company_name}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{new Date(cm.issued_at).toLocaleDateString('en-CA')}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{cm.issued_at.slice(0, 10)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${formatCurrency(cm.subtotal_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>${formatCurrency(cm.tax_amount_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(cm.total_cad)} CAD</td>
@@ -1409,7 +1409,7 @@ function InvoicesContent() {
                   </select>
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#7c3aed' }}>
-                  <span onClick={() => { setAppliedInfo({ memoId: cm.id, date: cm.applied_date || new Date().toISOString().split('T')[0] }); setShowAppliedModal(true) }} style={{ cursor: 'pointer', textDecoration: cm.applied_date ? 'underline' : 'none' }}>
+                  <span onClick={() => { setAppliedInfo({ memoId: cm.id, date: cm.applied_date || getLocalDateString() }); setShowAppliedModal(true) }} style={{ cursor: 'pointer', textDecoration: cm.applied_date ? 'underline' : 'none' }}>
                     {cm.applied_date || '-'}
                   </span>
                 </td>
@@ -1499,7 +1499,7 @@ function InvoicesContent() {
                   )}
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{inv.customers?.company_name}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{new Date(inv.issued_at).toLocaleDateString('en-CA')}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{inv.issued_at.slice(0, 10)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${formatCurrency(inv.subtotal_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>${formatCurrency(inv.tax_amount_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(inv.total_cad)} USD</td>
@@ -1512,8 +1512,8 @@ function InvoicesContent() {
                     <option value='paid'>Paid</option>
                   </select>
                 </td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#0369a1' }}><span onClick={() => { setDeliveryInfo({ invoiceId: inv.id, date: inv.delivery_date || new Date().toISOString().split('T')[0] }); setShowDeliveryModal(true) }} style={{ cursor: 'pointer', textDecoration: inv.delivery_date ? 'underline' : 'none' }}>{inv.delivery_date ? inv.delivery_date : <button style={{ background: '#e0f2fe', color: '#0369a1', border: 'none', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer' }}>+ Add</button>}</span></td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#16a34a' }}><span onClick={() => { setPaymentInfo({ invoiceId: inv.id, date: inv.payment_date || new Date().toISOString().split('T')[0] }); setShowPaymentModal(true) }} style={{ cursor: 'pointer', textDecoration: inv.payment_date ? 'underline' : 'none' }}>{inv.payment_date || '-'}</span></td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#0369a1' }}><span onClick={() => { setDeliveryInfo({ invoiceId: inv.id, date: inv.delivery_date || getLocalDateString() }); setShowDeliveryModal(true) }} style={{ cursor: 'pointer', textDecoration: inv.delivery_date ? 'underline' : 'none' }}>{inv.delivery_date ? inv.delivery_date : <button style={{ background: '#e0f2fe', color: '#0369a1', border: 'none', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer' }}>+ Add</button>}</span></td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#16a34a' }}><span onClick={() => { setPaymentInfo({ invoiceId: inv.id, date: inv.payment_date || getLocalDateString() }); setShowPaymentModal(true) }} style={{ cursor: 'pointer', textDecoration: inv.payment_date ? 'underline' : 'none' }}>{inv.payment_date || '-'}</span></td>
                 <td style={{ padding: '12px 16px' }}>
                   <div style={{ display: 'flex', gap: '6px' }}>
                     <button onClick={() => handleDownloadPDF(inv)} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#e0f2fe', color: '#0369a1', border: 'none', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer', fontWeight: '500' }}>

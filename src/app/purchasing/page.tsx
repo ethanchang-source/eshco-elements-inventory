@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, getLocalDateString } from '@/lib/utils'
 import { ShoppingCart, Plus, Search, X, Trash2, Paperclip } from 'lucide-react'
 
 interface Supplier { id: string; name: string }
@@ -96,7 +96,7 @@ export default function Purchasing() {
   const [createSupplier, setCreateSupplier] = useState<Supplier | null>(null)
   const [createLineItems, setCreateLineItems] = useState<POLineItem[]>([])
   const [createForm, setCreateForm] = useState({
-    supplier_id: '', ordered_at: new Date().toISOString().slice(0, 10),
+    supplier_id: '', ordered_at: getLocalDateString(),
     shipping_cad: '', brokerage_cad: '', duty_cad: '',
     amount_usd: '', amount_cad: '', notes: '',
   })
@@ -297,7 +297,7 @@ export default function Purchasing() {
     setSaving(false)
     setShowCreate(false)
     setCreateError('')
-    setCreateForm({ supplier_id: '', ordered_at: new Date().toISOString().slice(0, 10), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '' })
+    setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '' })
     setCreateLineItems([])
     setCreateSupplier(null)
     setCreateAttachFiles([])
@@ -392,9 +392,9 @@ export default function Purchasing() {
       amount_usd: editForm.amount_usd ? parseFloat(editForm.amount_usd) : null,
       exchange_rate: exchangeRate,
       shipped_at: editForm.status === 'shipped' || editForm.status === 'received'
-        ? (editForm.shipped_at || new Date().toISOString().slice(0, 10)) : null,
+        ? (editForm.shipped_at || getLocalDateString()) : null,
       received_at: editForm.status === 'received'
-        ? (editForm.received_at || new Date().toISOString().slice(0, 10)) : null,
+        ? (editForm.received_at || getLocalDateString()) : null,
     }
 
     const { error } = await supabase.from('purchase_orders').update(updatePayload).eq('id', detailPO.id)
@@ -502,7 +502,7 @@ export default function Purchasing() {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search supplier, item, status...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
         </div>
         <button
-          onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ supplier_id: '', ordered_at: new Date().toISOString().slice(0, 10), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '' }); setCreateLineItems([]); setCreateSupplier(null); setCreateAttachFiles([]) }}
+          onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '' }); setCreateLineItems([]); setCreateSupplier(null); setCreateAttachFiles([]) }}
           style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}
         >
           <Plus size={16} /> New PO
