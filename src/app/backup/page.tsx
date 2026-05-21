@@ -116,7 +116,7 @@ export default function BackupPage() {
     try {
       const { data: products } = await supabase
         .from('products')
-        .select('sku, name, size_oz, barcode_upc, barcode_itf14, unit_cost_cad, price_whs_cad, msrp_cad, price_dist_cad, current_stock, reorder_threshold, is_active')
+        .select('sku, name, size_oz, barcode_upc, barcode_itf14, unit_cost_cad, price_whs_cad, msrp_cad, price_dist_cad, current_stock, reorder_threshold, max_capacity, is_active')
         .order('sku')
 
       console.log('=== BACKUP DEBUG ===')
