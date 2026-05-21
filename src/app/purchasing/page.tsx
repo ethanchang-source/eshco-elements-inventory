@@ -102,7 +102,7 @@ export default function Purchasing() {
   const [createForm, setCreateForm] = useState({
     supplier_id: '', ordered_at: getLocalDateString(),
     shipping_cad: '', brokerage_cad: '', duty_cad: '',
-    amount_usd: '', amount_cad: '', notes: '',
+    amount_usd: '', amount_cad: '', notes: '', tax_rate: '0',
   })
   const [saving, setSaving] = useState(false)
   const [createError, setCreateError] = useState('')
@@ -115,7 +115,7 @@ export default function Purchasing() {
     supplier_id: '', ordered_at: '', status: 'ordered',
     shipping_cad: '', brokerage_cad: '', duty_cad: '',
     amount_usd: '', amount_cad: '', notes: '',
-    shipped_at: '', received_at: '',
+    shipped_at: '', received_at: '', tax_rate: '0',
   })
   const [updating, setUpdating] = useState(false)
   const [updateError, setUpdateError] = useState('')
@@ -124,16 +124,25 @@ export default function Purchasing() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  // Attachments
+  // Standalone attachments modal
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const createFileInputRef = useRef<HTMLInputElement>(null)
   const [poAttachments, setPoAttachments] = useState<Record<string, POAttachment[]>>({})
   const [showAttachments, setShowAttachments] = useState(false)
   const [attachmentPO, setAttachmentPO] = useState<PO | null>(null)
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
-  const [createAttachFiles, setCreateAttachFiles] = useState<File[]>([])
   const [attachUploadStatus, setAttachUploadStatus] = useState<string>('')
+
+  // Create PO attachments
+  const createFileInputRef = useRef<HTMLInputElement>(null)
+  const [createFiles, setCreateFiles] = useState<File[]>([])
+
+  // Edit PO attachments
+  const editFileInputRef = useRef<HTMLInputElement>(null)
+  const [editAttachments, setEditAttachments] = useState<{ id: string; file_name: string; file_url: string }[]>([])
+  const [editNewFiles, setEditNewFiles] = useState<File[]>([])
+  const [editUploadStatus, setEditUploadStatus] = useState('')
+  const [uploadingEditAttachment, setUploadingEditAttachment] = useState(false)
 
   useEffect(() => { fetchAll() }, [selectedYear])
 
@@ -142,8 +151,8 @@ export default function Purchasing() {
       if (e.key !== 'Escape') return
       if (showDeleteConfirm) { setShowDeleteConfirm(false); return }
       if (showAttachments) { setShowAttachments(false); setAttachmentFiles([]); setAttachUploadStatus(''); return }
-      if (showCreate) { setShowCreate(false); setCreateError(''); setCreateAttachFiles([]); return }
-      if (showDetail) { setShowDetail(false); setUpdateError(''); return }
+      if (showCreate) { setShowCreate(false); setCreateError(''); setCreateFiles([]); return }
+      if (showDetail) { setShowDetail(false); setUpdateError(''); setEditNewFiles([]); setEditUploadStatus(''); return }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -235,7 +244,8 @@ export default function Purchasing() {
   const createShipping = parseFloat(createForm.shipping_cad || '0') || 0
   const createBrokerage = parseFloat(createForm.brokerage_cad || '0') || 0
   const createDuty = parseFloat(createForm.duty_cad || '0') || 0
-  const createHST = createSubtotal * 0.13
+  const createTaxRate = parseFloat(createForm.tax_rate || '0') || 0
+  const createHST = createSubtotal * createTaxRate / 100
   const createTotal = createSubtotal + createShipping + createBrokerage + createDuty + createHST
   const createExchangeRate = createForm.amount_usd && createForm.amount_cad && parseFloat(createForm.amount_usd) > 0
     ? (parseFloat(createForm.amount_cad) / parseFloat(createForm.amount_usd)).toFixed(4) : null
@@ -243,7 +253,7 @@ export default function Purchasing() {
   function closeCreate() {
     setShowCreate(false)
     setCreateError('')
-    setCreateAttachFiles([])
+    setCreateFiles([])
   }
 
   async function handleCreate() {
@@ -295,33 +305,30 @@ export default function Purchasing() {
       return
     }
 
-    // Upload attachments — PO is already created
     let attachFailCount = 0
-    for (const file of createAttachFiles) {
+    for (const file of createFiles) {
       const path = `${poData.id}/${Date.now()}_${file.name}`
       const { error: uploadError } = await supabase.storage.from('purchase-invoices').upload(path, file)
       if (uploadError) { attachFailCount++; continue }
       const { data: urlData } = supabase.storage.from('purchase-invoices').getPublicUrl(path)
       await supabase.from('purchase_order_attachments').insert({
-        po_id: poData.id,
-        file_name: file.name,
-        file_url: urlData.publicUrl,
+        po_id: poData.id, file_name: file.name, file_url: urlData.publicUrl,
       })
     }
 
     setSaving(false)
     if (attachFailCount > 0) {
       setCreateError(`PO created, but ${attachFailCount} attachment(s) failed to upload.`)
-      setCreateAttachFiles([])
+      setCreateFiles([])
       fetchAll()
       return
     }
     setShowCreate(false)
     setCreateError('')
-    setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '' })
+    setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '', tax_rate: '0' })
     setCreateLineItems([])
     setCreateSupplier(null)
-    setCreateAttachFiles([])
+    setCreateFiles([])
     fetchAll()
   }
 
@@ -339,16 +346,24 @@ export default function Purchasing() {
       notes: po.notes || '',
       shipped_at: po.shipped_at || '',
       received_at: po.received_at || '',
+      tax_rate: '0',
     })
     setUpdateError('')
+    setEditNewFiles([])
+    setEditUploadStatus('')
 
-    const { data: freshItems } = await supabase
-      .from('purchase_order_items')
-      .select('id, po_id, material_type, material_id, quantity, unit_price')
-      .eq('po_id', po.id)
+    const [freshItemsRes, attachRes] = await Promise.all([
+      supabase.from('purchase_order_items')
+        .select('id, po_id, material_type, material_id, quantity, unit_price')
+        .eq('po_id', po.id),
+      supabase.from('purchase_order_attachments')
+        .select('id, file_name, file_url')
+        .eq('po_id', po.id)
+        .order('uploaded_at'),
+    ])
 
     const existingMap: Record<string, { qty: number; unit_price: number }> = {}
-    for (const item of (freshItems || []) as POItem[]) {
+    for (const item of (freshItemsRes.data || []) as POItem[]) {
       existingMap[item.material_id] = { qty: item.quantity, unit_price: item.unit_price }
     }
 
@@ -365,6 +380,7 @@ export default function Purchasing() {
       price_str: String(existingMap[m.id]?.unit_price ?? m.cost_per_unit),
     })))
 
+    setEditAttachments(attachRes.data || [])
     setShowDetail(true)
   }
 
@@ -393,7 +409,8 @@ export default function Purchasing() {
   const editShipping = parseFloat(editForm.shipping_cad || '0') || 0
   const editBrokerage = parseFloat(editForm.brokerage_cad || '0') || 0
   const editDuty = parseFloat(editForm.duty_cad || '0') || 0
-  const editHST = editSubtotal * 0.13
+  const editTaxRate = parseFloat(editForm.tax_rate || '0') || 0
+  const editHST = editSubtotal * editTaxRate / 100
   const editTotal = editSubtotal + editShipping + editBrokerage + editDuty + editHST
   const editExchangeRate = editForm.amount_usd && editForm.amount_cad && parseFloat(editForm.amount_usd) > 0
     ? (parseFloat(editForm.amount_cad) / parseFloat(editForm.amount_usd)).toFixed(4) : null
@@ -454,6 +471,54 @@ export default function Purchasing() {
     setUpdating(false)
     setShowDetail(false)
     fetchAll()
+  }
+
+  async function handleUploadEditAttachments() {
+    if (!detailPO || editNewFiles.length === 0) return
+    setUploadingEditAttachment(true)
+    setEditUploadStatus('')
+    const poId = detailPO.id
+    let successCount = 0
+    let failCount = 0
+    for (const file of editNewFiles) {
+      const path = `${poId}/${Date.now()}_${file.name}`
+      const { error: uploadError } = await supabase.storage.from('purchase-invoices').upload(path, file)
+      if (uploadError) { failCount++; continue }
+      const { data: urlData } = supabase.storage.from('purchase-invoices').getPublicUrl(path)
+      await supabase.from('purchase_order_attachments').insert({
+        po_id: poId, file_name: file.name, file_url: urlData.publicUrl,
+      })
+      successCount++
+    }
+    setEditNewFiles([])
+    setUploadingEditAttachment(false)
+    if (failCount === 0) {
+      setEditUploadStatus(`✓ ${successCount} file(s) uploaded.`)
+    } else if (successCount === 0) {
+      setEditUploadStatus(`✗ Upload failed for all ${failCount} file(s).`)
+    } else {
+      setEditUploadStatus(`${successCount} uploaded, ${failCount} failed.`)
+    }
+    const { data } = await supabase.from('purchase_order_attachments')
+      .select('id, file_name, file_url')
+      .eq('po_id', poId)
+      .order('uploaded_at')
+    setEditAttachments(data || [])
+    setPoAttachments(prev => ({
+      ...prev,
+      [poId]: (data || []).map(a => ({ ...a, po_id: poId, uploaded_at: '' })) as POAttachment[],
+    }))
+  }
+
+  async function handleDeleteEditAttachment(attachmentId: string) {
+    await supabase.from('purchase_order_attachments').delete().eq('id', attachmentId)
+    setEditAttachments(prev => prev.filter(a => a.id !== attachmentId))
+    if (detailPO) {
+      setPoAttachments(prev => ({
+        ...prev,
+        [detailPO.id]: (prev[detailPO.id] || []).filter(a => a.id !== attachmentId),
+      }))
+    }
   }
 
   async function handleDelete() {
@@ -611,7 +676,7 @@ export default function Purchasing() {
             <Download size={15} /> Export Excel
           </button>
           <button
-            onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '' }); setCreateLineItems([]); setCreateSupplier(null); setCreateAttachFiles([]) }}
+            onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '', tax_rate: '0' }); setCreateLineItems([]); setCreateSupplier(null); setCreateFiles([]) }}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}
           >
             <Plus size={16} /> New PO
@@ -762,7 +827,7 @@ export default function Purchasing() {
             )}
 
             {/* Cost fields */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
               <div>
                 <label style={lbl}>Shipping (CAD)</label>
                 <input type='number' min='0' step='0.01' value={createForm.shipping_cad} onChange={e => setCreateForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
@@ -774,6 +839,18 @@ export default function Purchasing() {
               <div>
                 <label style={lbl}>Duty (CAD)</label>
                 <input type='number' min='0' step='0.01' value={createForm.duty_cad} onChange={e => setCreateForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+              </div>
+              <div>
+                <label style={lbl}>Tax Rate (%)</label>
+                <input type='text' inputMode='decimal'
+                  value={createForm.tax_rate}
+                  onChange={e => {
+                    if (e.target.value === '' || /^[0-9]*\.?[0-9]*$/.test(e.target.value))
+                      setCreateForm(f => ({ ...f, tax_rate: e.target.value }))
+                  }}
+                  placeholder='0'
+                  style={numInp}
+                />
               </div>
             </div>
 
@@ -827,10 +904,12 @@ export default function Purchasing() {
                     <span>${formatCurrency(createSubtotal + createShipping + createBrokerage + createDuty)}</span>
                   </div>
                 )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '6px' }}>
-                  <span>HST (13%)</span>
-                  <span>${formatCurrency(createHST)}</span>
-                </div>
+                {createTaxRate > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '6px' }}>
+                    <span>Tax ({createTaxRate}%)</span>
+                    <span>${formatCurrency(createHST)}</span>
+                  </div>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '700', color: '#1d4ed8', borderTop: '1px solid #bfdbfe', paddingTop: '8px' }}>
                   <span>TOTAL (CAD)</span>
                   <span>${formatCurrency(createTotal)}</span>
@@ -850,7 +929,7 @@ export default function Purchasing() {
               <input ref={createFileInputRef} type='file' multiple style={{ display: 'none' }}
                 onChange={e => {
                   if (e.target.files) {
-                    setCreateAttachFiles(prev => [...prev, ...Array.from(e.target.files!)])
+                    setCreateFiles(prev => [...prev, ...Array.from(e.target.files!)])
                     e.target.value = ''
                   }
                 }} />
@@ -858,12 +937,12 @@ export default function Purchasing() {
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', cursor: 'pointer', fontSize: '13px', color: '#374151' }}>
                 <Paperclip size={14} /> Choose Files
               </button>
-              {createAttachFiles.length > 0 && (
+              {createFiles.length > 0 && (
                 <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {createAttachFiles.map((f, i) => (
+                  {createFiles.map((f, i) => (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '13px' }}>
                       <span style={{ color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{f.name}</span>
-                      <button type='button' onClick={() => setCreateAttachFiles(prev => prev.filter((_, j) => j !== i))}
+                      <button type='button' onClick={() => setCreateFiles(prev => prev.filter((_, j) => j !== i))}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '2px 4px', marginLeft: '8px', flexShrink: 0 }}>
                         <X size={14} />
                       </button>
@@ -889,7 +968,7 @@ export default function Purchasing() {
 
       {/* ── Detail / Edit Modal ── */}
       {showDetail && detailPO && (
-        <div className="modal-overlay" onClick={() => { setShowDetail(false); setUpdateError('') }}
+        <div className="modal-overlay" onClick={() => { setShowDetail(false); setUpdateError(''); setEditNewFiles([]); setEditUploadStatus('') }}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '20px' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()}
             style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '900px', margin: '20px auto' }}>
@@ -901,7 +980,7 @@ export default function Purchasing() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <button onClick={() => setShowDeleteConfirm(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '4px' }}><Trash2 size={16} /></button>
-                <button onClick={() => { setShowDetail(false); setUpdateError('') }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
+                <button onClick={() => { setShowDetail(false); setUpdateError(''); setEditNewFiles([]); setEditUploadStatus('') }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
               </div>
             </div>
 
@@ -1011,7 +1090,7 @@ export default function Purchasing() {
 
             {/* Cost fields */}
             {!isReadOnly && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
                 <div>
                   <label style={lbl}>Shipping (CAD)</label>
                   <input type='number' min='0' step='0.01' value={editForm.shipping_cad} onChange={e => setEditForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
@@ -1023,6 +1102,18 @@ export default function Purchasing() {
                 <div>
                   <label style={lbl}>Duty (CAD)</label>
                   <input type='number' min='0' step='0.01' value={editForm.duty_cad} onChange={e => setEditForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                </div>
+                <div>
+                  <label style={lbl}>Tax Rate (%)</label>
+                  <input type='text' inputMode='decimal'
+                    value={editForm.tax_rate}
+                    onChange={e => {
+                      if (e.target.value === '' || /^[0-9]*\.?[0-9]*$/.test(e.target.value))
+                        setEditForm(f => ({ ...f, tax_rate: e.target.value }))
+                    }}
+                    placeholder='0'
+                    style={numInp}
+                  />
                 </div>
               </div>
             )}
@@ -1057,10 +1148,12 @@ export default function Purchasing() {
                   <span>${formatCurrency(editSubtotal + editShipping + editBrokerage + editDuty)}</span>
                 </div>
               )}
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '6px' }}>
-                <span>HST (13%)</span>
-                <span>${formatCurrency(editHST)}</span>
-              </div>
+              {editTaxRate > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '6px' }}>
+                  <span>Tax ({editTaxRate}%)</span>
+                  <span>${formatCurrency(editHST)}</span>
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '700', color: '#1d4ed8', borderTop: '1px solid #bfdbfe', paddingTop: '8px' }}>
                 <span>TOTAL (CAD)</span>
                 <span>${formatCurrency(editTotal)}</span>
@@ -1073,12 +1166,72 @@ export default function Purchasing() {
               <textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder='Optional notes...' style={{ ...inp, resize: 'vertical', fontFamily: 'inherit' }} disabled={isReadOnly} />
             </div>
 
+            {/* Edit PO Attachments */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={lbl}>Attachments</label>
+              {editAttachments.length > 0 && (
+                <div style={{ marginBottom: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {editAttachments.map(a => (
+                    <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '13px' }}>
+                      <a href={a.file_url} target='_blank' rel='noopener noreferrer'
+                        style={{ color: '#2563eb', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, display: 'flex', alignItems: 'center', gap: '6px' }}
+                        onMouseEnter={e => (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'underline'}
+                        onMouseLeave={e => (e.currentTarget as HTMLAnchorElement).style.textDecoration = 'none'}>
+                        <Paperclip size={13} style={{ flexShrink: 0 }} />{a.file_name}
+                      </a>
+                      <button type='button' onClick={() => handleDeleteEditAttachment(a.id)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '2px 4px', marginLeft: '8px', flexShrink: 0 }}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <input ref={editFileInputRef} type='file' multiple style={{ display: 'none' }}
+                onChange={e => {
+                  if (e.target.files) {
+                    setEditNewFiles(prev => [...prev, ...Array.from(e.target.files!)])
+                    e.target.value = ''
+                  }
+                }} />
+              <button type='button' onClick={() => editFileInputRef.current?.click()}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', cursor: 'pointer', fontSize: '13px', color: '#374151' }}>
+                <Paperclip size={14} /> Choose Files
+              </button>
+              {editNewFiles.length > 0 && (
+                <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {editNewFiles.map((f, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '13px' }}>
+                      <span style={{ color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{f.name}</span>
+                      <button type='button' onClick={() => setEditNewFiles(prev => prev.filter((_, j) => j !== i))}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '2px 4px', marginLeft: '8px', flexShrink: 0 }}>
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {editUploadStatus && (
+                <div style={{ marginTop: '8px', padding: '8px 12px', background: editUploadStatus.startsWith('✓') ? '#f0fdf4' : '#fef2f2', border: `1px solid ${editUploadStatus.startsWith('✓') ? '#bbf7d0' : '#fecaca'}`, borderRadius: '6px', fontSize: '13px', color: editUploadStatus.startsWith('✓') ? '#16a34a' : '#dc2626' }}>
+                  {editUploadStatus}
+                </div>
+              )}
+              {editNewFiles.length > 0 && (
+                <div style={{ marginTop: '10px', display: 'flex', justifyContent: 'flex-end' }}>
+                  <button onClick={handleUploadEditAttachments} disabled={uploadingEditAttachment}
+                    style={{ padding: '7px 16px', background: uploadingEditAttachment ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: uploadingEditAttachment ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: '500' }}>
+                    {uploadingEditAttachment ? 'Uploading...' : 'Upload'}
+                  </button>
+                </div>
+              )}
+            </div>
+
             {updateError && (
               <div style={{ marginBottom: '14px', padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '13px', color: '#dc2626' }}>{updateError}</div>
             )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button onClick={() => { setShowDetail(false); setUpdateError('') }} style={{ padding: '9px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>
+              <button onClick={() => { setShowDetail(false); setUpdateError(''); setEditNewFiles([]); setEditUploadStatus('') }} style={{ padding: '9px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>
                 {isReadOnly ? 'Close' : 'Cancel'}
               </button>
               {!isReadOnly && (
