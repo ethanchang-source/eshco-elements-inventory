@@ -129,7 +129,7 @@ export function generateInvoicePDF(data: InvoiceData) {
         styles: { fontStyle: 'italic' as const, textColor: [80, 80, 80] as [number, number, number], fillColor: [245, 247, 250] as [number, number, number] }
       }]
     ],
-    styles: { fontSize: 8, cellPadding: 3 },
+    styles: { fontSize: 8, cellPadding: 2.5 },
     headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold', fontSize: 8 },
     columnStyles: {
       0: { cellWidth: 18 },
@@ -142,7 +142,14 @@ export function generateInvoicePDF(data: InvoiceData) {
     alternateRowStyles: { fillColor: [248, 250, 252] },
   })
 
-  const finalY = (doc as any).lastAutoTable.finalY + 8
+  const pageHeight = doc.internal.pageSize.getHeight()
+  let finalY = (doc as any).lastAutoTable.finalY + 8
+
+  // If the summary section won't fit on the current page, start a new page
+  if (finalY + 80 > pageHeight - 25) {
+    doc.addPage()
+    finalY = 20
+  }
 
   // Notes (좌측 하단)
   if (data.notes) {
