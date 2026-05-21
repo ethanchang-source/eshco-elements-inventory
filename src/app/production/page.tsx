@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
+import { getLocalDateString } from '@/lib/utils'
 import { Factory, Plus, AlertTriangle, Trash2 } from 'lucide-react'
 
 interface Product {
@@ -27,17 +28,18 @@ export default function Production() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
-  const [form, setForm] = useState({ product_id: '', qty_produced: '', produced_at: new Date().toISOString().split('T')[0], notes: '' })
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
+  const [form, setForm] = useState({ product_id: '', qty_produced: '', produced_at: getLocalDateString(), notes: '' })
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [bomPreview, setBomPreview] = useState<any[]>([])
   const [deleteOrder, setDeleteOrder] = useState<ProductionOrder | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  useEffect(() => { fetchAll() }, [])
+  useEffect(() => { fetchAll() }, [selectedYear])
 
   async function fetchAll() {
     const [o, p] = await Promise.all([
-      supabase.from('production_orders').select('*, products(sku, name, size_oz)').order('produced_at', { ascending: false }).limit(50),
+      supabase.from('production_orders').select('*, products(sku, name, size_oz)').gte('produced_at', `${selectedYear}-01-01`).lte('produced_at', `${selectedYear}-12-31`).order('produced_at', { ascending: false }),
       supabase.from('products').select('*').eq('is_active', true).order('sku'),
     ])
     setOrders(o.data || [])
@@ -92,7 +94,7 @@ export default function Production() {
       notes: form.notes,
     }])
     setShowModal(false)
-    setForm({ product_id: '', qty_produced: '', produced_at: new Date().toISOString().split('T')[0], notes: '' })
+    setForm({ product_id: '', qty_produced: '', produced_at: getLocalDateString(), notes: '' })
     setBomPreview([])
     setSelectedProduct(null)
     fetchAll()
@@ -133,7 +135,16 @@ export default function Production() {
 
   return (
     <MainLayout>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <select
+          value={selectedYear}
+          onChange={e => setSelectedYear(Number(e.target.value))}
+          style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', color: '#374151', outline: 'none', background: '#fff' }}
+        >
+          {Array.from({ length: 21 }, (_, i) => 2020 + i).map(y => (
+            <option key={y} value={y}>{y}</option>
+          ))}
+        </select>
         <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
           <Plus size={16} /> New Production
         </button>
@@ -158,7 +169,7 @@ export default function Production() {
               </td></tr>
             ) : orders.map(o => (
               <tr key={o.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{new Date(o.produced_at).toLocaleDateString('en-CA')}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{o.produced_at.slice(0, 10)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{o.products?.sku}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{o.products?.name}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{o.products?.size_oz} oz</td>
@@ -192,7 +203,7 @@ export default function Production() {
             </p>
             <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '12px', marginBottom: '20px', fontSize: '13px', color: '#374151' }}>
               <div><strong>{deleteOrder.products?.sku}</strong> — {deleteOrder.products?.name}</div>
-              <div style={{ color: '#64748b', marginTop: '4px' }}>Qty: {deleteOrder.qty_produced?.toLocaleString()} units · {new Date(deleteOrder.produced_at).toLocaleDateString('en-CA')}</div>
+              <div style={{ color: '#64748b', marginTop: '4px' }}>Qty: {deleteOrder.qty_produced?.toLocaleString()} units · {deleteOrder.produced_at.slice(0, 10)}</div>
             </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
               <button onClick={() => setDeleteOrder(null)} disabled={deleting} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
