@@ -1222,6 +1222,13 @@ function InvoicesContent() {
   const filteredHST = filtered.reduce((s, inv) => s + (inv.tax_amount_cad || 0), 0)
   const filteredTotal = filtered.reduce((s, inv) => s + (inv.total_cad || 0), 0)
 
+  const unpaidCadInvoices = cadInvoices.filter(inv => inv.status === 'sent')
+  const unpaidUsdInvoices = usdInvoices.filter(inv => inv.status === 'sent')
+  const unpaidCount = unpaidCadInvoices.length + unpaidUsdInvoices.length
+  const unpaidTotal =
+    unpaidCadInvoices.reduce((s, inv) => s + (inv.total_cad || 0), 0) +
+    unpaidUsdInvoices.reduce((s, inv) => s + (inv.total_cad || 0), 0)
+
   const statusColor: { [key: string]: { bg: string; color: string } } = {
     draft: { bg: '#f8fafc', color: '#64748b' },
     sent: { bg: '#eff6ff', color: '#2563eb' },
@@ -1320,6 +1327,17 @@ function InvoicesContent() {
         </div>
       </div>
 
+      {unpaidTotal > 0 && (
+        <div style={{ marginBottom: '16px', padding: '14px 20px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: '13px', fontWeight: '600', color: '#c2410c' }}>
+            Unpaid (Sent) — {unpaidCount} invoice{unpaidCount !== 1 ? 's' : ''}
+          </div>
+          <div style={{ fontSize: '16px', fontWeight: '700', color: '#c2410c' }}>
+            ${formatCurrency(unpaidTotal)} CAD
+          </div>
+        </div>
+      )}
+
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -1338,8 +1356,8 @@ function InvoicesContent() {
                 No invoices yet
               </td></tr>
             ) : filtered.map(inv => (
-              <tr key={inv.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600' }}>
+              <tr key={inv.id} style={{ borderBottom: '1px solid #f1f5f9', background: inv.status === 'sent' ? '#fff7ed' : undefined }}>
+                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', borderLeft: inv.status === 'sent' ? '3px solid #f97316' : '3px solid transparent' }}>
                   {inv.status === 'draft' ? (
                     <span onClick={() => openEditModal(inv)} style={{ color: '#2563eb', cursor: 'pointer', textDecoration: 'underline' }}>{inv.invoice_no}</span>
                   ) : (
