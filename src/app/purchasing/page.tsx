@@ -9,10 +9,11 @@
 // -- );
 
 import { useEffect, useRef, useState } from 'react'
+import * as XLSX from 'xlsx'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency, getLocalDateString } from '@/lib/utils'
-import { ShoppingCart, Plus, Search, X, Trash2, Paperclip } from 'lucide-react'
+import { Download, ShoppingCart, Plus, Search, X, Trash2, Paperclip } from 'lucide-react'
 
 interface Supplier { id: string; name: string }
 
@@ -90,6 +91,7 @@ export default function Purchasing() {
   const [materials, setMaterials] = useState<Material[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
 
   // Create modal
   const [showCreate, setShowCreate] = useState(false)
@@ -130,7 +132,7 @@ export default function Purchasing() {
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
   const [createAttachFiles, setCreateAttachFiles] = useState<File[]>([])
 
-  useEffect(() => { fetchAll() }, [])
+  useEffect(() => { fetchAll() }, [selectedYear])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -149,6 +151,8 @@ export default function Purchasing() {
       supabase.from('purchase_orders')
         .select('*, suppliers(name)')
         .is('deleted_at', null)
+        .gte('ordered_at', `${selectedYear}-01-01`)
+        .lte('ordered_at', `${selectedYear}-12-31`)
         .order('ordered_at', { ascending: false }),
       supabase.from('suppliers').select('id, name').order('name'),
       supabase.from('raw_materials').select('id, item_no, name, unit, cost_per_unit_cad').order('item_no'),
@@ -501,6 +505,49 @@ export default function Purchasing() {
     setPoAttachments(prev => ({ ...prev, [attachment.po_id]: data || [] }))
   }
 
+  function handleExport() {
+    const poHeaders = ['PO Number', 'Supplier', 'Status', 'Ordered At', 'Shipped At', 'Received At', 'Cost Total (CAD)', 'Shipping (CAD)', 'Brokerage (CAD)', 'Duty (CAD)', 'Notes']
+    const poRows = pos.map(po => [
+      po.po_number ?? '',
+      po.suppliers?.name ?? '',
+      po.status,
+      po.ordered_at?.slice(0, 10) ?? '',
+      po.shipped_at?.slice(0, 10) ?? '',
+      po.received_at?.slice(0, 10) ?? '',
+      po.cost_total_cad,
+      po.shipping_cad ?? '',
+      po.brokerage_cad ?? '',
+      po.duty_cad ?? '',
+      po.notes ?? '',
+    ])
+    const poTotals = pos.reduce((acc, po) => ({
+      cost: acc.cost + (po.cost_total_cad || 0),
+      ship: acc.ship + (po.shipping_cad || 0),
+      brok: acc.brok + (po.brokerage_cad || 0),
+      duty: acc.duty + (po.duty_cad || 0),
+    }), { cost: 0, ship: 0, brok: 0, duty: 0 })
+    const poTotalRow = ['TOTAL', '', '', '', '', '', poTotals.cost, poTotals.ship, poTotals.brok, poTotals.duty, '']
+
+    const itemHeaders = ['PO Number', 'Material Type', 'Item No', 'Name', 'Quantity', 'Unit Price', 'Line Total']
+    const itemRows: (string | number)[][] = []
+    let itemTotalQty = 0, itemTotalAmt = 0
+    for (const po of pos) {
+      for (const item of (poItems[po.id] || [])) {
+        const mat = materials.find(m => m.id === item.material_id)
+        const lineTotal = item.quantity * item.unit_price
+        itemRows.push([po.po_number ?? '', item.material_type, mat?.item_no ?? '', mat?.name ?? '', item.quantity, item.unit_price, lineTotal])
+        itemTotalQty += item.quantity
+        itemTotalAmt += lineTotal
+      }
+    }
+    const itemTotalRow = ['TOTAL', '', '', '', itemTotalQty, '', itemTotalAmt]
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([poHeaders, ...poRows, poTotalRow]), 'Purchase Orders')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([itemHeaders, ...itemRows, itemTotalRow]), 'PO Items')
+    XLSX.writeFile(wb, `purchasing_${selectedYear}.xlsx`)
+  }
+
   const filtered = pos.filter(po =>
     po.suppliers?.name?.toLowerCase().includes(search.toLowerCase()) ||
     getPOSummary(po).toLowerCase().includes(search.toLowerCase()) ||
@@ -522,12 +569,20 @@ export default function Purchasing() {
           <Search size={16} color='#94a3b8' />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search supplier, item, status...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
         </div>
-        <button
-          onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '' }); setCreateLineItems([]); setCreateSupplier(null); setCreateAttachFiles([]) }}
-          style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}
-        >
-          <Plus size={16} /> New PO
-        </button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', color: '#374151', outline: 'none', background: '#fff' }}>
+            {Array.from({ length: 21 }, (_, i) => 2020 + i).map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+            <Download size={15} /> Export Excel
+          </button>
+          <button
+            onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '' }); setCreateLineItems([]); setCreateSupplier(null); setCreateAttachFiles([]) }}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}
+          >
+            <Plus size={16} /> New PO
+          </button>
+        </div>
       </div>
 
       {/* PO Table */}

@@ -150,6 +150,7 @@ function InvoicesContent() {
   const [usImporting, setUsImporting] = useState(false)
   const usImportFileRef = useRef<HTMLInputElement>(null)
 
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
   const [invoiceError, setInvoiceError] = useState('')
 
@@ -167,7 +168,7 @@ function InvoicesContent() {
     invoice_no: '',
   })
 
-  useEffect(() => { fetchAll() }, [])
+  useEffect(() => { fetchAll() }, [selectedYear])
 
   useEffect(() => {
     const channel = supabase
@@ -194,11 +195,11 @@ function InvoicesContent() {
 
   async function fetchAll() {
     const [cad, usd, cust, prod, cm] = await Promise.all([
-      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').eq('currency', 'CAD').order('invoice_no', { ascending: false }),
-      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').eq('currency', 'USD').order('invoice_no', { ascending: false }),
+      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').eq('currency', 'CAD').gte('issued_at', `${selectedYear}-01-01`).lte('issued_at', `${selectedYear}-12-31`).order('invoice_no', { ascending: false }),
+      supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').eq('currency', 'USD').gte('issued_at', `${selectedYear}-01-01`).lte('issued_at', `${selectedYear}-12-31`).order('invoice_no', { ascending: false }),
       supabase.from('customers').select('*').order('company_name'),
       supabase.from('products').select('*').eq('is_active', true).order('sku'),
-      supabase.from('credit_memos').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').order('memo_no', { ascending: false }),
+      supabase.from('credit_memos').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').gte('issued_at', `${selectedYear}-01-01`).lte('issued_at', `${selectedYear}-12-31`).order('memo_no', { ascending: false }),
     ])
     setCadInvoices(cad.data || [])
     setUsdInvoices(usd.data || [])
@@ -1227,6 +1228,41 @@ function InvoicesContent() {
     paid: { bg: '#f0fdf4', color: '#16a34a' },
   }
 
+  async function handleExport() {
+    const [cadRes, usdRes, cmRes] = await Promise.all([
+      supabase.from('invoices').select('invoice_no, customers(company_name), issued_at, delivery_date, payment_date, subtotal_cad, tax_amount_cad, total_cad, status, po_number, notes')
+        .eq('currency', 'CAD').gte('issued_at', `${selectedYear}-01-01`).lte('issued_at', `${selectedYear}-12-31`).order('invoice_no', { ascending: true }),
+      supabase.from('invoices').select('invoice_no, customers(company_name), issued_at, delivery_date, payment_date, subtotal_cad, tax_amount_cad, total_cad, status, po_number, notes')
+        .eq('currency', 'USD').gte('issued_at', `${selectedYear}-01-01`).lte('issued_at', `${selectedYear}-12-31`).order('invoice_no', { ascending: true }),
+      supabase.from('credit_memos').select('memo_no, customers(company_name), issued_at, applied_date, subtotal_cad, tax_amount_cad, total_cad, status, notes')
+        .gte('issued_at', `${selectedYear}-01-01`).lte('issued_at', `${selectedYear}-12-31`).order('memo_no', { ascending: true }),
+    ])
+
+    const cadData = (cadRes.data || []) as any[]
+    const usdData = (usdRes.data || []) as any[]
+    const cmData = (cmRes.data || []) as any[]
+
+    const invHeaders = ['Invoice #', 'Customer', 'Date', 'Delivery Date', 'Payment Date', 'Subtotal', 'Tax', 'Total', 'Status', 'PO Number', 'Notes']
+    const cadRows = cadData.map(inv => [inv.invoice_no, inv.customers?.company_name ?? '', inv.issued_at?.slice(0, 10) ?? '', inv.delivery_date ?? '', inv.payment_date ?? '', inv.subtotal_cad, inv.tax_amount_cad, inv.total_cad, inv.status, inv.po_number ?? '', inv.notes ?? ''])
+    const cadTotals = cadData.reduce((acc, inv) => ({ sub: acc.sub + (inv.subtotal_cad || 0), tax: acc.tax + (inv.tax_amount_cad || 0), total: acc.total + (inv.total_cad || 0) }), { sub: 0, tax: 0, total: 0 })
+    const cadTotalRow = ['TOTAL', '', '', '', '', cadTotals.sub, cadTotals.tax, cadTotals.total, '', '', '']
+
+    const usdRows = usdData.map(inv => [inv.invoice_no, inv.customers?.company_name ?? '', inv.issued_at?.slice(0, 10) ?? '', inv.delivery_date ?? '', inv.payment_date ?? '', inv.subtotal_cad, inv.tax_amount_cad, inv.total_cad, inv.status, inv.po_number ?? '', inv.notes ?? ''])
+    const usdTotals = usdData.reduce((acc, inv) => ({ sub: acc.sub + (inv.subtotal_cad || 0), tax: acc.tax + (inv.tax_amount_cad || 0), total: acc.total + (inv.total_cad || 0) }), { sub: 0, tax: 0, total: 0 })
+    const usdTotalRow = ['TOTAL', '', '', '', '', usdTotals.sub, usdTotals.tax, usdTotals.total, '', '', '']
+
+    const cmHeaders = ['Credit Memo #', 'Customer', 'Date', 'Applied Date', 'Subtotal', 'Tax', 'Total', 'Status', 'Notes']
+    const cmRows = cmData.map(cm => [cm.memo_no, cm.customers?.company_name ?? '', cm.issued_at?.slice(0, 10) ?? '', cm.applied_date ?? '', cm.subtotal_cad, cm.tax_amount_cad, cm.total_cad, cm.status, cm.notes ?? ''])
+    const cmTotals = cmData.reduce((acc, cm) => ({ sub: acc.sub + (cm.subtotal_cad || 0), tax: acc.tax + (cm.tax_amount_cad || 0), total: acc.total + (cm.total_cad || 0) }), { sub: 0, tax: 0, total: 0 })
+    const cmTotalRow = ['TOTAL', '', '', '', cmTotals.sub, cmTotals.tax, cmTotals.total, '', '']
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([invHeaders, ...cadRows, cadTotalRow]), 'Invoices (CAD)')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([invHeaders, ...usdRows, usdTotalRow]), 'Invoices (USD)')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([cmHeaders, ...cmRows, cmTotalRow]), 'Credit Memos')
+    XLSX.writeFile(wb, `invoices_${selectedYear}.xlsx`)
+  }
+
   return (
     <MainLayout>
       <style>{`
@@ -1237,12 +1273,22 @@ function InvoicesContent() {
         }
       `}</style>
       {/* 탭 */}
-      <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', background: '#f1f5f9', borderRadius: '10px', padding: '4px', width: 'fit-content' }}>
-        {(['invoices', 'credit_memos', 'invoices_us'] as const).map(tab => (
-          <button key={tab} onClick={() => { setActiveTab(tab); router.replace(`?tab=${tab}`) }} style={{ padding: '8px 20px', borderRadius: '7px', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: '500', background: activeTab === tab ? '#fff' : 'transparent', color: activeTab === tab ? '#1e293b' : '#64748b', boxShadow: activeTab === tab ? '0 1px 4px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s' }}>
-            {tab === 'invoices' ? 'Invoices' : tab === 'credit_memos' ? 'Credit Memos' : 'Invoices (US)'}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', borderRadius: '10px', padding: '4px' }}>
+          {(['invoices', 'credit_memos', 'invoices_us'] as const).map(tab => (
+            <button key={tab} onClick={() => { setActiveTab(tab); router.replace(`?tab=${tab}`) }} style={{ padding: '8px 20px', borderRadius: '7px', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: '500', background: activeTab === tab ? '#fff' : 'transparent', color: activeTab === tab ? '#1e293b' : '#64748b', boxShadow: activeTab === tab ? '0 1px 4px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s' }}>
+              {tab === 'invoices' ? 'Invoices' : tab === 'credit_memos' ? 'Credit Memos' : 'Invoices (US)'}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', color: '#374151', outline: 'none', background: '#fff' }}>
+            {Array.from({ length: 21 }, (_, i) => 2020 + i).map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+            <Download size={15} /> Export Excel
           </button>
-        ))}
+        </div>
       </div>
 
       {/* ── INVOICES TAB ── */}
