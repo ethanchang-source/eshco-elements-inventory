@@ -222,7 +222,8 @@ export default function Purchasing() {
   const createShipping = parseFloat(createForm.shipping_cad || '0') || 0
   const createBrokerage = parseFloat(createForm.brokerage_cad || '0') || 0
   const createDuty = parseFloat(createForm.duty_cad || '0') || 0
-  const createTotal = createSubtotal + createShipping + createBrokerage + createDuty
+  const createHST = createSubtotal * 0.13
+  const createTotal = createSubtotal + createHST
   const createExchangeRate = createForm.amount_usd && createForm.amount_cad && parseFloat(createForm.amount_usd) > 0
     ? (parseFloat(createForm.amount_cad) / parseFloat(createForm.amount_usd)).toFixed(4) : null
 
@@ -366,7 +367,8 @@ export default function Purchasing() {
   const editShipping = parseFloat(editForm.shipping_cad || '0') || 0
   const editBrokerage = parseFloat(editForm.brokerage_cad || '0') || 0
   const editDuty = parseFloat(editForm.duty_cad || '0') || 0
-  const editTotal = editSubtotal + editShipping + editBrokerage + editDuty
+  const editHST = editSubtotal * 0.13
+  const editTotal = editSubtotal + editHST
   const editExchangeRate = editForm.amount_usd && editForm.amount_cad && parseFloat(editForm.amount_usd) > 0
     ? (parseFloat(editForm.amount_cad) / parseFloat(editForm.amount_usd)).toFixed(4) : null
   const isReadOnly = detailPO?.status === 'received' || detailPO?.status === 'cancelled'
@@ -449,35 +451,54 @@ export default function Purchasing() {
     return `${items.length} items`
   }
 
-  function openAttachments(e: React.MouseEvent, po: PO) {
+  async function openAttachments(e: React.MouseEvent, po: PO) {
     e.stopPropagation()
     setAttachmentPO(po)
     setAttachmentFiles([])
     setShowAttachments(true)
+    const { data } = await supabase.from('purchase_order_attachments')
+      .select('id, po_id, file_name, file_url, uploaded_at')
+      .eq('po_id', po.id)
+      .order('uploaded_at')
+    setPoAttachments(prev => ({ ...prev, [po.id]: data || [] }))
   }
 
   async function handleUploadAttachments() {
     if (!attachmentPO || attachmentFiles.length === 0) return
     setUploadingAttachment(true)
+    const poId = attachmentPO.id
     for (const file of attachmentFiles) {
-      const path = `${attachmentPO.id}/${Date.now()}_${file.name}`
+      const path = `${poId}/${Date.now()}_${file.name}`
       const { error: uploadError } = await supabase.storage.from('purchase-invoices').upload(path, file)
       if (uploadError) continue
       const { data: urlData } = supabase.storage.from('purchase-invoices').getPublicUrl(path)
       await supabase.from('purchase_order_attachments').insert({
-        po_id: attachmentPO.id,
+        po_id: poId,
         file_name: file.name,
         file_url: urlData.publicUrl,
       })
     }
     setAttachmentFiles([])
     setUploadingAttachment(false)
-    fetchAll()
+    const { data } = await supabase.from('purchase_order_attachments')
+      .select('id, po_id, file_name, file_url, uploaded_at')
+      .eq('po_id', poId)
+      .order('uploaded_at')
+    setPoAttachments(prev => ({ ...prev, [poId]: data || [] }))
   }
 
   async function handleDeleteAttachment(attachment: POAttachment) {
+    const storagePrefix = '/storage/v1/object/public/purchase-invoices/'
+    const urlPath = attachment.file_url.split(storagePrefix)[1]
+    if (urlPath) {
+      await supabase.storage.from('purchase-invoices').remove([decodeURIComponent(urlPath)])
+    }
     await supabase.from('purchase_order_attachments').delete().eq('id', attachment.id)
-    fetchAll()
+    const { data } = await supabase.from('purchase_order_attachments')
+      .select('id, po_id, file_name, file_url, uploaded_at')
+      .eq('po_id', attachment.po_id)
+      .order('uploaded_at')
+    setPoAttachments(prev => ({ ...prev, [attachment.po_id]: data || [] }))
   }
 
   const filtered = pos.filter(po =>
@@ -629,7 +650,7 @@ export default function Purchasing() {
                             />
                           </td>
                           <td style={{ padding: '7px 14px', textAlign: 'right' }}>
-                            <input type='number' min='0' step='0.0001'
+                            <input type='number' min='0' step='0.00001'
                               value={item.unit_price || ''}
                               onChange={e => updateCreatePrice(idx, parseFloat(e.target.value) || 0)}
                               placeholder='0.00'
@@ -686,11 +707,21 @@ export default function Purchasing() {
               </div>
             </div>
 
-            {/* Grand Total */}
+            {/* Summary */}
             {createSupplier && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px', marginBottom: '14px', padding: '10px 14px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
-                <span style={{ fontSize: '14px', color: '#1d4ed8', fontWeight: '600' }}>Grand Total (CAD):</span>
-                <span style={{ fontSize: '18px', fontWeight: '700', color: '#1d4ed8' }}>${formatCurrency(createTotal)}</span>
+              <div style={{ marginBottom: '14px', padding: '12px 16px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '6px' }}>
+                  <span>Subtotal</span>
+                  <span>${formatCurrency(createSubtotal)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '8px' }}>
+                  <span>HST (13%)</span>
+                  <span>${formatCurrency(createHST)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '700', color: '#1d4ed8', borderTop: '1px solid #bfdbfe', paddingTop: '8px' }}>
+                  <span>Total (CAD)</span>
+                  <span>${formatCurrency(createTotal)}</span>
+                </div>
               </div>
             )}
 
@@ -843,7 +874,7 @@ export default function Purchasing() {
                           {isReadOnly ? (
                             <span style={{ color: '#64748b' }}>${formatCurrency(item.unit_price)}</span>
                           ) : (
-                            <input type='number' min='0' step='0.0001'
+                            <input type='number' min='0' step='0.00001'
                               value={item.unit_price || ''}
                               onChange={e => updateEditPrice(idx, parseFloat(e.target.value) || 0)}
                               placeholder='0.00'
@@ -883,10 +914,20 @@ export default function Purchasing() {
               </div>
             )}
 
-            {/* Grand Total */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px', marginBottom: '14px', padding: '10px 14px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
-              <span style={{ fontSize: '14px', color: '#1d4ed8', fontWeight: '600' }}>Grand Total (CAD):</span>
-              <span style={{ fontSize: '18px', fontWeight: '700', color: '#1d4ed8' }}>${formatCurrency(isReadOnly ? detailPO.cost_total_cad : editTotal)}</span>
+            {/* Summary */}
+            <div style={{ marginBottom: '14px', padding: '12px 16px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '6px' }}>
+                <span>Subtotal</span>
+                <span>${formatCurrency(editSubtotal)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '8px' }}>
+                <span>HST (13%)</span>
+                <span>${formatCurrency(editHST)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '700', color: '#1d4ed8', borderTop: '1px solid #bfdbfe', paddingTop: '8px' }}>
+                <span>Total (CAD)</span>
+                <span>${formatCurrency(editTotal)}</span>
+              </div>
             </div>
 
             {/* Notes */}
