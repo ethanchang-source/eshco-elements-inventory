@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import * as XLSX from 'xlsx'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { getLocalDateString } from '@/lib/utils'
-import { Factory, Plus, AlertTriangle, Trash2 } from 'lucide-react'
+import { Download, Factory, Plus, AlertTriangle, Trash2 } from 'lucide-react'
 
 interface Product {
   id: string
@@ -133,6 +134,36 @@ export default function Production() {
     }
   }
 
+  async function handleExport() {
+    const { data } = await supabase
+      .from('production_orders')
+      .select('produced_at, qty_produced, notes, products(sku, name)')
+      .gte('produced_at', `${selectedYear}-01-01`)
+      .lte('produced_at', `${selectedYear}-12-31`)
+      .order('produced_at', { ascending: true })
+
+    const rows = (data || []) as { produced_at: string; qty_produced: number; notes: string; products?: { sku: string; name: string } | null }[]
+
+    const headers = ['Production Date', 'SKU', 'Product Name', 'Qty (Units)', 'Qty (Boxes)', 'Notes']
+    const dataRows = rows.map(r => [
+      r.produced_at.slice(0, 10),
+      r.products?.sku ?? '',
+      r.products?.name ?? '',
+      r.qty_produced,
+      Math.floor(r.qty_produced / 36),
+      r.notes ?? '',
+    ])
+
+    const totalUnits = rows.reduce((sum, r) => sum + r.qty_produced, 0)
+    const totalBoxes = Math.floor(totalUnits / 36)
+    const totalRow = ['TOTAL', '', '', totalUnits, totalBoxes, '']
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows, totalRow])
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, `Production ${selectedYear}`)
+    XLSX.writeFile(wb, `production_${selectedYear}.xlsx`)
+  }
+
   return (
     <MainLayout>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
@@ -145,9 +176,14 @@ export default function Production() {
             <option key={y} value={y}>{y}</option>
           ))}
         </select>
-        <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
-          <Plus size={16} /> New Production
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+            <Download size={16} /> Export Excel
+          </button>
+          <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
+            <Plus size={16} /> New Production
+          </button>
+        </div>
       </div>
 
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
