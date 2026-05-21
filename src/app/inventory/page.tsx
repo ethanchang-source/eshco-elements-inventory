@@ -127,7 +127,7 @@ function InventoryContent() {
   const [snapshotFinished, setSnapshotFinished] = useState<Product[] | null>(null)
   const [undoRestoring, setUndoRestoring] = useState(false)
   const [rawForm, setRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '' })
-  const [packForm, setPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '' })
+  const [packForm, setPackForm] = useState({ item_no: '', name: '', type: 'bottle', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '' })
 
   const [editRaw, setEditRaw] = useState<RawMaterial | null>(null)
   const [editPack, setEditPack] = useState<Packaging | null>(null)
@@ -357,13 +357,13 @@ function InventoryContent() {
   async function handlePackSubmit() {
     await supabase.from('packaging').insert([{
       item_no: packForm.item_no, name: packForm.name, type: packForm.type,
-      size_oz: parseFloat(packForm.size_oz), cost_cad: parseFloat(packForm.cost_cad),
-      current_stock: parseInt(packForm.current_stock),
-      reorder_threshold: parseInt(packForm.reorder_threshold),
+      cost_cad: parseFloat(packForm.cost_cad) || 0,
+      current_stock: parseInt(packForm.current_stock) || 0,
+      reorder_threshold: parseInt(packForm.reorder_threshold) || 0,
       max_capacity: packForm.max_capacity !== '' ? parseInt(packForm.max_capacity) : null,
     }])
     setShowModal(false)
-    setPackForm({ item_no: '', name: '', type: 'bottle', size_oz: '', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '' })
+    setPackForm({ item_no: '', name: '', type: 'bottle', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '' })
     fetchAll()
   }
 
@@ -780,7 +780,7 @@ function InventoryContent() {
               </>
             ) : (
               <>
-                {([['Item #', 'item_no', 'EE-P001'], ['Name', 'name', '2oz Amber Boston Bottle'], ['Size (oz)', 'size_oz', '2'], ['Cost (CAD)', 'cost_cad', '0.28'], ['Current Stock (qty)', 'current_stock', '1000'], ['Reorder Threshold (qty)', 'reorder_threshold', '200'], ['Max Capacity (qty)', 'max_capacity', '5000']] as [string, string, string][]).map(([label, key, placeholder]) => (
+                {([['Item #', 'item_no', 'EE-P001'], ['Name', 'name', '2oz Amber Boston Bottle'], ['Cost (CAD)', 'cost_cad', '0.28'], ['Current Stock (qty)', 'current_stock', '1000'], ['Reorder Threshold (qty)', 'reorder_threshold', '200'], ['Max Capacity (qty)', 'max_capacity', '5000']] as [string, string, string][]).map(([label, key, placeholder]) => (
                   <div key={key} style={{ marginBottom: '16px' }}>
                     <label style={lbl}>{label}</label>
                     <input value={packForm[key as keyof typeof packForm]} onChange={e => setPackForm({ ...packForm, [key]: e.target.value })} placeholder={placeholder} style={inp} />
