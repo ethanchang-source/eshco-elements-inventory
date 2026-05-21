@@ -35,6 +35,8 @@ interface POLineItem {
   unit_price: number
   qty: number
   total: number
+  qty_str: string
+  price_str: string
 }
 
 interface PO {
@@ -131,6 +133,7 @@ export default function Purchasing() {
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
   const [createAttachFiles, setCreateAttachFiles] = useState<File[]>([])
+  const [attachUploadStatus, setAttachUploadStatus] = useState<string>('')
 
   useEffect(() => { fetchAll() }, [selectedYear])
 
@@ -138,7 +141,7 @@ export default function Purchasing() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       if (showDeleteConfirm) { setShowDeleteConfirm(false); return }
-      if (showAttachments) { setShowAttachments(false); setAttachmentFiles([]); return }
+      if (showAttachments) { setShowAttachments(false); setAttachmentFiles([]); setAttachUploadStatus(''); return }
       if (showCreate) { setShowCreate(false); setCreateError(''); setCreateAttachFiles([]); return }
       if (showDetail) { setShowDetail(false); setUpdateError(''); return }
     }
@@ -202,21 +205,27 @@ export default function Purchasing() {
       unit_price: m.cost_per_unit,
       qty: 0,
       total: 0,
+      qty_str: '',
+      price_str: String(m.cost_per_unit),
     })))
   }
 
-  function updateCreateQty(index: number, qty: number) {
+  function updateCreateQty(index: number, qtyStr: string) {
+    if (qtyStr !== '' && !/^[0-9]*\.?[0-9]*$/.test(qtyStr)) return
     setCreateLineItems(prev => {
       const updated = [...prev]
-      updated[index] = { ...updated[index], qty, total: updated[index].unit_price * qty }
+      const qty = parseFloat(qtyStr) || 0
+      updated[index] = { ...updated[index], qty_str: qtyStr, qty, total: qty * updated[index].unit_price }
       return updated
     })
   }
 
-  function updateCreatePrice(index: number, price: number) {
+  function updateCreatePrice(index: number, priceStr: string) {
+    if (priceStr !== '' && !/^[0-9]*\.?[0-9]*$/.test(priceStr)) return
     setCreateLineItems(prev => {
       const updated = [...prev]
-      updated[index] = { ...updated[index], unit_price: price, total: price * updated[index].qty }
+      const price = parseFloat(priceStr) || 0
+      updated[index] = { ...updated[index], price_str: priceStr, unit_price: price, total: price * updated[index].qty }
       return updated
     })
   }
@@ -227,7 +236,7 @@ export default function Purchasing() {
   const createBrokerage = parseFloat(createForm.brokerage_cad || '0') || 0
   const createDuty = parseFloat(createForm.duty_cad || '0') || 0
   const createHST = createSubtotal * 0.13
-  const createTotal = createSubtotal + createHST
+  const createTotal = createSubtotal + createShipping + createBrokerage + createDuty + createHST
   const createExchangeRate = createForm.amount_usd && createForm.amount_cad && parseFloat(createForm.amount_usd) > 0
     ? (parseFloat(createForm.amount_cad) / parseFloat(createForm.amount_usd)).toFixed(4) : null
 
@@ -286,11 +295,12 @@ export default function Purchasing() {
       return
     }
 
-    // Upload attachments — best effort, PO is already created
+    // Upload attachments — PO is already created
+    let attachFailCount = 0
     for (const file of createAttachFiles) {
       const path = `${poData.id}/${Date.now()}_${file.name}`
       const { error: uploadError } = await supabase.storage.from('purchase-invoices').upload(path, file)
-      if (uploadError) continue
+      if (uploadError) { attachFailCount++; continue }
       const { data: urlData } = supabase.storage.from('purchase-invoices').getPublicUrl(path)
       await supabase.from('purchase_order_attachments').insert({
         po_id: poData.id,
@@ -300,6 +310,12 @@ export default function Purchasing() {
     }
 
     setSaving(false)
+    if (attachFailCount > 0) {
+      setCreateError(`PO created, but ${attachFailCount} attachment(s) failed to upload.`)
+      setCreateAttachFiles([])
+      fetchAll()
+      return
+    }
     setShowCreate(false)
     setCreateError('')
     setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '' })
@@ -345,23 +361,29 @@ export default function Purchasing() {
       unit_price: existingMap[m.id]?.unit_price ?? m.cost_per_unit,
       qty: existingMap[m.id]?.qty ?? 0,
       total: (existingMap[m.id]?.unit_price ?? m.cost_per_unit) * (existingMap[m.id]?.qty ?? 0),
+      qty_str: existingMap[m.id]?.qty ? String(existingMap[m.id].qty) : '',
+      price_str: String(existingMap[m.id]?.unit_price ?? m.cost_per_unit),
     })))
 
     setShowDetail(true)
   }
 
-  function updateEditQty(index: number, qty: number) {
+  function updateEditQty(index: number, qtyStr: string) {
+    if (qtyStr !== '' && !/^[0-9]*\.?[0-9]*$/.test(qtyStr)) return
     setEditLineItems(prev => {
       const updated = [...prev]
-      updated[index] = { ...updated[index], qty, total: updated[index].unit_price * qty }
+      const qty = parseFloat(qtyStr) || 0
+      updated[index] = { ...updated[index], qty_str: qtyStr, qty, total: qty * updated[index].unit_price }
       return updated
     })
   }
 
-  function updateEditPrice(index: number, price: number) {
+  function updateEditPrice(index: number, priceStr: string) {
+    if (priceStr !== '' && !/^[0-9]*\.?[0-9]*$/.test(priceStr)) return
     setEditLineItems(prev => {
       const updated = [...prev]
-      updated[index] = { ...updated[index], unit_price: price, total: price * updated[index].qty }
+      const price = parseFloat(priceStr) || 0
+      updated[index] = { ...updated[index], price_str: priceStr, unit_price: price, total: price * updated[index].qty }
       return updated
     })
   }
@@ -372,7 +394,7 @@ export default function Purchasing() {
   const editBrokerage = parseFloat(editForm.brokerage_cad || '0') || 0
   const editDuty = parseFloat(editForm.duty_cad || '0') || 0
   const editHST = editSubtotal * 0.13
-  const editTotal = editSubtotal + editHST
+  const editTotal = editSubtotal + editShipping + editBrokerage + editDuty + editHST
   const editExchangeRate = editForm.amount_usd && editForm.amount_cad && parseFloat(editForm.amount_usd) > 0
     ? (parseFloat(editForm.amount_cad) / parseFloat(editForm.amount_usd)).toFixed(4) : null
   const isReadOnly = detailPO?.status === 'received' || detailPO?.status === 'cancelled'
@@ -459,6 +481,7 @@ export default function Purchasing() {
     e.stopPropagation()
     setAttachmentPO(po)
     setAttachmentFiles([])
+    setAttachUploadStatus('')
     setShowAttachments(true)
     const { data } = await supabase.from('purchase_order_attachments')
       .select('id, po_id, file_name, file_url, uploaded_at')
@@ -470,20 +493,31 @@ export default function Purchasing() {
   async function handleUploadAttachments() {
     if (!attachmentPO || attachmentFiles.length === 0) return
     setUploadingAttachment(true)
+    setAttachUploadStatus('')
     const poId = attachmentPO.id
+    let successCount = 0
+    let failCount = 0
     for (const file of attachmentFiles) {
       const path = `${poId}/${Date.now()}_${file.name}`
       const { error: uploadError } = await supabase.storage.from('purchase-invoices').upload(path, file)
-      if (uploadError) continue
+      if (uploadError) { failCount++; continue }
       const { data: urlData } = supabase.storage.from('purchase-invoices').getPublicUrl(path)
       await supabase.from('purchase_order_attachments').insert({
         po_id: poId,
         file_name: file.name,
         file_url: urlData.publicUrl,
       })
+      successCount++
     }
     setAttachmentFiles([])
     setUploadingAttachment(false)
+    if (failCount === 0) {
+      setAttachUploadStatus(`✓ ${successCount} file(s) uploaded successfully.`)
+    } else if (successCount === 0) {
+      setAttachUploadStatus(`✗ Upload failed for all ${failCount} file(s).`)
+    } else {
+      setAttachUploadStatus(`${successCount} uploaded, ${failCount} failed.`)
+    }
     const { data } = await supabase.from('purchase_order_attachments')
       .select('id, po_id, file_name, file_url, uploaded_at')
       .eq('po_id', poId)
@@ -697,17 +731,17 @@ export default function Purchasing() {
                           <td style={{ padding: '7px 14px', color: '#374151' }}>{item.name}</td>
                           <td style={{ padding: '7px 14px', textAlign: 'right', color: '#64748b' }}>{item.unit}</td>
                           <td style={{ padding: '7px 14px', textAlign: 'right' }}>
-                            <input type='number' min='0' step='any'
-                              value={item.qty || ''}
-                              onChange={e => updateCreateQty(idx, parseFloat(e.target.value) || 0)}
+                            <input type='text' inputMode='decimal'
+                              value={item.qty_str}
+                              onChange={e => updateCreateQty(idx, e.target.value)}
                               placeholder='0'
                               style={{ ...numInp, padding: '4px 8px', fontSize: '13px', width: '80px' }}
                             />
                           </td>
                           <td style={{ padding: '7px 14px', textAlign: 'right' }}>
-                            <input type='number' min='0' step='0.00001'
-                              value={item.unit_price || ''}
-                              onChange={e => updateCreatePrice(idx, parseFloat(e.target.value) || 0)}
+                            <input type='text' inputMode='decimal'
+                              value={item.price_str}
+                              onChange={e => updateCreatePrice(idx, e.target.value)}
                               placeholder='0.00'
                               style={{ ...numInp, padding: '4px 8px', fontSize: '13px', width: '90px' }}
                             />
@@ -765,16 +799,40 @@ export default function Purchasing() {
             {/* Summary */}
             {createSupplier && (
               <div style={{ marginBottom: '14px', padding: '12px 16px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '6px' }}>
-                  <span>Subtotal</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                  <span>Items Subtotal</span>
                   <span>${formatCurrency(createSubtotal)}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '8px' }}>
+                {createShipping > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                    <span>Shipping</span>
+                    <span>${formatCurrency(createShipping)}</span>
+                  </div>
+                )}
+                {createBrokerage > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                    <span>Brokerage</span>
+                    <span>${formatCurrency(createBrokerage)}</span>
+                  </div>
+                )}
+                {createDuty > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                    <span>Duty</span>
+                    <span>${formatCurrency(createDuty)}</span>
+                  </div>
+                )}
+                {(createShipping > 0 || createBrokerage > 0 || createDuty > 0) && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px', borderTop: '1px solid #bfdbfe', paddingTop: '6px', marginTop: '2px' }}>
+                    <span>Subtotal</span>
+                    <span>${formatCurrency(createSubtotal + createShipping + createBrokerage + createDuty)}</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '6px' }}>
                   <span>HST (13%)</span>
                   <span>${formatCurrency(createHST)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '700', color: '#1d4ed8', borderTop: '1px solid #bfdbfe', paddingTop: '8px' }}>
-                  <span>Total (CAD)</span>
+                  <span>TOTAL (CAD)</span>
                   <span>${formatCurrency(createTotal)}</span>
                 </div>
               </div>
@@ -917,9 +975,9 @@ export default function Purchasing() {
                           {isReadOnly ? (
                             <span style={{ color: '#374151' }}>{item.qty > 0 ? item.qty : '—'}</span>
                           ) : (
-                            <input type='number' min='0' step='any'
-                              value={item.qty || ''}
-                              onChange={e => updateEditQty(idx, parseFloat(e.target.value) || 0)}
+                            <input type='text' inputMode='decimal'
+                              value={item.qty_str}
+                              onChange={e => updateEditQty(idx, e.target.value)}
                               placeholder='0'
                               style={{ ...numInp, padding: '4px 8px', fontSize: '13px', width: '80px' }}
                             />
@@ -929,9 +987,9 @@ export default function Purchasing() {
                           {isReadOnly ? (
                             <span style={{ color: '#64748b' }}>${formatCurrency(item.unit_price)}</span>
                           ) : (
-                            <input type='number' min='0' step='0.00001'
-                              value={item.unit_price || ''}
-                              onChange={e => updateEditPrice(idx, parseFloat(e.target.value) || 0)}
+                            <input type='text' inputMode='decimal'
+                              value={item.price_str}
+                              onChange={e => updateEditPrice(idx, e.target.value)}
                               placeholder='0.00'
                               style={{ ...numInp, padding: '4px 8px', fontSize: '13px', width: '90px' }}
                             />
@@ -971,16 +1029,40 @@ export default function Purchasing() {
 
             {/* Summary */}
             <div style={{ marginBottom: '14px', padding: '12px 16px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '6px' }}>
-                <span>Subtotal</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                <span>Items Subtotal</span>
                 <span>${formatCurrency(editSubtotal)}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '8px' }}>
+              {editShipping > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                  <span>Shipping</span>
+                  <span>${formatCurrency(editShipping)}</span>
+                </div>
+              )}
+              {editBrokerage > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                  <span>Brokerage</span>
+                  <span>${formatCurrency(editBrokerage)}</span>
+                </div>
+              )}
+              {editDuty > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                  <span>Duty</span>
+                  <span>${formatCurrency(editDuty)}</span>
+                </div>
+              )}
+              {(editShipping > 0 || editBrokerage > 0 || editDuty > 0) && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px', borderTop: '1px solid #bfdbfe', paddingTop: '6px', marginTop: '2px' }}>
+                  <span>Subtotal</span>
+                  <span>${formatCurrency(editSubtotal + editShipping + editBrokerage + editDuty)}</span>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '6px' }}>
                 <span>HST (13%)</span>
                 <span>${formatCurrency(editHST)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '700', color: '#1d4ed8', borderTop: '1px solid #bfdbfe', paddingTop: '8px' }}>
-                <span>Total (CAD)</span>
+                <span>TOTAL (CAD)</span>
                 <span>${formatCurrency(editTotal)}</span>
               </div>
             </div>
@@ -1011,14 +1093,14 @@ export default function Purchasing() {
 
       {/* ── Attachments Modal ── */}
       {showAttachments && attachmentPO && (
-        <div className="modal-overlay" onClick={() => { setShowAttachments(false); setAttachmentFiles([]) }}
+        <div className="modal-overlay" onClick={() => { setShowAttachments(false); setAttachmentFiles([]); setAttachUploadStatus('') }}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 250, padding: '20px' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()}
             style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '520px' }}>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h3 style={{ fontSize: '16px', fontWeight: '600', margin: 0 }}>Attachments</h3>
-              <button onClick={() => { setShowAttachments(false); setAttachmentFiles([]) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
+              <button onClick={() => { setShowAttachments(false); setAttachmentFiles([]); setAttachUploadStatus('') }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
             </div>
 
             {(poAttachments[attachmentPO.id] || []).length === 0 ? (
@@ -1072,8 +1154,13 @@ export default function Purchasing() {
               )}
             </div>
 
+            {attachUploadStatus && (
+              <div style={{ marginBottom: '12px', padding: '8px 12px', background: attachUploadStatus.startsWith('✓') ? '#f0fdf4' : '#fef2f2', border: `1px solid ${attachUploadStatus.startsWith('✓') ? '#bbf7d0' : '#fecaca'}`, borderRadius: '6px', fontSize: '13px', color: attachUploadStatus.startsWith('✓') ? '#16a34a' : '#dc2626' }}>
+                {attachUploadStatus}
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              <button onClick={() => { setShowAttachments(false); setAttachmentFiles([]) }}
+              <button onClick={() => { setShowAttachments(false); setAttachmentFiles([]); setAttachUploadStatus('') }}
                 style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Close</button>
               <button onClick={handleUploadAttachments}
                 disabled={uploadingAttachment || attachmentFiles.length === 0}
