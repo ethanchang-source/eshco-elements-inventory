@@ -85,19 +85,21 @@ function formatRawStock(stock_ml: number, purchase_unit: string | null | undefin
   return `${stock_ml.toLocaleString()} ml (${kg.toFixed(1)} kg)`
 }
 
-function formatShrinkBand(stock: number, roll_length_m: number | null | undefined): string {
-  if (roll_length_m) return `${stock.toLocaleString()} rolls (${roll_length_m}m/roll)`
-  return `${stock.toLocaleString()} rolls (length TBD)`
+function formatShrinkBand(stock: number | null | undefined, roll_length_m: number | null | undefined): string {
+  const s = stock ?? 0
+  if (roll_length_m) return `${s.toLocaleString()} rolls (${roll_length_m}m/roll)`
+  return `${s.toLocaleString()} rolls (length TBD)`
 }
 
-function formatPackStock(stock: number, module_qty: number | null | undefined): string {
+function formatPackStock(stock: number | null | undefined, module_qty: number | null | undefined): string {
+  const s = stock ?? 0
   if (module_qty && module_qty > 1) {
-    const modules = Math.floor(stock / module_qty)
-    const remainder = stock % module_qty
-    const base = `${stock.toLocaleString()} ea (${modules} module${modules !== 1 ? 's' : ''}`
+    const modules = Math.floor(s / module_qty)
+    const remainder = s % module_qty
+    const base = `${s.toLocaleString()} ea (${modules} module${modules !== 1 ? 's' : ''}`
     return remainder > 0 ? `${base} + ${remainder.toLocaleString()} ea)` : `${base})`
   }
-  return `${stock.toLocaleString()} ea`
+  return `${s.toLocaleString()} ea`
 }
 
 function InventoryContent() {
