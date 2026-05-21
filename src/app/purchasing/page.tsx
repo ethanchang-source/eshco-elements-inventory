@@ -144,6 +144,9 @@ export default function Purchasing() {
   const [editUploadStatus, setEditUploadStatus] = useState('')
   const [uploadingEditAttachment, setUploadingEditAttachment] = useState(false)
 
+  const [showInlineShipped, setShowInlineShipped] = useState<Record<string, boolean>>({})
+  const [showInlineReceived, setShowInlineReceived] = useState<Record<string, boolean>>({})
+
   useEffect(() => { fetchAll() }, [selectedYear])
 
   useEffect(() => {
@@ -604,6 +607,52 @@ export default function Purchasing() {
     setPoAttachments(prev => ({ ...prev, [attachment.po_id]: data || [] }))
   }
 
+  async function handleTableStatusChange(newStatus: string, po: PO) {
+    const updates: Record<string, unknown> = { status: newStatus }
+    if ((newStatus === 'shipped' || newStatus === 'received') && !po.shipped_at) {
+      updates.shipped_at = getLocalDateString()
+    }
+    if (newStatus === 'received' && !po.received_at) {
+      updates.received_at = getLocalDateString()
+    }
+    await supabase.from('purchase_orders').update(updates).eq('id', po.id)
+    if (newStatus === 'received' && po.status !== 'received') {
+      for (const item of (poItems[po.id] || [])) {
+        if (item.material_type === 'raw_material') {
+          const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', item.material_id).single()
+          await supabase.from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
+        } else {
+          const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', item.material_id).single()
+          await supabase.from('packaging').update({ current_stock: (pkg?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
+        }
+      }
+    }
+    fetchAll()
+  }
+
+  async function handleTableShippedDateChange(poId: string, date: string) {
+    await supabase.from('purchase_orders').update({ shipped_at: date }).eq('id', poId)
+    setShowInlineShipped(prev => ({ ...prev, [poId]: false }))
+    fetchAll()
+  }
+
+  async function handleTableReceivedDateChange(poId: string, date: string, po: PO) {
+    await supabase.from('purchase_orders').update({ received_at: date }).eq('id', poId)
+    if (po.status !== 'received') {
+      for (const item of (poItems[poId] || [])) {
+        if (item.material_type === 'raw_material') {
+          const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', item.material_id).single()
+          await supabase.from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
+        } else {
+          const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', item.material_id).single()
+          await supabase.from('packaging').update({ current_stock: (pkg?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
+        }
+      }
+    }
+    setShowInlineReceived(prev => ({ ...prev, [poId]: false }))
+    fetchAll()
+  }
+
   function handleExport() {
     const poHeaders = ['PO Number', 'Supplier', 'Status', 'Ordered At', 'Shipped At', 'Received At', 'Cost Total (CAD)', 'Shipping (CAD)', 'Brokerage (CAD)', 'Duty (CAD)', 'Notes']
     const poRows = pos.map(po => [
@@ -694,10 +743,10 @@ export default function Purchasing() {
         </div>
       ) : (
         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', minWidth: '800px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', minWidth: '1100px' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                {['Supplier', 'Items', 'Cost (CAD)', 'Status', 'Order Date', 'Shipped', 'Received', ''].map((h, i) => (
+                {['Supplier', 'Items', 'Order Date', 'Subtotal', 'Tax', 'Total (CAD)', 'Status', 'Shipped Date', 'Received Date', ''].map((h, i) => (
                   <th key={i} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -705,6 +754,10 @@ export default function Purchasing() {
             <tbody>
               {filtered.map((po, i) => {
                 const st = STATUS_STYLE[po.status] || STATUS_STYLE.ordered
+                const items = poItems[po.id] || []
+                const subtotal = items.reduce((s, it) => s + it.quantity * it.unit_price, 0)
+                const extras = (po.shipping_cad || 0) + (po.brokerage_cad || 0) + (po.duty_cad || 0)
+                const tax = (po.cost_total_cad || 0) - subtotal - extras
                 return (
                   <tr key={po.id} onClick={() => openDetail(po)}
                     style={{ borderBottom: i < filtered.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer' }}
@@ -712,15 +765,60 @@ export default function Purchasing() {
                     onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}
                   >
                     <td style={{ padding: '12px 16px', fontWeight: '500', color: '#374151' }}>{po.suppliers?.name || '—'}</td>
-                    <td style={{ padding: '12px 16px', color: '#374151' }}>{getPOSummary(po)}</td>
-                    <td style={{ padding: '12px 16px', fontWeight: '500', color: '#1e293b' }}>${formatCurrency(po.cost_total_cad || 0)}</td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <span style={{ background: st.bg, color: st.color, borderRadius: '20px', padding: '3px 10px', fontSize: '12px', fontWeight: '500' }}>{st.label}</span>
+                    <td style={{ padding: '12px 16px', color: '#374151', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{getPOSummary(po)}</td>
+                    <td style={{ padding: '12px 16px', color: '#64748b', fontSize: '13px' }}>{po.ordered_at?.slice(0, 10)}</td>
+                    <td style={{ padding: '12px 16px', color: '#1e293b' }}>${formatCurrency(subtotal)}</td>
+                    <td style={{ padding: '12px 16px', color: tax > 0.005 ? '#1e293b' : '#94a3b8' }}>{tax > 0.005 ? `$${formatCurrency(tax)}` : '—'}</td>
+                    <td style={{ padding: '12px 16px', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(po.cost_total_cad || 0)}</td>
+                    <td style={{ padding: '8px 12px' }} onClick={e => e.stopPropagation()}>
+                      <select
+                        value={po.status}
+                        onChange={e => handleTableStatusChange(e.target.value, po)}
+                        style={{ background: st.bg, color: st.color, border: `1px solid ${st.color}40`, borderRadius: '20px', padding: '3px 10px', fontSize: '12px', fontWeight: '500', outline: 'none', cursor: 'pointer' }}
+                      >
+                        <option value='ordered'>Ordered</option>
+                        <option value='shipped'>Shipped</option>
+                        <option value='received'>Received</option>
+                        <option value='cancelled'>Cancelled</option>
+                      </select>
                     </td>
-                    <td style={{ padding: '12px 16px', color: '#64748b', fontSize: '13px' }}>{po.ordered_at}</td>
-                    <td style={{ padding: '12px 16px', color: po.shipped_at ? '#d97706' : '#cbd5e1', fontSize: '13px' }}>{po.shipped_at || '—'}</td>
-                    <td style={{ padding: '12px 16px', color: po.received_at ? '#16a34a' : '#cbd5e1', fontSize: '13px' }}>{po.received_at || '—'}</td>
-                    <td style={{ padding: '12px 16px' }}>
+                    <td style={{ padding: '8px 12px', fontSize: '13px' }} onClick={e => e.stopPropagation()}>
+                      {po.shipped_at ? (
+                        <span style={{ color: '#d97706' }}>{po.shipped_at.slice(0, 10)}</span>
+                      ) : showInlineShipped[po.id] ? (
+                        <input type='date' autoFocus
+                          style={{ fontSize: '12px', padding: '2px 6px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none' }}
+                          onChange={e => { if (e.target.value) handleTableShippedDateChange(po.id, e.target.value) }}
+                          onBlur={() => setShowInlineShipped(prev => ({ ...prev, [po.id]: false }))}
+                        />
+                      ) : (
+                        <button onClick={() => setShowInlineShipped(prev => ({ ...prev, [po.id]: true }))}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '12px', padding: '2px 0' }}>
+                          + Add
+                        </button>
+                      )}
+                    </td>
+                    <td style={{ padding: '8px 12px', fontSize: '13px' }} onClick={e => e.stopPropagation()}>
+                      {po.received_at ? (
+                        <span style={{ color: '#16a34a' }}>{po.received_at.slice(0, 10)}</span>
+                      ) : (po.status === 'shipped' || po.status === 'received') ? (
+                        showInlineReceived[po.id] ? (
+                          <input type='date' autoFocus
+                            style={{ fontSize: '12px', padding: '2px 6px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none' }}
+                            onChange={e => { if (e.target.value) handleTableReceivedDateChange(po.id, e.target.value, po) }}
+                            onBlur={() => setShowInlineReceived(prev => ({ ...prev, [po.id]: false }))}
+                          />
+                        ) : (
+                          <button onClick={() => setShowInlineReceived(prev => ({ ...prev, [po.id]: true }))}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '12px', padding: '2px 0' }}>
+                            + Add
+                          </button>
+                        )
+                      ) : (
+                        <span style={{ color: '#cbd5e1' }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ padding: '8px 12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                         <button onClick={e => openAttachments(e, po)}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: (poAttachments[po.id]?.length ?? 0) > 0 ? '#2563eb' : '#94a3b8' }}>
