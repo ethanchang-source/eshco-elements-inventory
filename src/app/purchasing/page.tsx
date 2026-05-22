@@ -87,7 +87,7 @@ const lbl: React.CSSProperties = { display: 'block', fontSize: '13px', fontWeigh
 const numInp: React.CSSProperties = { ...inp, textAlign: 'right' }
 
 const formatPrice = (v: number) => {
-  if (v === 0) return '0'
+  if (!v) return '0'
   const str = v.toString()
   return str.includes('.') ? str.replace(/\.?0+$/, '') : str
 }
@@ -929,12 +929,15 @@ export default function Purchasing() {
                             />
                           </td>
                           <td style={{ padding: '7px 14px', textAlign: 'right' }}>
-                            <input type='text' inputMode='decimal'
-                              value={item.price_str}
-                              onChange={e => updateCreatePrice(idx, e.target.value)}
-                              placeholder='0.00'
-                              style={{ ...numInp, padding: '4px 8px', fontSize: '13px', width: '90px' }}
-                            />
+                            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                              <span style={{ position: 'absolute', left: '8px', color: '#64748b', fontSize: '13px', pointerEvents: 'none' }}>$</span>
+                              <input type='text' inputMode='decimal'
+                                value={item.price_str}
+                                onChange={e => updateCreatePrice(idx, e.target.value)}
+                                placeholder='0.00'
+                                style={{ ...numInp, padding: '4px 8px 4px 18px', fontSize: '13px', width: '90px' }}
+                              />
+                            </div>
                           </td>
                           <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: '500', color: item.qty > 0 ? '#1e293b' : '#94a3b8' }}>
                             {item.qty > 0 ? `$${formatCurrency(item.total)}` : '—'}
@@ -1176,12 +1179,15 @@ export default function Purchasing() {
                           {isReadOnly ? (
                             <span style={{ color: '#64748b' }}>${formatPrice(item.unit_price)}</span>
                           ) : (
-                            <input type='text' inputMode='decimal'
-                              value={item.price_str}
-                              onChange={e => updateEditPrice(idx, e.target.value)}
-                              placeholder='0.00'
-                              style={{ ...numInp, padding: '4px 8px', fontSize: '13px', width: '90px' }}
-                            />
+                            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                              <span style={{ position: 'absolute', left: '8px', color: '#64748b', fontSize: '13px', pointerEvents: 'none' }}>$</span>
+                              <input type='text' inputMode='decimal'
+                                value={item.price_str}
+                                onChange={e => updateEditPrice(idx, e.target.value)}
+                                placeholder='0.00'
+                                style={{ ...numInp, padding: '4px 8px 4px 18px', fontSize: '13px', width: '90px' }}
+                              />
+                            </div>
                           )}
                         </td>
                         <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: '500', color: item.qty > 0 ? '#1e293b' : '#94a3b8' }}>
