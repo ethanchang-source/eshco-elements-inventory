@@ -275,17 +275,22 @@ function InventoryContent() {
   async function handleUpdatePack() {
     if (!editPack) return
     setEditPackError('')
-    const { error } = await supabase.from('packaging').update({
+    const maxCap = editPackForm.max_capacity !== '' ? parseInt(editPackForm.max_capacity) : null
+    const { data, error } = await supabase.from('packaging').update({
       item_no: editPackForm.item_no.trim(),
       name: editPackForm.name.trim(),
       type: editPackForm.type,
       cost_cad: parseFloat(editPackForm.cost_cad) || 0,
       current_stock: parseInt(editPackForm.current_stock) || 0,
       reorder_threshold: parseInt(editPackForm.reorder_threshold) || 0,
-      max_capacity: editPackForm.max_capacity !== '' ? parseInt(editPackForm.max_capacity) : null,
-    }).eq('id', editPack.id)
+      max_capacity: maxCap != null && !isNaN(maxCap) ? maxCap : null,
+    }).eq('id', editPack.id).select()
     if (error) {
-      setEditPackError(error.message)
+      setEditPackError(`DB error: ${error.message} (code: ${error.code})`)
+      return
+    }
+    if (!data || data.length === 0) {
+      setEditPackError('Update failed: no rows were modified. The item may have been deleted or you may lack permission.')
       return
     }
     setEditPack(null)
