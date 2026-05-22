@@ -485,12 +485,15 @@ export default function Purchasing() {
     let failCount = 0
     for (const file of editNewFiles) {
       const path = `${poId}/${Date.now()}_${file.name}`
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const path = `${poId}/${Date.now()}_${safeName}`
       const { error: uploadError } = await supabase.storage.from('purchase-invoices').upload(path, file)
       if (uploadError) { failCount++; continue }
       const { data: urlData } = supabase.storage.from('purchase-invoices').getPublicUrl(path)
-      await supabase.from('purchase_order_attachments').insert({
+      const { error: insertError } = await supabase.from('purchase_order_attachments').insert({
         po_id: poId, file_name: file.name, file_url: urlData.publicUrl,
       })
+      if (insertError) { failCount++; continue }
       successCount++
     }
     setEditNewFiles([])
@@ -566,15 +569,17 @@ export default function Purchasing() {
     let successCount = 0
     let failCount = 0
     for (const file of attachmentFiles) {
-      const path = `${poId}/${Date.now()}_${file.name}`
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const path = `${poId}/${Date.now()}_${safeName}`
       const { error: uploadError } = await supabase.storage.from('purchase-invoices').upload(path, file)
       if (uploadError) { failCount++; continue }
       const { data: urlData } = supabase.storage.from('purchase-invoices').getPublicUrl(path)
-      await supabase.from('purchase_order_attachments').insert({
+      const { error: insertError } = await supabase.from('purchase_order_attachments').insert({
         po_id: poId,
         file_name: file.name,
         file_url: urlData.publicUrl,
       })
+      if (insertError) { failCount++; continue }
       successCount++
     }
     setAttachmentFiles([])
@@ -609,12 +614,6 @@ export default function Purchasing() {
 
   async function handleTableStatusChange(newStatus: string, po: PO) {
     const updates: Record<string, unknown> = { status: newStatus }
-    if ((newStatus === 'shipped' || newStatus === 'received') && !po.shipped_at) {
-      updates.shipped_at = getLocalDateString()
-    }
-    if (newStatus === 'received' && !po.received_at) {
-      updates.received_at = getLocalDateString()
-    }
     await supabase.from('purchase_orders').update(updates).eq('id', po.id)
     if (newStatus === 'received' && po.status !== 'received') {
       for (const item of (poItems[po.id] || [])) {
@@ -783,14 +782,18 @@ export default function Purchasing() {
                       </select>
                     </td>
                     <td style={{ padding: '8px 12px', fontSize: '13px' }} onClick={e => e.stopPropagation()}>
-                      {po.shipped_at ? (
-                        <span style={{ color: '#d97706' }}>{po.shipped_at.slice(0, 10)}</span>
-                      ) : showInlineShipped[po.id] ? (
+                      {showInlineShipped[po.id] ? (
                         <input type='date' autoFocus
+                          defaultValue={po.shipped_at?.slice(0, 10) || ''}
                           style={{ fontSize: '12px', padding: '2px 6px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none' }}
                           onChange={e => { if (e.target.value) handleTableShippedDateChange(po.id, e.target.value) }}
                           onBlur={() => setShowInlineShipped(prev => ({ ...prev, [po.id]: false }))}
                         />
+                      ) : po.shipped_at ? (
+                        <button onClick={() => setShowInlineShipped(prev => ({ ...prev, [po.id]: true }))}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d97706', fontSize: '13px', padding: '2px 0', textDecoration: 'underline', textDecorationStyle: 'dotted' }}>
+                          {po.shipped_at.slice(0, 10)}
+                        </button>
                       ) : (
                         <button onClick={() => setShowInlineShipped(prev => ({ ...prev, [po.id]: true }))}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '12px', padding: '2px 0' }}>
@@ -799,21 +802,23 @@ export default function Purchasing() {
                       )}
                     </td>
                     <td style={{ padding: '8px 12px', fontSize: '13px' }} onClick={e => e.stopPropagation()}>
-                      {po.received_at ? (
-                        <span style={{ color: '#16a34a' }}>{po.received_at.slice(0, 10)}</span>
+                      {showInlineReceived[po.id] ? (
+                        <input type='date' autoFocus
+                          defaultValue={po.received_at?.slice(0, 10) || ''}
+                          style={{ fontSize: '12px', padding: '2px 6px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none' }}
+                          onChange={e => { if (e.target.value) handleTableReceivedDateChange(po.id, e.target.value, po) }}
+                          onBlur={() => setShowInlineReceived(prev => ({ ...prev, [po.id]: false }))}
+                        />
+                      ) : po.received_at ? (
+                        <button onClick={() => setShowInlineReceived(prev => ({ ...prev, [po.id]: true }))}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#16a34a', fontSize: '13px', padding: '2px 0', textDecoration: 'underline', textDecorationStyle: 'dotted' }}>
+                          {po.received_at.slice(0, 10)}
+                        </button>
                       ) : (po.status === 'shipped' || po.status === 'received') ? (
-                        showInlineReceived[po.id] ? (
-                          <input type='date' autoFocus
-                            style={{ fontSize: '12px', padding: '2px 6px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none' }}
-                            onChange={e => { if (e.target.value) handleTableReceivedDateChange(po.id, e.target.value, po) }}
-                            onBlur={() => setShowInlineReceived(prev => ({ ...prev, [po.id]: false }))}
-                          />
-                        ) : (
-                          <button onClick={() => setShowInlineReceived(prev => ({ ...prev, [po.id]: true }))}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '12px', padding: '2px 0' }}>
-                            + Add
-                          </button>
-                        )
+                        <button onClick={() => setShowInlineReceived(prev => ({ ...prev, [po.id]: true }))}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '12px', padding: '2px 0' }}>
+                          + Add
+                        </button>
                       ) : (
                         <span style={{ color: '#cbd5e1' }}>—</span>
                       )}

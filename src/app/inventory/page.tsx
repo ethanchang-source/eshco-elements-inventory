@@ -144,6 +144,7 @@ function InventoryContent() {
   const [inventorySuppliers, setInventorySuppliers] = useState<Supplier[]>([])
   const [itemPurchaseHistory, setItemPurchaseHistory] = useState<PurchaseHistoryEntry[]>([])
   const [loadingItemHistory, setLoadingItemHistory] = useState(false)
+  const [editPackError, setEditPackError] = useState('')
 
   useEffect(() => { fetchAll() }, [])
 
@@ -195,6 +196,7 @@ function InventoryContent() {
 
   function openEditPack(p: Packaging) {
     setEditPack(p)
+    setEditPackError('')
     setItemPurchaseHistory([])
     const modules = p.module_qty && p.module_qty > 1 ? String(Math.floor(p.current_stock / p.module_qty)) : ''
     const maxCapModules = p.module_qty && p.module_qty > 1 && p.max_capacity ? String(Math.floor(p.max_capacity / p.module_qty)) : ''
@@ -272,19 +274,20 @@ function InventoryContent() {
 
   async function handleUpdatePack() {
     if (!editPack) return
+    setEditPackError('')
     const { error } = await supabase.from('packaging').update({
       item_no: editPackForm.item_no.trim(),
       name: editPackForm.name.trim(),
       type: editPackForm.type,
-      unit: editPackForm.unit || 'ea',
       cost_cad: parseFloat(editPackForm.cost_cad) || 0,
       current_stock: parseInt(editPackForm.current_stock) || 0,
       reorder_threshold: parseInt(editPackForm.reorder_threshold) || 0,
       max_capacity: editPackForm.max_capacity !== '' ? parseInt(editPackForm.max_capacity) : null,
-      preferred_supplier_id: editPackForm.preferred_supplier_id || null,
-      roll_length_m: editPackForm.roll_length_m !== '' ? parseFloat(editPackForm.roll_length_m) : null,
     }).eq('id', editPack.id)
-    if (error) console.error('packaging update error:', error)
+    if (error) {
+      setEditPackError(error.message)
+      return
+    }
     setEditPack(null)
     setItemPurchaseHistory([])
     fetchAll()
@@ -1053,10 +1056,15 @@ function InventoryContent() {
                 </div>
               )}
             </div>
+            {editPackError && (
+              <div style={{ marginTop: '8px', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', color: '#dc2626', fontSize: '13px' }}>
+                {editPackError}
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
               <button onClick={handleDeletePack} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>Delete</button>
               <div style={{ display: 'flex', gap: '12px' }}>
-                <button onClick={() => { setEditPack(null); setItemPurchaseHistory([]) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                <button onClick={() => { setEditPack(null); setEditPackError(''); setItemPurchaseHistory([]) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
                 <button onClick={handleUpdatePack} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Save Changes</button>
               </div>
             </div>
