@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { formatCurrency, getLocalDateString } from '@/lib/utils'
+import { formatCurrency, getLocalDateString, formatTorontoDate } from '@/lib/utils'
 import { Download, ShoppingCart, Plus, Search, X, Trash2, Paperclip, Eye } from 'lucide-react'
 
 interface Supplier { id: string; name: string }
@@ -857,7 +857,7 @@ export default function Purchasing() {
                   >
                     <td style={{ padding: '12px 16px', fontWeight: '500', color: '#374151' }}>{po.suppliers?.name || '—'}</td>
                     <td style={{ padding: '12px 16px', color: '#374151', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{getPOSummary(po)}</td>
-                    <td style={{ padding: '12px 16px', color: '#64748b', fontSize: '13px' }}>{po.ordered_at?.slice(0, 10)}</td>
+                    <td style={{ padding: '12px 16px', color: '#64748b', fontSize: '13px' }}>{formatTorontoDate(po.ordered_at || '')}</td>
                     <td style={{ padding: '12px 16px', color: '#1e293b' }}>${formatCurrency(subtotal)}</td>
                     <td style={{ padding: '12px 16px', color: tax > 0.005 ? '#1e293b' : '#94a3b8' }}>{tax > 0.005 ? `$${formatCurrency(tax)}` : '—'}</td>
                     <td style={{ padding: '12px 16px', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(po.cost_total_cad || 0)}</td>
@@ -877,7 +877,7 @@ export default function Purchasing() {
                       {po.shipped_at ? (
                         <button onClick={() => { setDateModalPO(po); setShippedDateInput(po.shipped_at!.slice(0, 10)); setShowShippedModal(true) }}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d97706', fontSize: '13px', padding: '2px 0', textDecoration: 'underline', textDecorationStyle: 'dotted' }}>
-                          {po.shipped_at.slice(0, 10)}
+                          {formatTorontoDate(po.shipped_at)}
                         </button>
                       ) : (
                         <button onClick={() => { setDateModalPO(po); setShippedDateInput(getLocalDateString()); setShowShippedModal(true) }}
@@ -890,7 +890,7 @@ export default function Purchasing() {
                       {po.received_at ? (
                         <button onClick={() => { setDateModalPO(po); setReceivedDateInput(po.received_at!.slice(0, 10)); setShowReceivedModal(true) }}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#16a34a', fontSize: '13px', padding: '2px 0', textDecoration: 'underline', textDecorationStyle: 'dotted' }}>
-                          {po.received_at.slice(0, 10)}
+                          {formatTorontoDate(po.received_at)}
                         </button>
                       ) : (po.status === 'shipped' || po.status === 'received') ? (
                         <button onClick={() => { setDateModalPO(po); setReceivedDateInput(getLocalDateString()); setShowReceivedModal(true) }}

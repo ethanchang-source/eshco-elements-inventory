@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { formatCurrency, getLocalDateString } from '@/lib/utils'
+import { formatCurrency, getLocalDateString, formatTorontoDate } from '@/lib/utils'
 import { FileText, Plus, Search, Download, Trash2, Upload } from 'lucide-react'
 import { generateInvoicePDF } from '@/lib/generateInvoicePDF'
 import JSZip from 'jszip'
@@ -1433,7 +1433,7 @@ function InvoicesContent() {
                   )}
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{inv.customers?.company_name}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{inv.issued_at.slice(0, 10)}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{formatTorontoDate(inv.issued_at)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${formatCurrency(inv.subtotal_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>${formatCurrency(inv.tax_amount_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(inv.total_cad)} CAD</td>
@@ -1528,7 +1528,7 @@ function InvoicesContent() {
                   <span onClick={() => openEditCm(cm)} style={{ color: '#7c3aed', cursor: 'pointer', textDecoration: 'underline' }}>{cm.memo_no}</span>
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{cm.customers?.company_name}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{cm.issued_at.slice(0, 10)}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{formatTorontoDate(cm.issued_at)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${formatCurrency(cm.subtotal_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>${formatCurrency(cm.tax_amount_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(cm.total_cad)} CAD</td>
@@ -1631,7 +1631,7 @@ function InvoicesContent() {
                   )}
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{inv.customers?.company_name}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{inv.issued_at.slice(0, 10)}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{formatTorontoDate(inv.issued_at)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${formatCurrency(inv.subtotal_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>${formatCurrency(inv.tax_amount_cad)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(inv.total_cad)} USD</td>

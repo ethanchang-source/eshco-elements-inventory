@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import * as XLSX from 'xlsx'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { getLocalDateString } from '@/lib/utils'
+import { getLocalDateString, formatTorontoDate } from '@/lib/utils'
 import { Download, Factory, Plus, AlertTriangle, Trash2 } from 'lucide-react'
 
 interface Product {
@@ -205,7 +205,7 @@ export default function Production() {
               </td></tr>
             ) : orders.map(o => (
               <tr key={o.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{o.produced_at.slice(0, 10)}</td>
+                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{formatTorontoDate(o.produced_at)}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{o.products?.sku}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{o.products?.name}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{o.products?.size_oz} oz</td>
@@ -239,7 +239,7 @@ export default function Production() {
             </p>
             <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '12px', marginBottom: '20px', fontSize: '13px', color: '#374151' }}>
               <div><strong>{deleteOrder.products?.sku}</strong> — {deleteOrder.products?.name}</div>
-              <div style={{ color: '#64748b', marginTop: '4px' }}>Qty: {deleteOrder.qty_produced?.toLocaleString()} units · {deleteOrder.produced_at.slice(0, 10)}</div>
+              <div style={{ color: '#64748b', marginTop: '4px' }}>Qty: {deleteOrder.qty_produced?.toLocaleString()} units · {formatTorontoDate(deleteOrder.produced_at)}</div>
             </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
               <button onClick={() => setDeleteOrder(null)} disabled={deleting} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>

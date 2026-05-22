@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatTorontoDate } from '@/lib/utils'
 import { FlaskConical, Plus, Search, Package, Upload, Download, AlertTriangle } from 'lucide-react'
 import { parseCSV, downloadCSVTemplate } from '@/lib/csvImport'
 import * as XLSX from 'xlsx'
@@ -893,7 +893,7 @@ function InventoryContent() {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc' }}>
-                        {['PO #', 'Supplier', 'Order Date', 'Qty', 'Unit Price', 'Status', 'Received'].map(h => (
+                        {['Supplier', 'Order Date', 'Qty', 'Unit Price', 'Status', 'Received'].map(h => (
                           <th key={h} style={{ padding: '7px 10px', fontSize: '11px', fontWeight: '600', color: '#64748b', textAlign: 'left', textTransform: 'uppercase' }}>{h}</th>
                         ))}
                       </tr>
@@ -901,19 +901,17 @@ function InventoryContent() {
                     <tbody>
                       {itemPurchaseHistory.map((h, i) => {
                         const po = h.purchase_orders
-                        const poLabel = po?.po_number || (po?.id ? po.id.slice(0, 8) : '—')
                         const status = po?.status || '—'
                         return (
                           <tr key={i} style={{ borderTop: i > 0 ? '1px solid #f1f5f9' : undefined, background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#2563eb', fontWeight: '500' }}>{poLabel}</td>
                             <td style={{ padding: '7px 10px', fontSize: '12px', color: '#374151' }}>{po?.suppliers?.name || '—'}</td>
-                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{po?.ordered_at ? new Date(po.ordered_at).toLocaleDateString('en-CA') : '—'}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{formatTorontoDate(po?.ordered_at || '')}</td>
                             <td style={{ padding: '7px 10px', fontSize: '12px', color: '#1e293b', fontWeight: '500' }}>{h.quantity?.toLocaleString()}</td>
                             <td style={{ padding: '7px 10px', fontSize: '12px', color: '#1e293b' }}>${h.unit_price?.toFixed(4)}</td>
                             <td style={{ padding: '7px 10px' }}>
                               <span style={{ background: status === 'received' ? '#f0fdf4' : status === 'ordered' ? '#eff6ff' : '#f8fafc', color: status === 'received' ? '#16a34a' : status === 'ordered' ? '#2563eb' : '#64748b', padding: '2px 6px', borderRadius: '10px', fontSize: '11px', fontWeight: '500' }}>{status}</span>
                             </td>
-                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{po?.received_at ? new Date(po.received_at).toLocaleDateString('en-CA') : '—'}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{formatTorontoDate(po?.received_at || '')}</td>
                           </tr>
                         )
                       })}
@@ -1052,7 +1050,7 @@ function InventoryContent() {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc' }}>
-                        {['PO #', 'Supplier', 'Order Date', 'Qty', 'Unit Price', 'Status', 'Received'].map(h => (
+                        {['Supplier', 'Order Date', 'Qty', 'Unit Price', 'Status', 'Received'].map(h => (
                           <th key={h} style={{ padding: '7px 10px', fontSize: '11px', fontWeight: '600', color: '#64748b', textAlign: 'left', textTransform: 'uppercase' }}>{h}</th>
                         ))}
                       </tr>
@@ -1060,19 +1058,17 @@ function InventoryContent() {
                     <tbody>
                       {itemPurchaseHistory.map((h, i) => {
                         const po = h.purchase_orders
-                        const poLabel = po?.po_number || (po?.id ? po.id.slice(0, 8) : '—')
                         const status = po?.status || '—'
                         return (
                           <tr key={i} style={{ borderTop: i > 0 ? '1px solid #f1f5f9' : undefined, background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#2563eb', fontWeight: '500' }}>{poLabel}</td>
                             <td style={{ padding: '7px 10px', fontSize: '12px', color: '#374151' }}>{po?.suppliers?.name || '—'}</td>
-                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{po?.ordered_at ? new Date(po.ordered_at).toLocaleDateString('en-CA') : '—'}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{formatTorontoDate(po?.ordered_at || '')}</td>
                             <td style={{ padding: '7px 10px', fontSize: '12px', color: '#1e293b', fontWeight: '500' }}>{h.quantity?.toLocaleString()}</td>
                             <td style={{ padding: '7px 10px', fontSize: '12px', color: '#1e293b' }}>${h.unit_price?.toFixed(4)}</td>
                             <td style={{ padding: '7px 10px' }}>
                               <span style={{ background: status === 'received' ? '#f0fdf4' : status === 'ordered' ? '#eff6ff' : '#f8fafc', color: status === 'received' ? '#16a34a' : status === 'ordered' ? '#2563eb' : '#64748b', padding: '2px 6px', borderRadius: '10px', fontSize: '11px', fontWeight: '500' }}>{status}</span>
                             </td>
-                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{po?.received_at ? new Date(po.received_at).toLocaleDateString('en-CA') : '—'}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{formatTorontoDate(po?.received_at || '')}</td>
                           </tr>
                         )
                       })}
