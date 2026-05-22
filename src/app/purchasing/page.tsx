@@ -488,16 +488,17 @@ export default function Purchasing() {
     const poId = detailPO.id
     let successCount = 0
     let failCount = 0
+    let lastError = ''
     for (const file of editNewFiles) {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       const path = `${poId}/${Date.now()}_${safeName}`
       const { error: uploadError } = await supabase.storage.from('po-attachments').upload(path, file)
-      if (uploadError) { failCount++; continue }
+      if (uploadError) { failCount++; lastError = uploadError.message || JSON.stringify(uploadError); continue }
       const { data: urlData } = supabase.storage.from('po-attachments').getPublicUrl(path)
       const { error: insertError } = await supabase.from('purchase_order_attachments').insert({
         po_id: poId, file_name: file.name, file_url: urlData.publicUrl,
       })
-      if (insertError) { failCount++; continue }
+      if (insertError) { failCount++; lastError = insertError.message || JSON.stringify(insertError); continue }
       successCount++
     }
     setEditNewFiles([])
@@ -505,9 +506,9 @@ export default function Purchasing() {
     if (failCount === 0) {
       setEditUploadStatus(`✓ ${successCount} file(s) uploaded.`)
     } else if (successCount === 0) {
-      setEditUploadStatus(`✗ Upload failed for all ${failCount} file(s).`)
+      setEditUploadStatus(`✗ Upload failed (${lastError})`)
     } else {
-      setEditUploadStatus(`${successCount} uploaded, ${failCount} failed.`)
+      setEditUploadStatus(`${successCount} uploaded, ${failCount} failed (${lastError})`)
     }
     const { data } = await supabase.from('purchase_order_attachments')
       .select('id, file_name, file_url')
@@ -572,21 +573,19 @@ export default function Purchasing() {
     const poId = attachmentPO.id
     let successCount = 0
     let failCount = 0
-    console.log('[ATTACH] attachmentFiles:', attachmentFiles.length, attachmentFiles.map(f => f.name))
+    let lastError = ''
     for (const file of attachmentFiles) {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       const path = `${poId}/${Date.now()}_${safeName}`
       const { error: uploadError } = await supabase.storage.from('po-attachments').upload(path, file)
-      console.log('[ATTACH] upload result:', { path, uploadError })
-      if (uploadError) { failCount++; continue }
+      if (uploadError) { failCount++; lastError = uploadError.message || JSON.stringify(uploadError); continue }
       const { data: urlData } = supabase.storage.from('po-attachments').getPublicUrl(path)
       const { error: dbError } = await supabase.from('purchase_order_attachments').insert({
         po_id: poId,
         file_name: file.name,
         file_url: urlData.publicUrl,
       })
-      console.log('[ATTACH] db insert result:', { dbError })
-      if (dbError) { failCount++; continue }
+      if (dbError) { failCount++; lastError = dbError.message || JSON.stringify(dbError); continue }
       successCount++
     }
     setAttachmentFiles([])
@@ -594,9 +593,9 @@ export default function Purchasing() {
     if (failCount === 0) {
       setAttachUploadStatus(`✓ ${successCount} file(s) uploaded successfully.`)
     } else if (successCount === 0) {
-      setAttachUploadStatus(`✗ Upload failed for all ${failCount} file(s).`)
+      setAttachUploadStatus(`✗ Upload failed (${lastError})`)
     } else {
-      setAttachUploadStatus(`${successCount} uploaded, ${failCount} failed.`)
+      setAttachUploadStatus(`${successCount} uploaded, ${failCount} failed (${lastError})`)
     }
     const { data } = await supabase.from('purchase_order_attachments')
       .select('id, po_id, file_name, file_url, uploaded_at')
@@ -1028,17 +1027,17 @@ export default function Purchasing() {
             {/* Attachments */}
             <div style={{ marginBottom: '16px' }}>
               <label style={lbl}>Attachments</label>
-              <input ref={createFileInputRef} type='file' multiple style={{ display: 'none' }}
+              <input id="create-file-input" ref={createFileInputRef} type='file' multiple style={{ display: 'none' }}
                 onChange={e => {
                   if (e.target.files) {
                     setCreateFiles(prev => [...prev, ...Array.from(e.target.files!)])
                     e.target.value = ''
                   }
                 }} />
-              <button type='button' onClick={() => createFileInputRef.current?.click()}
+              <label htmlFor="create-file-input"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', cursor: 'pointer', fontSize: '13px', color: '#374151' }}>
                 <Paperclip size={14} /> Choose Files
-              </button>
+              </label>
               {createFiles.length > 0 && (
                 <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {createFiles.map((f, i) => (
@@ -1274,17 +1273,17 @@ export default function Purchasing() {
                   ))}
                 </div>
               )}
-              <input ref={editFileInputRef} type='file' multiple style={{ display: 'none' }}
+              <input id="edit-file-input" ref={editFileInputRef} type='file' multiple style={{ display: 'none' }}
                 onChange={e => {
                   if (e.target.files) {
                     setEditNewFiles(prev => [...prev, ...Array.from(e.target.files!)])
                     e.target.value = ''
                   }
                 }} />
-              <button type='button' onClick={() => editFileInputRef.current?.click()}
+              <label htmlFor="edit-file-input"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', cursor: 'pointer', fontSize: '13px', color: '#374151' }}>
                 <Paperclip size={14} /> Choose Files
-              </button>
+              </label>
               {editNewFiles.length > 0 && (
                 <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {editNewFiles.map((f, i) => (
@@ -1368,17 +1367,17 @@ export default function Purchasing() {
             )}
 
             <div style={{ marginBottom: '16px' }}>
-              <input ref={fileInputRef} type='file' multiple style={{ display: 'none' }}
+              <input id="attach-file-input" ref={fileInputRef} type='file' multiple style={{ display: 'none' }}
                 onChange={e => {
                   if (e.target.files) {
                     setAttachmentFiles(prev => [...prev, ...Array.from(e.target.files!)])
                     e.target.value = ''
                   }
                 }} />
-              <button type='button' onClick={() => fileInputRef.current?.click()}
+              <label htmlFor="attach-file-input"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', cursor: 'pointer', fontSize: '13px', color: '#374151' }}>
                 <Paperclip size={14} /> Choose Files
-              </button>
+              </label>
               {attachmentFiles.length > 0 && (
                 <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {attachmentFiles.map((f, i) => (
