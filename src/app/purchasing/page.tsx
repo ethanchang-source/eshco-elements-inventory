@@ -568,6 +568,7 @@ export default function Purchasing() {
 
   async function handleUploadAttachments() {
     if (!attachmentPO || attachmentFiles.length === 0) return
+    console.log('[ATTACH DEBUG] attachmentPO:', attachmentPO?.id, 'files:', attachmentFiles.length)
     setUploadingAttachment(true)
     setAttachUploadStatus('')
     const poId = attachmentPO.id
@@ -575,6 +576,7 @@ export default function Purchasing() {
     let failCount = 0
     let lastError = ''
     for (const file of attachmentFiles) {
+      console.log('[ATTACH DEBUG] trying to upload:', file.name, 'to po-attachments bucket')
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       const path = `${poId}/${Date.now()}_${safeName}`
       const { error: uploadError } = await supabase.storage.from('po-attachments').upload(path, file)
@@ -594,6 +596,7 @@ export default function Purchasing() {
       setAttachUploadStatus(`✓ ${successCount} file(s) uploaded successfully.`)
     } else if (successCount === 0) {
       setAttachUploadStatus(`✗ Upload failed (${lastError})`)
+      alert('Upload failed: ' + lastError)
     } else {
       setAttachUploadStatus(`${successCount} uploaded, ${failCount} failed (${lastError})`)
     }
