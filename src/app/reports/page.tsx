@@ -103,6 +103,9 @@ export default function Reports() {
   const [prodByProduct, setProdByProduct] = useState<ProductionByProduct[]>([])
   const [quarterlyProduction, setQuarterlyProduction] = useState<{ label: string; months: string; units: number; runs: number }[]>([])
 
+  const [taxLoading, setTaxLoading] = useState(true)
+  const [taxStats, setTaxStats] = useState({ collected: 0, paid: 0 })
+
   const fetchReports = useCallback(async () => {
     setLoading(true)
     const { data: invoices } = await supabase
@@ -297,6 +300,22 @@ export default function Reports() {
   }, [selectedYear])
 
   useEffect(() => { fetchProductionData() }, [fetchProductionData])
+
+  const fetchTaxData = useCallback(async () => {
+    setTaxLoading(true)
+    const [{ data: invData }, { data: cmData }, { data: expData }] = await Promise.all([
+      supabase.from('invoices').select('tax_amount_cad').gte('issued_at', `${selectedYear}-01-01`).lte('issued_at', `${selectedYear}-12-31`),
+      supabase.from('credit_memos').select('tax_amount_cad').gte('issued_at', `${selectedYear}-01-01`).lte('issued_at', `${selectedYear}-12-31`),
+      supabase.from('expenses').select('sales_tax').gte('expense_date', `${selectedYear}-01-01`).lte('expense_date', `${selectedYear}-12-31`),
+    ])
+    const invTax = (invData || []).reduce((s, r) => s + (r.tax_amount_cad || 0), 0)
+    const cmTax  = (cmData  || []).reduce((s, r) => s + (r.tax_amount_cad || 0), 0)
+    const expTax = (expData || []).reduce((s, r) => s + (r.sales_tax || 0), 0)
+    setTaxStats({ collected: invTax - cmTax, paid: expTax })
+    setTaxLoading(false)
+  }, [selectedYear])
+
+  useEffect(() => { fetchTaxData() }, [fetchTaxData])
 
   const maxRevenue      = Math.max(...monthlySales.map(m => m.revenue), 1)
   const maxQRevenue     = Math.max(...quarterlySales.map(q => q.revenue), 1)
@@ -510,6 +529,37 @@ export default function Reports() {
             </div>
           )
         })}
+      </div>
+
+      {/* Tax Summary */}
+      <div style={{ marginBottom: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+          <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Tax Summary</h3>
+          <span style={{ fontSize: '12px', color: '#94a3b8' }}>{selectedYear}</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+          {taxLoading ? (
+            <div style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
+          ) : (
+            <>
+              <div style={{ background: '#f0fdf4', borderRadius: '12px', padding: '18px 20px', border: '1px solid #bbf7d0' }}>
+                <div style={{ fontSize: '22px', fontWeight: '700', color: '#16a34a', marginBottom: '4px' }}>${formatCurrency(taxStats.collected)}</div>
+                <div style={{ fontSize: '13px', fontWeight: '600', color: '#15803d' }}>Tax Collected (Net)</div>
+                <div style={{ fontSize: '11px', color: '#4ade80', marginTop: '2px' }}>Invoices - Credit Memos</div>
+              </div>
+              <div style={{ background: '#fff7ed', borderRadius: '12px', padding: '18px 20px', border: '1px solid #fed7aa' }}>
+                <div style={{ fontSize: '22px', fontWeight: '700', color: '#c2410c', marginBottom: '4px' }}>${formatCurrency(taxStats.paid)}</div>
+                <div style={{ fontSize: '13px', fontWeight: '600', color: '#ea580c' }}>Tax Paid (Expenses)</div>
+                <div style={{ fontSize: '11px', color: '#fb923c', marginTop: '2px' }}>From expense records</div>
+              </div>
+              <div style={{ background: '#eff6ff', borderRadius: '12px', padding: '18px 20px', border: '1px solid #bfdbfe' }}>
+                <div style={{ fontSize: '22px', fontWeight: '700', color: '#1d4ed8', marginBottom: '4px' }}>${formatCurrency(taxStats.collected - taxStats.paid)}</div>
+                <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e40af' }}>Estimated Tax Owing</div>
+                <div style={{ fontSize: '11px', color: '#60a5fa', marginTop: '2px' }}>Collected - Paid</div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Monthly chart + Top Products */}
