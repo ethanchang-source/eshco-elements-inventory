@@ -827,7 +827,7 @@ function InventoryContent() {
       {/* Edit Raw Material Modal */}
       {editRaw && (
         <div className="modal-overlay" onClick={() => { setShowModal(false); setEditRaw(null); setItemPurchaseHistory([]) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '720px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Edit Raw Material</h2>
             {([['Item #', 'item_no'], ['Name', 'name'], ['Cost (CAD)', 'cost_per_unit_cad'], ['Current Stock (ml)', 'current_stock'], ['Reorder Threshold (ml)', 'reorder_threshold'], ['Max Capacity (ml)', 'max_capacity']] as [string, string][]).map(([label, key]) => (
               <div key={key} style={{ marginBottom: '16px' }}>
@@ -889,11 +889,11 @@ function InventoryContent() {
               ) : itemPurchaseHistory.length === 0 ? (
                 <div style={{ fontSize: '13px', color: '#94a3b8', textAlign: 'center', padding: '12px' }}>No purchase history</div>
               ) : (
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflowX: 'auto' }}>
+                  <table style={{ width: '100%', minWidth: '500px', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc' }}>
-                        {['Supplier', 'Order Date', 'Qty', 'Unit Price', 'Status', 'Received'].map(h => (
+                        {['Supplier', 'Order Date', 'Qty', 'Price', 'Status', 'Received'].map(h => (
                           <th key={h} style={{ padding: '7px 10px', fontSize: '11px', fontWeight: '600', color: '#64748b', textAlign: 'left', textTransform: 'uppercase' }}>{h}</th>
                         ))}
                       </tr>
@@ -934,7 +934,7 @@ function InventoryContent() {
       {/* Edit Packaging Modal */}
       {editPack && (
         <div className="modal-overlay" onClick={() => { setShowModal(false); setEditPack(null); setItemPurchaseHistory([]) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '720px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Edit Packaging</h2>
             {([['Item #', 'item_no'], ['Name', 'name'], ['Cost (CAD)', 'cost_cad'], ['Reorder Threshold', 'reorder_threshold']] as [string, string][]).map(([label, key]) => (
               <div key={key} style={{ marginBottom: '16px' }}>
@@ -1046,11 +1046,11 @@ function InventoryContent() {
               ) : itemPurchaseHistory.length === 0 ? (
                 <div style={{ fontSize: '13px', color: '#94a3b8', textAlign: 'center', padding: '12px' }}>No purchase history</div>
               ) : (
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflowX: 'auto' }}>
+                  <table style={{ width: '100%', minWidth: '500px', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc' }}>
-                        {['Supplier', 'Order Date', 'Qty', 'Unit Price', 'Status', 'Received'].map(h => (
+                        {['Supplier', 'Order Date', 'Qty', 'Price', 'Status', 'Received'].map(h => (
                           <th key={h} style={{ padding: '7px 10px', fontSize: '11px', fontWeight: '600', color: '#64748b', textAlign: 'left', textTransform: 'uppercase' }}>{h}</th>
                         ))}
                       </tr>
