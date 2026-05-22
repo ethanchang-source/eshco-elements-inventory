@@ -52,12 +52,16 @@ interface Supplier {
 }
 
 interface PurchaseHistoryEntry {
-  id: string
-  qty_ordered: number
-  cost_total_cad: number
-  ordered_at: string
-  status: string
-  suppliers: { name: string } | null
+  quantity: number
+  unit_price: number
+  purchase_orders: {
+    id: string
+    po_number: string | null
+    ordered_at: string
+    received_at: string | null
+    status: string
+    suppliers: { name: string } | null
+  } | null
 }
 
 interface Product {
@@ -164,13 +168,18 @@ function InventoryContent() {
 
   async function fetchItemPurchaseHistory(itemType: 'raw_material' | 'packaging', itemId: string) {
     setLoadingItemHistory(true)
-    const col = itemType === 'raw_material' ? 'raw_material_id' : 'packaging_id'
     const { data } = await supabase
-      .from('purchase_orders')
-      .select('id, qty_ordered, cost_total_cad, ordered_at, status, suppliers(name)')
-      .eq(col, itemId)
-      .order('ordered_at', { ascending: false })
-      .limit(10)
+      .from('purchase_order_items')
+      .select(`
+        quantity, unit_price,
+        purchase_orders (
+          id, po_number, ordered_at, received_at, status,
+          suppliers (name)
+        )
+      `)
+      .eq('material_type', itemType)
+      .eq('material_id', itemId)
+      .order('created_at', { ascending: false })
     setItemPurchaseHistory((data as unknown as PurchaseHistoryEntry[]) || [])
     setLoadingItemHistory(false)
   }
@@ -866,9 +875,9 @@ function InventoryContent() {
               <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid #e2e8f0' }}>
                 <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Purchase History</span>
                 {!loadingItemHistory && itemPurchaseHistory.length > 0 && (() => {
-                  const received = itemPurchaseHistory.filter(h => h.status === 'received' && h.qty_ordered > 0)
-                  const totalCost = received.reduce((s, h) => s + h.cost_total_cad, 0)
-                  const totalQty = received.reduce((s, h) => s + h.qty_ordered, 0)
+                  const received = itemPurchaseHistory.filter(h => h.purchase_orders?.status === 'received' && h.quantity > 0)
+                  const totalCost = received.reduce((s, h) => s + h.quantity * h.unit_price, 0)
+                  const totalQty = received.reduce((s, h) => s + h.quantity, 0)
                   const avg = totalQty > 0 ? totalCost / totalQty : null
                   return avg != null ? (
                     <span style={{ fontSize: '12px', color: '#64748b' }}>Avg unit price (received): <strong>${avg.toFixed(4)}</strong></span>
@@ -884,23 +893,27 @@ function InventoryContent() {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc' }}>
-                        {['Supplier', 'Date', 'Qty', 'Unit Cost', 'Status'].map(h => (
+                        {['PO #', 'Supplier', 'Order Date', 'Qty', 'Unit Price', 'Status', 'Received'].map(h => (
                           <th key={h} style={{ padding: '7px 10px', fontSize: '11px', fontWeight: '600', color: '#64748b', textAlign: 'left', textTransform: 'uppercase' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {itemPurchaseHistory.map((h, i) => {
-                        const unitCost = h.qty_ordered > 0 ? h.cost_total_cad / h.qty_ordered : 0
+                        const po = h.purchase_orders
+                        const poLabel = po?.po_number || (po?.id ? po.id.slice(0, 8) : '—')
+                        const status = po?.status || '—'
                         return (
-                          <tr key={h.id} style={{ borderTop: i > 0 ? '1px solid #f1f5f9' : undefined, background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#374151' }}>{h.suppliers?.name || '—'}</td>
-                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{h.ordered_at ? new Date(h.ordered_at).toLocaleDateString('en-CA') : '—'}</td>
-                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#1e293b', fontWeight: '500' }}>{h.qty_ordered?.toLocaleString()}</td>
-                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#1e293b' }}>${unitCost.toFixed(4)}</td>
+                          <tr key={i} style={{ borderTop: i > 0 ? '1px solid #f1f5f9' : undefined, background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#2563eb', fontWeight: '500' }}>{poLabel}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#374151' }}>{po?.suppliers?.name || '—'}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{po?.ordered_at ? new Date(po.ordered_at).toLocaleDateString('en-CA') : '—'}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#1e293b', fontWeight: '500' }}>{h.quantity?.toLocaleString()}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#1e293b' }}>${h.unit_price?.toFixed(4)}</td>
                             <td style={{ padding: '7px 10px' }}>
-                              <span style={{ background: h.status === 'received' ? '#f0fdf4' : h.status === 'ordered' ? '#eff6ff' : '#f8fafc', color: h.status === 'received' ? '#16a34a' : h.status === 'ordered' ? '#2563eb' : '#64748b', padding: '2px 6px', borderRadius: '10px', fontSize: '11px', fontWeight: '500' }}>{h.status}</span>
+                              <span style={{ background: status === 'received' ? '#f0fdf4' : status === 'ordered' ? '#eff6ff' : '#f8fafc', color: status === 'received' ? '#16a34a' : status === 'ordered' ? '#2563eb' : '#64748b', padding: '2px 6px', borderRadius: '10px', fontSize: '11px', fontWeight: '500' }}>{status}</span>
                             </td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{po?.received_at ? new Date(po.received_at).toLocaleDateString('en-CA') : '—'}</td>
                           </tr>
                         )
                       })}
@@ -1021,9 +1034,9 @@ function InventoryContent() {
               <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '10px', paddingBottom: '8px', borderBottom: '1px solid #e2e8f0' }}>
                 <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Purchase History</span>
                 {!loadingItemHistory && itemPurchaseHistory.length > 0 && (() => {
-                  const received = itemPurchaseHistory.filter(h => h.status === 'received' && h.qty_ordered > 0)
-                  const totalCost = received.reduce((s, h) => s + h.cost_total_cad, 0)
-                  const totalQty = received.reduce((s, h) => s + h.qty_ordered, 0)
+                  const received = itemPurchaseHistory.filter(h => h.purchase_orders?.status === 'received' && h.quantity > 0)
+                  const totalCost = received.reduce((s, h) => s + h.quantity * h.unit_price, 0)
+                  const totalQty = received.reduce((s, h) => s + h.quantity, 0)
                   const avg = totalQty > 0 ? totalCost / totalQty : null
                   return avg != null ? (
                     <span style={{ fontSize: '12px', color: '#64748b' }}>Avg unit price (received): <strong>${avg.toFixed(4)}</strong></span>
@@ -1039,23 +1052,27 @@ function InventoryContent() {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc' }}>
-                        {['Supplier', 'Date', 'Qty', 'Unit Cost', 'Status'].map(h => (
+                        {['PO #', 'Supplier', 'Order Date', 'Qty', 'Unit Price', 'Status', 'Received'].map(h => (
                           <th key={h} style={{ padding: '7px 10px', fontSize: '11px', fontWeight: '600', color: '#64748b', textAlign: 'left', textTransform: 'uppercase' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {itemPurchaseHistory.map((h, i) => {
-                        const unitCost = h.qty_ordered > 0 ? h.cost_total_cad / h.qty_ordered : 0
+                        const po = h.purchase_orders
+                        const poLabel = po?.po_number || (po?.id ? po.id.slice(0, 8) : '—')
+                        const status = po?.status || '—'
                         return (
-                          <tr key={h.id} style={{ borderTop: i > 0 ? '1px solid #f1f5f9' : undefined, background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#374151' }}>{h.suppliers?.name || '—'}</td>
-                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{h.ordered_at ? new Date(h.ordered_at).toLocaleDateString('en-CA') : '—'}</td>
-                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#1e293b', fontWeight: '500' }}>{h.qty_ordered?.toLocaleString()}</td>
-                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#1e293b' }}>${unitCost.toFixed(4)}</td>
+                          <tr key={i} style={{ borderTop: i > 0 ? '1px solid #f1f5f9' : undefined, background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#2563eb', fontWeight: '500' }}>{poLabel}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#374151' }}>{po?.suppliers?.name || '—'}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{po?.ordered_at ? new Date(po.ordered_at).toLocaleDateString('en-CA') : '—'}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#1e293b', fontWeight: '500' }}>{h.quantity?.toLocaleString()}</td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#1e293b' }}>${h.unit_price?.toFixed(4)}</td>
                             <td style={{ padding: '7px 10px' }}>
-                              <span style={{ background: h.status === 'received' ? '#f0fdf4' : h.status === 'ordered' ? '#eff6ff' : '#f8fafc', color: h.status === 'received' ? '#16a34a' : h.status === 'ordered' ? '#2563eb' : '#64748b', padding: '2px 6px', borderRadius: '10px', fontSize: '11px', fontWeight: '500' }}>{h.status}</span>
+                              <span style={{ background: status === 'received' ? '#f0fdf4' : status === 'ordered' ? '#eff6ff' : '#f8fafc', color: status === 'received' ? '#16a34a' : status === 'ordered' ? '#2563eb' : '#64748b', padding: '2px 6px', borderRadius: '10px', fontSize: '11px', fontWeight: '500' }}>{status}</span>
                             </td>
+                            <td style={{ padding: '7px 10px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{po?.received_at ? new Date(po.received_at).toLocaleDateString('en-CA') : '—'}</td>
                           </tr>
                         )
                       })}
