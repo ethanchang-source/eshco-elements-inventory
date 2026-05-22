@@ -316,9 +316,9 @@ export default function Purchasing() {
     let attachFailCount = 0
     for (const file of createFiles) {
       const path = `${poData.id}/${Date.now()}_${file.name}`
-      const { error: uploadError } = await supabase.storage.from('purchase-invoices').upload(path, file)
+      const { error: uploadError } = await supabase.storage.from('po-attachments').upload(path, file)
       if (uploadError) { attachFailCount++; continue }
-      const { data: urlData } = supabase.storage.from('purchase-invoices').getPublicUrl(path)
+      const { data: urlData } = supabase.storage.from('po-attachments').getPublicUrl(path)
       await supabase.from('purchase_order_attachments').insert({
         po_id: poData.id, file_name: file.name, file_url: urlData.publicUrl,
       })
@@ -491,9 +491,9 @@ export default function Purchasing() {
     for (const file of editNewFiles) {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       const path = `${poId}/${Date.now()}_${safeName}`
-      const { error: uploadError } = await supabase.storage.from('purchase-invoices').upload(path, file)
+      const { error: uploadError } = await supabase.storage.from('po-attachments').upload(path, file)
       if (uploadError) { failCount++; continue }
-      const { data: urlData } = supabase.storage.from('purchase-invoices').getPublicUrl(path)
+      const { data: urlData } = supabase.storage.from('po-attachments').getPublicUrl(path)
       const { error: insertError } = await supabase.from('purchase_order_attachments').insert({
         po_id: poId, file_name: file.name, file_url: urlData.publicUrl,
       })
@@ -575,9 +575,9 @@ export default function Purchasing() {
     for (const file of attachmentFiles) {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       const path = `${poId}/${Date.now()}_${safeName}`
-      const { error: uploadError } = await supabase.storage.from('purchase-invoices').upload(path, file)
+      const { error: uploadError } = await supabase.storage.from('po-attachments').upload(path, file)
       if (uploadError) { failCount++; continue }
-      const { data: urlData } = supabase.storage.from('purchase-invoices').getPublicUrl(path)
+      const { data: urlData } = supabase.storage.from('po-attachments').getPublicUrl(path)
       const { error: insertError } = await supabase.from('purchase_order_attachments').insert({
         po_id: poId,
         file_name: file.name,
@@ -603,10 +603,10 @@ export default function Purchasing() {
   }
 
   async function handleDeleteAttachment(attachment: POAttachment) {
-    const storagePrefix = '/storage/v1/object/public/purchase-invoices/'
+    const storagePrefix = '/storage/v1/object/public/po-attachments/'
     const urlPath = attachment.file_url.split(storagePrefix)[1]
     if (urlPath) {
-      await supabase.storage.from('purchase-invoices').remove([decodeURIComponent(urlPath)])
+      await supabase.storage.from('po-attachments').remove([decodeURIComponent(urlPath)])
     }
     await supabase.from('purchase_order_attachments').delete().eq('id', attachment.id)
     const { data } = await supabase.from('purchase_order_attachments')
