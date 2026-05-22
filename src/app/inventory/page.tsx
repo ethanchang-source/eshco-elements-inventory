@@ -287,7 +287,6 @@ function InventoryContent() {
       reorder_threshold: parseInt(editPackForm.reorder_threshold) || 0,
       max_capacity: maxCap != null && !isNaN(maxCap) ? maxCap : null,
       preferred_supplier_id: editPackForm.preferred_supplier_id || null,
-      roll_length_m: editPackForm.roll_length_m !== '' ? parseFloat(editPackForm.roll_length_m) : null,
     }).eq('id', editPack.id).select()
     if (error) {
       setEditPackError(`DB error: ${error.message} (code: ${error.code})`)
