@@ -1291,17 +1291,19 @@ export default function Purchasing() {
                   ))}
                 </div>
               )}
-              <input id="edit-file-input" ref={editFileInputRef} type='file' multiple style={{ display: 'none' }}
+              <input ref={editFileInputRef} type='file' multiple style={{ display: 'none' }}
                 onChange={e => {
                   if (e.target.files) {
                     setEditNewFiles(prev => [...prev, ...Array.from(e.target.files!)])
                     e.target.value = ''
                   }
                 }} />
-              <label htmlFor="edit-file-input"
+              <button
+                type='button'
+                onClick={e => { e.stopPropagation(); editFileInputRef.current?.click() }}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', cursor: 'pointer', fontSize: '13px', color: '#374151' }}>
                 <Paperclip size={14} /> Choose Files
-              </label>
+              </button>
               {editNewFiles.length > 0 && (
                 <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {editNewFiles.map((f, i) => (
@@ -1322,7 +1324,7 @@ export default function Purchasing() {
               )}
               {editNewFiles.length > 0 && (
                 <div style={{ marginTop: '10px', display: 'flex', justifyContent: 'flex-end' }}>
-                  <button onClick={handleUploadEditAttachments} disabled={uploadingEditAttachment}
+                  <button type='button' onClick={handleUploadEditAttachments} disabled={uploadingEditAttachment}
                     style={{ padding: '7px 16px', background: uploadingEditAttachment ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: uploadingEditAttachment ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: '500' }}>
                     {uploadingEditAttachment ? 'Uploading...' : 'Upload'}
                   </button>
