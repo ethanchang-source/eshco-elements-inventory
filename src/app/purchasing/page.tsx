@@ -86,6 +86,12 @@ const inp: React.CSSProperties = { width: '100%', padding: '8px 12px', border: '
 const lbl: React.CSSProperties = { display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '5px' }
 const numInp: React.CSSProperties = { ...inp, textAlign: 'right' }
 
+const formatPrice = (v: number) => {
+  if (v === 0) return '0'
+  const str = v.toString()
+  return str.includes('.') ? str.replace(/\.?0+$/, '') : str
+}
+
 export default function Purchasing() {
   const [pos, setPOs] = useState<PO[]>([])
   const [poItems, setPoItems] = useState<Record<string, POItem[]>>({})
@@ -1168,7 +1174,7 @@ export default function Purchasing() {
                         </td>
                         <td style={{ padding: '7px 14px', textAlign: 'right' }}>
                           {isReadOnly ? (
-                            <span style={{ color: '#64748b' }}>${formatCurrency(item.unit_price)}</span>
+                            <span style={{ color: '#64748b' }}>${formatPrice(item.unit_price)}</span>
                           ) : (
                             <input type='text' inputMode='decimal'
                               value={item.price_str}
