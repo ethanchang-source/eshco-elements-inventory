@@ -434,12 +434,74 @@ export default function Purchasing() {
     ? (parseFloat(editForm.amount_cad) / parseFloat(editForm.amount_usd)).toFixed(4) : null
   const isReadOnly = detailPO?.status === 'received' || detailPO?.status === 'cancelled'
 
+  // Shared helper: add or subtract stock + avg_cost_cad on received/rollback
+  async function applyReceivedStock(
+    items: { material_type: string; material_id: string; quantity: number; unit_price: number }[],
+    direction: 'add' | 'subtract'
+  ) {
+    for (const item of items) {
+      if (item.material_type === 'raw_material') {
+        const { data: mat } = await supabase
+          .from('raw_materials')
+          .select('current_stock, avg_cost_cad, cost_per_unit_cad')
+          .eq('id', item.material_id)
+          .single()
+        const oldStock = mat?.current_stock || 0
+        if (direction === 'add') {
+          const oldAvg = mat?.avg_cost_cad || mat?.cost_per_unit_cad || 0
+          const newAvg = oldStock + item.quantity > 0
+            ? (oldStock * oldAvg + item.quantity * item.unit_price) / (oldStock + item.quantity)
+            : item.unit_price
+          await supabase.from('raw_materials').update({
+            current_stock: oldStock + item.quantity,
+            avg_cost_cad: newAvg,
+            cost_per_unit_cad: newAvg,
+          }).eq('id', item.material_id)
+        } else {
+          // avg_cost_cad not reversed on rollback (would require original batch data)
+          await supabase.from('raw_materials').update({
+            current_stock: Math.max(0, oldStock - item.quantity),
+          }).eq('id', item.material_id)
+        }
+      } else {
+        const { data: pkg } = await supabase
+          .from('packaging')
+          .select('current_stock, avg_cost_cad, cost_cad')
+          .eq('id', item.material_id)
+          .single()
+        const oldStock = pkg?.current_stock || 0
+        if (direction === 'add') {
+          const oldAvg = pkg?.avg_cost_cad || pkg?.cost_cad || 0
+          const newAvg = oldStock + item.quantity > 0
+            ? (oldStock * oldAvg + item.quantity * item.unit_price) / (oldStock + item.quantity)
+            : item.unit_price
+          await supabase.from('packaging').update({
+            current_stock: oldStock + item.quantity,
+            avg_cost_cad: newAvg,
+            cost_cad: newAvg,
+          }).eq('id', item.material_id)
+        } else {
+          // avg_cost_cad not reversed on rollback
+          await supabase.from('packaging').update({
+            current_stock: Math.max(0, oldStock - item.quantity),
+          }).eq('id', item.material_id)
+        }
+      }
+    }
+  }
+
   async function handleUpdate() {
     if (!detailPO) return
     setUpdateError('')
     if (activeEditItems.length === 0) { setUpdateError('At least one item with quantity is required.'); return }
 
     setUpdating(true)
+
+    // Fetch current DB status before update to prevent duplicate/missed stock changes
+    const { data: currentPOState } = await supabase
+      .from('purchase_orders').select('status').eq('id', detailPO.id).single()
+    const previousDBStatus = currentPOState?.status
+
     const exchangeRate = editForm.amount_usd && editForm.amount_cad && parseFloat(editForm.amount_usd) > 0
       ? parseFloat(editForm.amount_cad) / parseFloat(editForm.amount_usd) : detailPO.exchange_rate ?? null
 
@@ -476,16 +538,14 @@ export default function Purchasing() {
       }))
     )
 
-    if (editForm.status === 'received' && detailPO.status !== 'received') {
-      for (const item of activeEditItems) {
-        if (item.material_type === 'raw_material') {
-          const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', item.material_id).single()
-          await supabase.from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + item.qty }).eq('id', item.material_id)
-        } else {
-          const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', item.material_id).single()
-          await supabase.from('packaging').update({ current_stock: (pkg?.current_stock || 0) + item.qty }).eq('id', item.material_id)
-        }
-      }
+    const editItemsNorm = activeEditItems.map(i => ({
+      material_type: i.material_type, material_id: i.material_id,
+      quantity: i.qty, unit_price: i.unit_price,
+    }))
+    if (editForm.status === 'received' && previousDBStatus !== 'received') {
+      await applyReceivedStock(editItemsNorm, 'add')
+    } else if (editForm.status !== 'received' && previousDBStatus === 'received') {
+      await applyReceivedStock(editItemsNorm, 'subtract')
     }
 
     setUpdating(false)
@@ -634,18 +694,21 @@ export default function Purchasing() {
   }
 
   async function handleTableStatusChange(newStatus: string, po: PO) {
-    const updates: Record<string, unknown> = { status: newStatus }
-    await supabase.from('purchase_orders').update(updates).eq('id', po.id)
-    if (newStatus === 'received' && po.status !== 'received') {
-      for (const item of (poItems[po.id] || [])) {
-        if (item.material_type === 'raw_material') {
-          const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', item.material_id).single()
-          await supabase.from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
-        } else {
-          const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', item.material_id).single()
-          await supabase.from('packaging').update({ current_stock: (pkg?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
-        }
-      }
+    // Fetch DB status before update to prevent duplicate/missed stock changes
+    const { data: currentPOState } = await supabase
+      .from('purchase_orders').select('status').eq('id', po.id).single()
+    const previousDBStatus = currentPOState?.status
+
+    await supabase.from('purchase_orders').update({ status: newStatus }).eq('id', po.id)
+
+    const items = (poItems[po.id] || []).map(i => ({
+      material_type: i.material_type, material_id: i.material_id,
+      quantity: i.quantity, unit_price: i.unit_price,
+    }))
+    if (newStatus === 'received' && previousDBStatus !== 'received') {
+      await applyReceivedStock(items, 'add')
+    } else if (newStatus !== 'received' && previousDBStatus === 'received') {
+      await applyReceivedStock(items, 'subtract')
     }
     fetchAll()
   }
@@ -661,17 +724,19 @@ export default function Purchasing() {
 
   async function handleConfirmReceivedDate() {
     if (!dateModalPO || !receivedDateInput) return
+    // Fetch DB status before update to prevent duplicate stock increase
+    const { data: currentPOState } = await supabase
+      .from('purchase_orders').select('status').eq('id', dateModalPO.id).single()
+    const previousDBStatus = currentPOState?.status
+
     await supabase.from('purchase_orders').update({ received_at: receivedDateInput, status: 'received' }).eq('id', dateModalPO.id)
-    if (dateModalPO.status !== 'received') {
-      for (const item of (poItems[dateModalPO.id] || [])) {
-        if (item.material_type === 'raw_material') {
-          const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', item.material_id).single()
-          await supabase.from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
-        } else {
-          const { data: pkg } = await supabase.from('packaging').select('current_stock').eq('id', item.material_id).single()
-          await supabase.from('packaging').update({ current_stock: (pkg?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
-        }
-      }
+
+    if (previousDBStatus !== 'received') {
+      const items = (poItems[dateModalPO.id] || []).map(i => ({
+        material_type: i.material_type, material_id: i.material_id,
+        quantity: i.quantity, unit_price: i.unit_price,
+      }))
+      await applyReceivedStock(items, 'add')
     }
     setShowReceivedModal(false)
     setDateModalPO(null)
