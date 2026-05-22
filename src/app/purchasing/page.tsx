@@ -13,7 +13,7 @@ import * as XLSX from 'xlsx'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency, getLocalDateString } from '@/lib/utils'
-import { Download, ShoppingCart, Plus, Search, X, Trash2, Paperclip } from 'lucide-react'
+import { Download, ShoppingCart, Plus, Search, X, Trash2, Paperclip, Eye } from 'lucide-react'
 
 interface Supplier { id: string; name: string }
 
@@ -826,6 +826,21 @@ export default function Purchasing() {
                     </td>
                     <td style={{ padding: '8px 12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        {(poAttachments[po.id]?.length ?? 0) > 0 && (
+                          <button
+                            onClick={e => {
+                              e.stopPropagation()
+                              const attachs = poAttachments[po.id]
+                              if (attachs.length === 1) {
+                                window.open(attachs[0].file_url, '_blank')
+                              } else {
+                                openAttachments(e, po)
+                              }
+                            }}
+                            style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                            <Eye size={13} /> View
+                          </button>
+                        )}
                         <button onClick={e => openAttachments(e, po)}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: (poAttachments[po.id]?.length ?? 0) > 0 ? '#2563eb' : '#94a3b8' }}>
                           <Paperclip size={15} />
