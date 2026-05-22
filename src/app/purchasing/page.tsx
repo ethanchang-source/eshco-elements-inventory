@@ -55,6 +55,8 @@ interface PO {
   invoice_url: string | null
   shipped_at: string | null
   received_at: string | null
+  tax_rate?: number | null
+  tax_amount?: number | null
   suppliers?: { name: string }
 }
 
@@ -294,6 +296,8 @@ export default function Purchasing() {
       notes: createForm.notes || null,
       amount_usd: createForm.amount_usd ? parseFloat(createForm.amount_usd) : null,
       exchange_rate: exchangeRate,
+      tax_rate: parseFloat(createForm.tax_rate || '0') / 100,
+      tax_amount: createTotal * (parseFloat(createForm.tax_rate || '0') / 100),
     }]).select('id').single()
 
     if (poError || !poData) {
@@ -360,7 +364,7 @@ export default function Purchasing() {
       notes: po.notes || '',
       shipped_at: po.shipped_at || '',
       received_at: po.received_at || '',
-      tax_rate: '0',
+      tax_rate: po.tax_rate != null ? String(Math.round(po.tax_rate * 100)) : '0',
     })
     setUpdateError('')
     setEditNewFiles([])
@@ -450,6 +454,8 @@ export default function Purchasing() {
       notes: editForm.notes || null,
       amount_usd: editForm.amount_usd ? parseFloat(editForm.amount_usd) : null,
       exchange_rate: exchangeRate,
+      tax_rate: parseFloat(editForm.tax_rate || '0') / 100,
+      tax_amount: editTotal * (parseFloat(editForm.tax_rate || '0') / 100),
       shipped_at: editForm.status === 'shipped' || editForm.status === 'received'
         ? (editForm.shipped_at || getLocalDateString()) : null,
       received_at: editForm.status === 'received'
