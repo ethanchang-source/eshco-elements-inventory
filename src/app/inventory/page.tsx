@@ -649,8 +649,8 @@ function InventoryContent() {
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{p.name}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.type}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.type === 'shrink_band' ? 'roll' : (p.unit && p.unit !== '') ? p.unit : (p.size_oz > 0 ? `${p.size_oz} oz` : '')}</td>
-                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.cost_cad?.toFixed(4)}</td>
-                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.avg_cost_cad != null ? `$${p.avg_cost_cad.toFixed(4)}` : '—'}</td>
+                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.cost_cad?.toFixed(5)}</td>
+                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.avg_cost_cad != null ? `$${p.avg_cost_cad.toFixed(5)}` : '—'}</td>
                   <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a' }}>
                     <div>{p.type === 'shrink_band' ? formatShrinkBand(p.current_stock, p.roll_length_m) : `${formatPackStock(p.current_stock, p.module_qty)}${p.max_capacity != null ? ` / ${formatPackStock(p.max_capacity, p.module_qty)}` : ''}`}</div>
                     {packPct !== null && (
@@ -998,7 +998,7 @@ function InventoryContent() {
             )}
             <div style={{ marginBottom: '16px' }}>
               <label style={lbl}>Cost (Avg) <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '400' }}>(auto-calculated from purchases)</span></label>
-              <input readOnly value={editPack?.avg_cost_cad != null ? editPack.avg_cost_cad.toFixed(4) : ''} placeholder='—' style={{ ...inp, background: '#f8fafc', color: '#64748b', cursor: 'default' }} />
+              <input readOnly value={editPack?.avg_cost_cad != null ? editPack.avg_cost_cad.toFixed(5) : ''} placeholder='—' style={{ ...inp, background: '#f8fafc', color: '#64748b', cursor: 'default' }} />
             </div>
             <div style={{ marginBottom: '16px' }}>
               <label style={lbl}>Type</label>
