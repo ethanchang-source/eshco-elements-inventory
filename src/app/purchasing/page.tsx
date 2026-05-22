@@ -572,18 +572,21 @@ export default function Purchasing() {
     const poId = attachmentPO.id
     let successCount = 0
     let failCount = 0
+    console.log('[ATTACH] attachmentFiles:', attachmentFiles.length, attachmentFiles.map(f => f.name))
     for (const file of attachmentFiles) {
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       const path = `${poId}/${Date.now()}_${safeName}`
       const { error: uploadError } = await supabase.storage.from('po-attachments').upload(path, file)
+      console.log('[ATTACH] upload result:', { path, uploadError })
       if (uploadError) { failCount++; continue }
       const { data: urlData } = supabase.storage.from('po-attachments').getPublicUrl(path)
-      const { error: insertError } = await supabase.from('purchase_order_attachments').insert({
+      const { error: dbError } = await supabase.from('purchase_order_attachments').insert({
         po_id: poId,
         file_name: file.name,
         file_url: urlData.publicUrl,
       })
-      if (insertError) { failCount++; continue }
+      console.log('[ATTACH] db insert result:', { dbError })
+      if (dbError) { failCount++; continue }
       successCount++
     }
     setAttachmentFiles([])
