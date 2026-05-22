@@ -484,7 +484,6 @@ export default function Purchasing() {
     let successCount = 0
     let failCount = 0
     for (const file of editNewFiles) {
-      const path = `${poId}/${Date.now()}_${file.name}`
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       const path = `${poId}/${Date.now()}_${safeName}`
       const { error: uploadError } = await supabase.storage.from('purchase-invoices').upload(path, file)
