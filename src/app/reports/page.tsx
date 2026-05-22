@@ -58,6 +58,19 @@ interface MonthlyProduction {
   runs: number
 }
 
+interface ProductMarginRow {
+  product_id: string
+  sku: string
+  name: string
+  total_qty: number
+  total_revenue: number
+  avg_selling_price: number
+  unit_cost: number
+  total_cost: number
+  gross_profit: number
+  margin_pct: number
+}
+
 interface ProductionByProduct {
   product_id: string
   sku: string
@@ -105,6 +118,10 @@ export default function Reports() {
 
   const [taxLoading, setTaxLoading] = useState(true)
   const [taxStats, setTaxStats] = useState({ collected: 0, paid: 0 })
+
+  const [marginLoading, setMarginLoading] = useState(false)
+  const [productMargins, setProductMargins] = useState<ProductMarginRow[]>([])
+  const [grossSummary, setGrossSummary] = useState({ total_revenue: 0, total_cogs: 0, gross_profit: 0, gross_margin_pct: 0, total_expenses: 0, net_profit: 0 })
 
   const fetchReports = useCallback(async () => {
     setLoading(true)
@@ -316,6 +333,65 @@ export default function Reports() {
   }, [selectedYear])
 
   useEffect(() => { fetchTaxData() }, [fetchTaxData])
+
+  const fetchMarginData = useCallback(async () => {
+    setMarginLoading(true)
+    const [{ data: items }, { data: expData }] = await Promise.all([
+      supabase
+        .from('invoice_items')
+        .select('qty, unit_price_cad, line_total_cad, product_id, products(sku, name, unit_cost_cad)')
+        .gte('created_at', `${selectedYear}-01-01`)
+        .lte('created_at', `${selectedYear}-12-31`),
+      supabase
+        .from('expenses')
+        .select('total_amount')
+        .gte('expense_date', `${selectedYear}-01-01`)
+        .lte('expense_date', `${selectedYear}-12-31`),
+    ])
+
+    const pmap: Record<string, ProductMarginRow> = {}
+    for (const it of (items || []) as any[]) {
+      if (!it.product_id) continue
+      if (!pmap[it.product_id]) {
+        pmap[it.product_id] = {
+          product_id: it.product_id,
+          sku: it.products?.sku || '',
+          name: it.products?.name || '',
+          total_qty: 0,
+          total_revenue: 0,
+          avg_selling_price: 0,
+          unit_cost: it.products?.unit_cost_cad || 0,
+          total_cost: 0,
+          gross_profit: 0,
+          margin_pct: 0,
+        }
+      }
+      pmap[it.product_id].total_qty += it.qty || 0
+      pmap[it.product_id].total_revenue += it.line_total_cad || 0
+    }
+
+    const rows: ProductMarginRow[] = Object.values(pmap).map(r => {
+      const avgSelling = r.total_qty > 0 ? r.total_revenue / r.total_qty : 0
+      const totalCost = r.unit_cost * r.total_qty
+      const grossProfit = r.total_revenue - totalCost
+      const marginPct = r.total_revenue > 0 ? (grossProfit / r.total_revenue) * 100 : 0
+      return { ...r, avg_selling_price: avgSelling, total_cost: totalCost, gross_profit: grossProfit, margin_pct: marginPct }
+    }).sort((a, b) => a.sku.localeCompare(b.sku))
+
+    setProductMargins(rows)
+
+    const totalRevenue = rows.reduce((s, r) => s + r.total_revenue, 0)
+    const totalCogs = rows.reduce((s, r) => s + r.total_cost, 0)
+    const grossProfit = totalRevenue - totalCogs
+    const grossMarginPct = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0
+    const totalExpenses = (expData || []).reduce((s: number, r: any) => s + (r.total_amount || 0), 0)
+    const netProfit = grossProfit - totalExpenses
+    setGrossSummary({ total_revenue: totalRevenue, total_cogs: totalCogs, gross_profit: grossProfit, gross_margin_pct: grossMarginPct, total_expenses: totalExpenses, net_profit: netProfit })
+
+    setMarginLoading(false)
+  }, [selectedYear])
+
+  useEffect(() => { fetchMarginData() }, [fetchMarginData])
 
   const maxRevenue      = Math.max(...monthlySales.map(m => m.revenue), 1)
   const maxQRevenue     = Math.max(...quarterlySales.map(q => q.revenue), 1)
@@ -531,6 +607,33 @@ export default function Reports() {
         })}
       </div>
 
+      {/* Gross Profit Summary + Net Profit */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+        {marginLoading ? (
+          <div style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading profit summary...</div>
+        ) : (
+          <>
+            {[
+              { label: 'Total Revenue', value: `$${formatCurrency(grossSummary.total_revenue)}`, sub: `${selectedYear} invoiced`, bg: '#f0fdf4', border: '#bbf7d0', color: '#16a34a' },
+              { label: 'Total COGS', value: `$${formatCurrency(grossSummary.total_cogs)}`, sub: 'Cost of goods sold', bg: '#f0fdf4', border: '#bbf7d0', color: '#15803d' },
+              { label: 'Gross Profit', value: `$${formatCurrency(grossSummary.gross_profit)}`, sub: 'Revenue − COGS', bg: '#f0fdf4', border: '#bbf7d0', color: '#166534' },
+              { label: 'Gross Margin %', value: `${grossSummary.gross_margin_pct.toFixed(1)}%`, sub: 'Gross profit / Revenue', bg: '#f0fdf4', border: '#bbf7d0', color: '#166534' },
+            ].map(card => (
+              <div key={card.label} style={{ background: card.bg, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${card.border}` }}>
+                <div style={{ fontSize: '20px', fontWeight: '700', color: card.color, marginBottom: '4px' }}>{card.value}</div>
+                <div style={{ fontSize: '13px', fontWeight: '600', color: card.color }}>{card.label}</div>
+                <div style={{ fontSize: '11px', color: '#4ade80', marginTop: '2px' }}>{card.sub}</div>
+              </div>
+            ))}
+            <div style={{ background: grossSummary.net_profit >= 0 ? '#eff6ff' : '#fef2f2', borderRadius: '12px', padding: '16px 20px', border: `1px solid ${grossSummary.net_profit >= 0 ? '#bfdbfe' : '#fecaca'}` }}>
+              <div style={{ fontSize: '20px', fontWeight: '700', color: grossSummary.net_profit >= 0 ? '#1d4ed8' : '#dc2626', marginBottom: '4px' }}>${formatCurrency(grossSummary.net_profit)}</div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: grossSummary.net_profit >= 0 ? '#1e40af' : '#b91c1c' }}>Est. Net Profit</div>
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>Gross Profit − Expenses (${formatCurrency(grossSummary.total_expenses)})</div>
+            </div>
+          </>
+        )}
+      </div>
+
       {/* Tax Summary */}
       <div style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
@@ -661,6 +764,69 @@ export default function Reports() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Product Margin Analysis */}
+      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '24px' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
+          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', margin: 0 }}>Product Margin Analysis {selectedYear}</h3>
+          <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>Based on unit_cost_cad × units sold vs. actual revenue</div>
+        </div>
+        {marginLoading ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
+        ) : productMargins.length === 0 ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>No sales data for {selectedYear}</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                  {['SKU', 'Product Name', 'Units Sold', 'Avg Selling Price', 'Unit Cost', 'Total Revenue', 'Total Cost', 'Gross Profit', 'Margin %'].map(h => (
+                    <th key={h} style={{ padding: '10px 14px', textAlign: h === 'SKU' || h === 'Product Name' ? 'left' : 'right', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {productMargins.map((r, i) => {
+                  const marginColor = r.margin_pct >= 50 ? '#16a34a' : r.margin_pct >= 30 ? '#2563eb' : '#d97706'
+                  const marginBg   = r.margin_pct >= 50 ? '#f0fdf4' : r.margin_pct >= 30 ? '#eff6ff' : '#fffbeb'
+                  return (
+                    <tr key={r.product_id} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                      <td style={{ padding: '10px 14px', fontWeight: '600', color: '#374151', fontFamily: 'monospace', fontSize: '12px', whiteSpace: 'nowrap' }}>{r.sku || '—'}</td>
+                      <td style={{ padding: '10px 14px', fontSize: '13px', color: '#1e293b', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || '—'}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', color: '#64748b' }}>{r.total_qty.toLocaleString()}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', color: '#64748b', fontFamily: 'monospace' }}>${formatCurrency(r.avg_selling_price)}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', color: '#64748b', fontFamily: 'monospace' }}>${formatCurrency(r.unit_cost)}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: '#1e293b', fontFamily: 'monospace' }}>${formatCurrency(r.total_revenue)}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', color: '#64748b', fontFamily: 'monospace' }}>${formatCurrency(r.total_cost)}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: r.gross_profit >= 0 ? '#1e293b' : '#dc2626', fontFamily: 'monospace' }}>${formatCurrency(r.gross_profit)}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                        <span style={{ background: marginBg, color: marginColor, padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', fontFamily: 'monospace' }}>
+                          {r.margin_pct.toFixed(1)}%
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
+                  <td colSpan={2} style={{ padding: '10px 14px', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>Total ({productMargins.length} products)</td>
+                  <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>{productMargins.reduce((s, r) => s + r.total_qty, 0).toLocaleString()}</td>
+                  <td colSpan={2} />
+                  <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: '#1e293b', fontFamily: 'monospace' }}>${formatCurrency(grossSummary.total_revenue)}</td>
+                  <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: '#374151', fontFamily: 'monospace' }}>${formatCurrency(grossSummary.total_cogs)}</td>
+                  <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: '#1e293b', fontFamily: 'monospace' }}>${formatCurrency(grossSummary.gross_profit)}</td>
+                  <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                    <span style={{ background: '#f0fdf4', color: '#16a34a', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', fontFamily: 'monospace' }}>
+                      {grossSummary.gross_margin_pct.toFixed(1)}%
+                    </span>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Customer Sales */}
