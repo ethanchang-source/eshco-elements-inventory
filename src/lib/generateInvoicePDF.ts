@@ -46,7 +46,7 @@ function fmt(n: number): string {
   return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
 
-export function generateInvoicePDF(data: InvoiceData) {
+export function generateInvoicePDF(data: InvoiceData, returnBlob?: boolean): Blob | void {
   const doc = new jsPDF()
   const pageWidth = doc.internal.pageSize.getWidth()
 
@@ -217,5 +217,6 @@ export function generateInvoicePDF(data: InvoiceData) {
   }
   doc.setTextColor(0, 0, 0)
 
+  if (returnBlob) return doc.output('blob')
   doc.save(`${data.invoice_no}.pdf`)
 }

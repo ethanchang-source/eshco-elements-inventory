@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { formatCurrency, getLocalDateString } from '@/lib/utils'
 import { FileText, Plus, Search, Download, Trash2, Upload } from 'lucide-react'
 import { generateInvoicePDF } from '@/lib/generateInvoicePDF'
+import JSZip from 'jszip'
 import { generateCreditMemoPDF } from '@/lib/generateCreditMemoPDF'
 import * as XLSX from 'xlsx'
 import { logActivity } from '@/lib/activityLog'
@@ -151,6 +152,7 @@ function InvoicesContent() {
   const usImportFileRef = useRef<HTMLInputElement>(null)
 
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
+  const [downloadingAllPDFs, setDownloadingAllPDFs] = useState(false)
   const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
   const [invoiceError, setInvoiceError] = useState('')
 
@@ -450,6 +452,68 @@ function InvoicesContent() {
       total: invoice.total_cad,
       notes: invoice.notes || '',
     })
+  }
+
+  async function handleDownloadAllPDFs() {
+    setDownloadingAllPDFs(true)
+    const { data: invoices } = await supabase
+      .from('invoices')
+      .select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)')
+      .gte('issued_at', `${selectedYear}-01-01`)
+      .lte('issued_at', `${selectedYear}-12-31`)
+      .order('invoice_no', { ascending: true })
+
+    if (!invoices || invoices.length === 0) { setDownloadingAllPDFs(false); return }
+
+    const zip = new JSZip()
+    for (const invoice of invoices) {
+      if (!invoice.customers) continue
+      const { data: items } = await supabase
+        .from('invoice_items')
+        .select('*, products(sku, name, size_oz)')
+        .eq('invoice_id', invoice.id)
+      if (!items) continue
+      const blob = generateInvoicePDF({
+        invoice_no: invoice.invoice_no,
+        issued_at: invoice.issued_at,
+        po_number: invoice.po_number || '',
+        payment_terms: invoice.customers.payment_terms || '',
+        currency: invoice.currency || 'CAD',
+        wire_fee: invoice.wire_fee || 0,
+        received_amount: invoice.received_amount ?? undefined,
+        customer: {
+          company_name: invoice.customers.company_name,
+          warehouse_address: invoice.customers.warehouse_address,
+          city: invoice.customers.city,
+          province: invoice.customers.province,
+          postal_code: invoice.customers.postal_code,
+        },
+        items: items.map(item => ({
+          sku: item.products?.sku || '',
+          name: item.products?.name || '',
+          size: `${item.products?.size_oz} FL. OZ.`,
+          unit_price: item.unit_price_cad,
+          qty: item.qty,
+          total: item.line_total_cad,
+        })),
+        subtotal: invoice.subtotal_cad,
+        shipping: 0,
+        tax_rate: invoice.tax_rate,
+        tax_amount: invoice.tax_amount_cad,
+        total: invoice.total_cad,
+        notes: invoice.notes || '',
+      }, true) as Blob
+      zip.file(`${invoice.invoice_no}.pdf`, blob)
+    }
+
+    const zipBlob = await zip.generateAsync({ type: 'blob' })
+    const url = URL.createObjectURL(zipBlob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `iampure_invoices_${selectedYear}.zip`
+    a.click()
+    URL.revokeObjectURL(url)
+    setDownloadingAllPDFs(false)
   }
 
   async function handleDelete(invoiceId: string) {
@@ -1294,6 +1358,10 @@ function InvoicesContent() {
           </select>
           <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>
             <Download size={15} /> Export Excel
+          </button>
+          <button onClick={handleDownloadAllPDFs} disabled={downloadingAllPDFs}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', background: downloadingAllPDFs ? '#f1f5f9' : '#fff', color: downloadingAllPDFs ? '#94a3b8' : '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '14px', fontWeight: '500', cursor: downloadingAllPDFs ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
+            <Download size={15} /> {downloadingAllPDFs ? 'Preparing PDFs...' : `Download All PDFs (${selectedYear})`}
           </button>
         </div>
       </div>
