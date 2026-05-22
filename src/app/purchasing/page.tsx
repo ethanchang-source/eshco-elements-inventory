@@ -1074,7 +1074,7 @@ export default function Purchasing() {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
               <div>
-                <h2 style={{ fontSize: '18px', fontWeight: '600', margin: '0 0 2px' }}>Purchase Order</h2>
+                <h2 style={{ fontSize: '18px', fontWeight: '600', margin: '0 0 2px' }}>Edit Purchase Order</h2>
                 {detailPO.po_number && <div style={{ fontSize: '12px', color: '#94a3b8' }}>PO# {detailPO.po_number}</div>}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1106,21 +1106,6 @@ export default function Purchasing() {
               </div>
             </div>
 
-            {/* Shipped / Received dates */}
-            {(editForm.status === 'shipped' || editForm.status === 'received') && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-                <div>
-                  <label style={lbl}>Shipped Date</label>
-                  <input type='date' value={editForm.shipped_at} onChange={e => setEditForm(f => ({ ...f, shipped_at: e.target.value }))} style={inp} disabled={isReadOnly} />
-                </div>
-                {editForm.status === 'received' && (
-                  <div>
-                    <label style={lbl}>Received Date</label>
-                    <input type='date' value={editForm.received_at} onChange={e => setEditForm(f => ({ ...f, received_at: e.target.value }))} style={inp} disabled={isReadOnly} />
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Materials table */}
             <div style={{ marginBottom: '20px' }}>
