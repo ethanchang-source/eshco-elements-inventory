@@ -144,8 +144,11 @@ export default function Purchasing() {
   const [editUploadStatus, setEditUploadStatus] = useState('')
   const [uploadingEditAttachment, setUploadingEditAttachment] = useState(false)
 
-  const [showInlineShipped, setShowInlineShipped] = useState<Record<string, boolean>>({})
-  const [showInlineReceived, setShowInlineReceived] = useState<Record<string, boolean>>({})
+  const [showShippedModal, setShowShippedModal] = useState(false)
+  const [showReceivedModal, setShowReceivedModal] = useState(false)
+  const [dateModalPO, setDateModalPO] = useState<PO | null>(null)
+  const [shippedDateInput, setShippedDateInput] = useState('')
+  const [receivedDateInput, setReceivedDateInput] = useState('')
 
   useEffect(() => { fetchAll() }, [selectedYear])
 
@@ -153,13 +156,15 @@ export default function Purchasing() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       if (showDeleteConfirm) { setShowDeleteConfirm(false); return }
+      if (showShippedModal) { setShowShippedModal(false); setDateModalPO(null); return }
+      if (showReceivedModal) { setShowReceivedModal(false); setDateModalPO(null); return }
       if (showAttachments) { setShowAttachments(false); setAttachmentFiles([]); setAttachUploadStatus(''); return }
       if (showCreate) { setShowCreate(false); setCreateError(''); setCreateFiles([]); return }
       if (showDetail) { setShowDetail(false); setUpdateError(''); setEditNewFiles([]); setEditUploadStatus(''); return }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [showCreate, showDetail, showDeleteConfirm, showAttachments])
+  }, [showCreate, showDetail, showDeleteConfirm, showAttachments, showShippedModal, showReceivedModal])
 
   async function fetchAll() {
     const [posRes, suppRes, rawRes, pkgRes, itemsRes, attachRes] = await Promise.all([
@@ -628,16 +633,20 @@ export default function Purchasing() {
     fetchAll()
   }
 
-  async function handleTableShippedDateChange(poId: string, date: string) {
-    await supabase.from('purchase_orders').update({ shipped_at: date }).eq('id', poId)
-    setShowInlineShipped(prev => ({ ...prev, [poId]: false }))
+  async function handleConfirmShippedDate() {
+    if (!dateModalPO || !shippedDateInput) return
+    await supabase.from('purchase_orders').update({ shipped_at: shippedDateInput, status: 'shipped' }).eq('id', dateModalPO.id)
+    setShowShippedModal(false)
+    setDateModalPO(null)
+    setShippedDateInput('')
     fetchAll()
   }
 
-  async function handleTableReceivedDateChange(poId: string, date: string, po: PO) {
-    await supabase.from('purchase_orders').update({ received_at: date }).eq('id', poId)
-    if (po.status !== 'received') {
-      for (const item of (poItems[poId] || [])) {
+  async function handleConfirmReceivedDate() {
+    if (!dateModalPO || !receivedDateInput) return
+    await supabase.from('purchase_orders').update({ received_at: receivedDateInput, status: 'received' }).eq('id', dateModalPO.id)
+    if (dateModalPO.status !== 'received') {
+      for (const item of (poItems[dateModalPO.id] || [])) {
         if (item.material_type === 'raw_material') {
           const { data: mat } = await supabase.from('raw_materials').select('current_stock').eq('id', item.material_id).single()
           await supabase.from('raw_materials').update({ current_stock: (mat?.current_stock || 0) + item.quantity }).eq('id', item.material_id)
@@ -647,7 +656,9 @@ export default function Purchasing() {
         }
       }
     }
-    setShowInlineReceived(prev => ({ ...prev, [poId]: false }))
+    setShowReceivedModal(false)
+    setDateModalPO(null)
+    setReceivedDateInput('')
     fetchAll()
   }
 
@@ -781,40 +792,26 @@ export default function Purchasing() {
                       </select>
                     </td>
                     <td style={{ padding: '8px 12px', fontSize: '13px' }} onClick={e => e.stopPropagation()}>
-                      {showInlineShipped[po.id] ? (
-                        <input type='date' autoFocus
-                          defaultValue={po.shipped_at?.slice(0, 10) || ''}
-                          style={{ fontSize: '12px', padding: '2px 6px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none' }}
-                          onChange={e => { if (e.target.value) handleTableShippedDateChange(po.id, e.target.value) }}
-                          onBlur={() => setShowInlineShipped(prev => ({ ...prev, [po.id]: false }))}
-                        />
-                      ) : po.shipped_at ? (
-                        <button onClick={() => setShowInlineShipped(prev => ({ ...prev, [po.id]: true }))}
+                      {po.shipped_at ? (
+                        <button onClick={() => { setDateModalPO(po); setShippedDateInput(po.shipped_at!.slice(0, 10)); setShowShippedModal(true) }}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#d97706', fontSize: '13px', padding: '2px 0', textDecoration: 'underline', textDecorationStyle: 'dotted' }}>
                           {po.shipped_at.slice(0, 10)}
                         </button>
                       ) : (
-                        <button onClick={() => setShowInlineShipped(prev => ({ ...prev, [po.id]: true }))}
+                        <button onClick={() => { setDateModalPO(po); setShippedDateInput(getLocalDateString()); setShowShippedModal(true) }}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '12px', padding: '2px 0' }}>
                           + Add
                         </button>
                       )}
                     </td>
                     <td style={{ padding: '8px 12px', fontSize: '13px' }} onClick={e => e.stopPropagation()}>
-                      {showInlineReceived[po.id] ? (
-                        <input type='date' autoFocus
-                          defaultValue={po.received_at?.slice(0, 10) || ''}
-                          style={{ fontSize: '12px', padding: '2px 6px', border: '1px solid #e2e8f0', borderRadius: '4px', outline: 'none' }}
-                          onChange={e => { if (e.target.value) handleTableReceivedDateChange(po.id, e.target.value, po) }}
-                          onBlur={() => setShowInlineReceived(prev => ({ ...prev, [po.id]: false }))}
-                        />
-                      ) : po.received_at ? (
-                        <button onClick={() => setShowInlineReceived(prev => ({ ...prev, [po.id]: true }))}
+                      {po.received_at ? (
+                        <button onClick={() => { setDateModalPO(po); setReceivedDateInput(po.received_at!.slice(0, 10)); setShowReceivedModal(true) }}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#16a34a', fontSize: '13px', padding: '2px 0', textDecoration: 'underline', textDecorationStyle: 'dotted' }}>
                           {po.received_at.slice(0, 10)}
                         </button>
                       ) : (po.status === 'shipped' || po.status === 'received') ? (
-                        <button onClick={() => setShowInlineReceived(prev => ({ ...prev, [po.id]: true }))}
+                        <button onClick={() => { setDateModalPO(po); setReceivedDateInput(getLocalDateString()); setShowReceivedModal(true) }}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '12px', padding: '2px 0' }}>
                           + Add
                         </button>
@@ -1422,6 +1419,55 @@ export default function Purchasing() {
                 style={{ padding: '8px 16px', background: uploadingAttachment || attachmentFiles.length === 0 ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: uploadingAttachment || attachmentFiles.length === 0 ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
                 {uploadingAttachment ? 'Uploading...' : 'Upload'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Shipped Date Modal ── */}
+      {showShippedModal && dateModalPO && (
+        <div className="modal-overlay" onClick={() => { setShowShippedModal(false); setDateModalPO(null) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '20px' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '360px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: '600', margin: '0 0 6px' }}>Shipped Date</h3>
+            <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 20px' }}>
+              {dateModalPO.po_number || '—'} · {dateModalPO.suppliers?.name || ''}
+            </p>
+            <input type='date' value={shippedDateInput} onChange={e => setShippedDateInput(e.target.value)}
+              style={{ width: '100%', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', outline: 'none', boxSizing: 'border-box', marginBottom: '20px' }} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button onClick={() => { setShowShippedModal(false); setDateModalPO(null) }}
+                style={{ padding: '8px 18px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={handleConfirmShippedDate} disabled={!shippedDateInput}
+                style={{ padding: '8px 18px', background: shippedDateInput ? '#d97706' : '#fcd34d', color: '#fff', border: 'none', borderRadius: '6px', cursor: shippedDateInput ? 'pointer' : 'not-allowed', fontSize: '14px', fontWeight: '500' }}>Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Received Date Modal ── */}
+      {showReceivedModal && dateModalPO && (
+        <div className="modal-overlay" onClick={() => { setShowReceivedModal(false); setDateModalPO(null) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '20px' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '360px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: '600', margin: '0 0 6px' }}>Received Date</h3>
+            <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 4px' }}>
+              {dateModalPO.po_number || '—'} · {dateModalPO.suppliers?.name || ''}
+            </p>
+            {dateModalPO.status !== 'received' && (
+              <p style={{ fontSize: '12px', color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '6px 10px', margin: '0 0 16px' }}>
+                Status will be updated to Received and inventory will be incremented.
+              </p>
+            )}
+            <input type='date' value={receivedDateInput} onChange={e => setReceivedDateInput(e.target.value)}
+              style={{ width: '100%', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', outline: 'none', boxSizing: 'border-box', marginBottom: '20px', marginTop: dateModalPO.status !== 'received' ? '0' : '16px' }} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button onClick={() => { setShowReceivedModal(false); setDateModalPO(null) }}
+                style={{ padding: '8px 18px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+              <button onClick={handleConfirmReceivedDate} disabled={!receivedDateInput}
+                style={{ padding: '8px 18px', background: receivedDateInput ? '#16a34a' : '#86efac', color: '#fff', border: 'none', borderRadius: '6px', cursor: receivedDateInput ? 'pointer' : 'not-allowed', fontSize: '14px', fontWeight: '500' }}>Confirm</button>
             </div>
           </div>
         </div>
