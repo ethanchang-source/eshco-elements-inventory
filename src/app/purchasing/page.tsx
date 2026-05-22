@@ -443,22 +443,26 @@ export default function Purchasing() {
       if (item.material_type === 'raw_material') {
         const { data: mat } = await supabase
           .from('raw_materials')
-          .select('current_stock, avg_cost_cad, cost_per_unit_cad')
+          .select('current_stock')
           .eq('id', item.material_id)
           .single()
         const oldStock = mat?.current_stock || 0
         if (direction === 'add') {
-          const oldAvg = mat?.avg_cost_cad || mat?.cost_per_unit_cad || 0
-          const newAvg = oldStock + item.quantity > 0
-            ? (oldStock * oldAvg + item.quantity * item.unit_price) / (oldStock + item.quantity)
-            : item.unit_price
+          const { data: allItems } = await supabase
+            .from('purchase_order_items')
+            .select('quantity, unit_price, purchase_orders!inner(status)')
+            .eq('material_type', 'raw_material')
+            .eq('material_id', item.material_id)
+            .eq('purchase_orders.status', 'received')
+          const totalQty = allItems?.reduce((s, i) => s + i.quantity, 0) || 0
+          const totalValue = allItems?.reduce((s, i) => s + i.quantity * i.unit_price, 0) || 0
+          const newAvg = totalQty > 0 ? totalValue / totalQty : 0
           await supabase.from('raw_materials').update({
             current_stock: oldStock + item.quantity,
             avg_cost_cad: newAvg,
-            cost_per_unit_cad: newAvg,
           }).eq('id', item.material_id)
         } else {
-          // avg_cost_cad not reversed on rollback (would require original batch data)
+          // avg_cost_cad not reversed on rollback
           await supabase.from('raw_materials').update({
             current_stock: Math.max(0, oldStock - item.quantity),
           }).eq('id', item.material_id)
@@ -466,19 +470,23 @@ export default function Purchasing() {
       } else {
         const { data: pkg } = await supabase
           .from('packaging')
-          .select('current_stock, avg_cost_cad, cost_cad')
+          .select('current_stock')
           .eq('id', item.material_id)
           .single()
         const oldStock = pkg?.current_stock || 0
         if (direction === 'add') {
-          const oldAvg = pkg?.avg_cost_cad || pkg?.cost_cad || 0
-          const newAvg = oldStock + item.quantity > 0
-            ? (oldStock * oldAvg + item.quantity * item.unit_price) / (oldStock + item.quantity)
-            : item.unit_price
+          const { data: allItems } = await supabase
+            .from('purchase_order_items')
+            .select('quantity, unit_price, purchase_orders!inner(status)')
+            .eq('material_type', 'packaging')
+            .eq('material_id', item.material_id)
+            .eq('purchase_orders.status', 'received')
+          const totalQty = allItems?.reduce((s, i) => s + i.quantity, 0) || 0
+          const totalValue = allItems?.reduce((s, i) => s + i.quantity * i.unit_price, 0) || 0
+          const newAvg = totalQty > 0 ? totalValue / totalQty : 0
           await supabase.from('packaging').update({
             current_stock: oldStock + item.quantity,
             avg_cost_cad: newAvg,
-            cost_cad: newAvg,
           }).eq('id', item.material_id)
         } else {
           // avg_cost_cad not reversed on rollback
