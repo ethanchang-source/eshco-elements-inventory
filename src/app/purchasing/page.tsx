@@ -94,6 +94,17 @@ const formatPrice = (v: number) => {
   return str.includes('.') ? str.replace(/\.?0+$/, '') : str
 }
 
+const toTorontoDateInput = (dateStr: string): string => {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  return date.toLocaleDateString('en-CA', {
+    timeZone: 'America/Toronto',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+}
+
 export default function Purchasing() {
   const [pos, setPOs] = useState<PO[]>([])
   const [poItems, setPoItems] = useState<Record<string, POItem[]>>({})
@@ -354,7 +365,7 @@ export default function Purchasing() {
     setDetailPO(po)
     setEditForm({
       supplier_id: po.supplier_id,
-      ordered_at: po.ordered_at,
+      ordered_at: toTorontoDateInput(po.ordered_at),
       status: po.status,
       shipping_cad: po.shipping_cad != null ? String(po.shipping_cad) : '',
       brokerage_cad: po.brokerage_cad != null ? String(po.brokerage_cad) : '',
@@ -362,8 +373,8 @@ export default function Purchasing() {
       amount_usd: po.amount_usd != null ? String(po.amount_usd) : '',
       amount_cad: '',
       notes: po.notes || '',
-      shipped_at: po.shipped_at || '',
-      received_at: po.received_at || '',
+      shipped_at: toTorontoDateInput(po.shipped_at || ''),
+      received_at: toTorontoDateInput(po.received_at || ''),
       tax_rate: po.tax_rate != null ? String(Math.round(po.tax_rate * 100)) : '0',
     })
     setUpdateError('')
