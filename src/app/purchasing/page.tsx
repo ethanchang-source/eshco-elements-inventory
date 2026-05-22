@@ -1372,10 +1372,16 @@ export default function Purchasing() {
             <div style={{ marginBottom: '16px' }}>
               <input id="attach-file-input" ref={fileInputRef} type='file' multiple style={{ display: 'none' }}
                 onChange={e => {
-                  if (e.target.files) {
-                    setAttachmentFiles(prev => [...prev, ...Array.from(e.target.files!)])
-                    e.target.value = ''
+                  console.log('[ATTACH DEBUG] onChange fired, files:', e.target.files?.length, e.target.files)
+                  const files = e.target.files ? Array.from(e.target.files) : []
+                  console.log('[ATTACH DEBUG] parsed files:', files.map(f => f.name))
+                  if (files.length > 0) {
+                    setAttachmentFiles(prev => {
+                      console.log('[ATTACH DEBUG] setAttachmentFiles prev:', prev.length, '+ new:', files.length)
+                      return [...prev, ...files]
+                    })
                   }
+                  e.target.value = ''
                 }} />
               <label htmlFor="attach-file-input"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#f8fafc', cursor: 'pointer', fontSize: '13px', color: '#374151' }}>
@@ -1404,7 +1410,7 @@ export default function Purchasing() {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button onClick={() => { setShowAttachments(false); setAttachmentFiles([]); setAttachUploadStatus('') }}
                 style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Close</button>
-              <button onClick={handleUploadAttachments}
+              <button onClick={() => { console.log('[ATTACH DEBUG] Upload clicked, attachmentFiles:', attachmentFiles.length, 'uploadingAttachment:', uploadingAttachment); handleUploadAttachments() }}
                 disabled={uploadingAttachment || attachmentFiles.length === 0}
                 style={{ padding: '8px 16px', background: uploadingAttachment || attachmentFiles.length === 0 ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: uploadingAttachment || attachmentFiles.length === 0 ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
                 {uploadingAttachment ? 'Uploading...' : 'Upload'}
