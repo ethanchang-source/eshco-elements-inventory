@@ -280,10 +280,14 @@ function InventoryContent() {
       item_no: editPackForm.item_no.trim(),
       name: editPackForm.name.trim(),
       type: editPackForm.type,
+      size_oz: parseFloat(editPackForm.size_oz) || 0,
+      unit: editPackForm.unit || null,
       cost_cad: parseFloat(editPackForm.cost_cad) || 0,
       current_stock: parseInt(editPackForm.current_stock) || 0,
       reorder_threshold: parseInt(editPackForm.reorder_threshold) || 0,
       max_capacity: maxCap != null && !isNaN(maxCap) ? maxCap : null,
+      preferred_supplier_id: editPackForm.preferred_supplier_id || null,
+      roll_length_m: editPackForm.roll_length_m !== '' ? parseFloat(editPackForm.roll_length_m) : null,
     }).eq('id', editPack.id).select()
     if (error) {
       setEditPackError(`DB error: ${error.message} (code: ${error.code})`)
