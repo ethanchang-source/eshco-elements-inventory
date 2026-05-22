@@ -1,5 +1,6 @@
 export const formatTorontoDate = (dateStr: string): string => {
   if (!dateStr) return '—'
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) return dateStr.slice(0, 10)
   const date = new Date(dateStr)
   return date.toLocaleDateString('en-CA', {
     timeZone: 'America/Toronto',
