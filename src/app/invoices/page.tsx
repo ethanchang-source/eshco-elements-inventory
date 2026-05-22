@@ -1342,7 +1342,7 @@ function InvoicesContent() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {['Invoice #', 'Customer', 'Date', 'Subtotal', 'HST', 'Total', 'Status', 'Delivery Date', 'Payment Date', ''].map(h => (
+              {['Invoice #', 'Customer', 'Date', 'Subtotal', 'TAX', 'Total', 'Status', 'Delivery Date', 'Payment Date', ''].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
@@ -1441,7 +1441,7 @@ function InvoicesContent() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {['CREDIT MEMO #', 'Customer', 'Date', 'Subtotal', 'HST', 'Total', 'Status', 'Applied Date', ''].map(h => (
+              {['CREDIT MEMO #', 'Customer', 'Date', 'Subtotal', 'TAX', 'Total', 'Status', 'Applied Date', ''].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
