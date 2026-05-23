@@ -69,7 +69,7 @@ export default function Sidebar() {
           src='/logo.png'
           alt='ESHCO ELEMENTS'
           style={{
-            height: '80px',
+            height: '48px',
             objectFit: 'contain',
             display: 'block',
             margin: '0 auto',
