@@ -578,6 +578,7 @@ function InventoryContent() {
       )}
 
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+        <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
@@ -757,6 +758,7 @@ function InventoryContent() {
             })()}
           </tfoot>
         </table>
+        </div>
       </div>
 
       {showImportConfirm && (

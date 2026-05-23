@@ -819,6 +819,7 @@ export default function Purchasing() {
         @media (max-width: 640px) {
           .modal-overlay { align-items: flex-start !important; padding: 0 !important; }
           .modal-box { border-radius: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; min-height: 100svh; }
+          .po-grid-2, .po-grid-3, .po-grid-4 { grid-template-columns: 1fr !important; }
         }
       `}</style>
 
@@ -969,7 +970,7 @@ export default function Purchasing() {
             </div>
 
             {/* Supplier + Date */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '20px' }}>
+            <div className="po-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '20px' }}>
               <div>
                 <label style={lbl}>Supplier *</label>
                 <select value={createForm.supplier_id} onChange={e => handleSupplierChange(e.target.value)} style={inp}>
@@ -1046,7 +1047,7 @@ export default function Purchasing() {
             )}
 
             {/* Cost fields */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+            <div className="po-grid-4" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
               <div>
                 <label style={lbl}>Shipping (CAD)</label>
                 <input type='number' min='0' step='0.01' value={createForm.shipping_cad} onChange={e => setCreateForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
@@ -1076,7 +1077,7 @@ export default function Purchasing() {
             {/* USD section */}
             <div style={{ marginBottom: '14px', padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
               <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>USD Invoice (optional)</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+              <div className="po-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                 <div>
                   <label style={lbl}>Amount (USD)</label>
                   <input type='number' min='0' step='0.01' value={createForm.amount_usd} onChange={e => setCreateForm(f => ({ ...f, amount_usd: e.target.value }))} placeholder='0.00' style={numInp} />
@@ -1204,7 +1205,7 @@ export default function Purchasing() {
             </div>
 
             {/* Supplier + Date + Status */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '20px' }}>
+            <div className="po-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '20px' }}>
               <div>
                 <label style={lbl}>Supplier</label>
                 <select value={editForm.supplier_id} onChange={e => setEditForm(f => ({ ...f, supplier_id: e.target.value }))} style={inp} disabled={isReadOnly}>
@@ -1297,7 +1298,7 @@ export default function Purchasing() {
 
             {/* Cost fields */}
             {!isReadOnly && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+              <div className="po-grid-4" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
                 <div>
                   <label style={lbl}>Shipping (CAD)</label>
                   <input type='number' min='0' step='0.01' value={editForm.shipping_cad} onChange={e => setEditForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />

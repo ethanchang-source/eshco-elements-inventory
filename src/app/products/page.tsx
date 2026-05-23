@@ -239,6 +239,7 @@ export default function Products() {
           .modal-overlay { align-items: flex-start !important; padding: 0 !important; }
           .modal-box { border-radius: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; min-height: 100svh; }
           .modal-grid-2, .modal-grid-3 { grid-template-columns: 1fr !important; }
+          .summary-cards { grid-template-columns: 1fr !important; }
         }
       `}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
@@ -279,6 +280,7 @@ export default function Products() {
       )}
 
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+        <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
@@ -332,6 +334,7 @@ export default function Products() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {!loading && filtered.length > 0 && (() => {
@@ -341,7 +344,7 @@ export default function Products() {
         const marginPct = whsValue > 0 ? grossMargin / whsValue * 100 : 0
         const fmt = (n: number) => '$' + n.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
         return (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginTop: '16px' }}>
+          <div className="summary-cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginTop: '16px' }}>
             <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px' }}>
               <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Total MFG Cost Value (CAD)</div>
               <div style={{ fontSize: '22px', fontWeight: '700', color: '#1e293b' }}>{fmt(mfgValue)}</div>

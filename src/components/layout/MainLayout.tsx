@@ -123,6 +123,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           .main-content { margin-left: 240px !important; margin-top: 64px !important; }
           .ptr-banner { display: none !important; }
         }
+        @media (max-width: 640px) {
+          input, select, textarea { font-size: 16px !important; min-height: 44px !important; }
+          button { min-height: 44px !important; }
+        }
         @keyframes ptr-spin { to { transform: rotate(360deg) } }
         @keyframes ptr-slide-in { from { opacity: 0; transform: translateY(-8px) } to { opacity: 1; transform: translateY(0) } }
         @keyframes ptr-bar { 0% { left: -40% } 100% { left: 110% } }

@@ -477,10 +477,11 @@ export default function Expenses() {
           .modal-overlay { align-items: flex-start !important; padding: 0 !important; }
           .modal-box { border-radius: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; min-height: 100svh; }
           .modal-grid-2, .modal-grid-3 { grid-template-columns: 1fr !important; }
+          .kpi-cards { grid-template-columns: 1fr !important; }
         }
       `}</style>
       {/* KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
+      <div className="kpi-cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
         {[
           { label: `${MONTHS[currentMonthIdx]} ${activeYear} (CAD)`, value: `$${formatCurrency(kpiCAD)}`, color: '#dc2626' },
           { label: `${MONTHS[currentMonthIdx]} ${activeYear} (USD)`, value: kpiUSD > 0 ? `$${formatCurrency(kpiUSD)}` : '—', color: '#7c3aed' },

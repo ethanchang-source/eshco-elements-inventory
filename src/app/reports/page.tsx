@@ -445,6 +445,12 @@ export default function Reports() {
 
   return (
     <MainLayout>
+      <style>{`
+        @media (max-width: 640px) {
+          .reports-half-grid { grid-template-columns: 1fr !important; }
+          .reports-quarter-grid { grid-template-columns: 1fr 1fr !important; }
+        }
+      `}</style>
       {/* Year selector + Export */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -548,7 +554,7 @@ export default function Reports() {
       </div>
 
       {/* Monthly chart + Top Products */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+      <div className="reports-half-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
         <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0' }}>
           <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Monthly Revenue {selectedYear}</h3>
           {loading ? <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>Loading...</div> : (
@@ -589,7 +595,7 @@ export default function Reports() {
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', marginBottom: '24px' }}>
         <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Quarterly Revenue {selectedYear}</h3>
         {loading ? <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8' }}>Loading...</div> : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+          <div className="reports-quarter-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
             {quarterlySales.map((q, qi) => {
               const prev   = qi > 0 ? quarterlySales[qi - 1] : null
               const change = prev ? qoqChange(q.revenue, prev.revenue) : null
