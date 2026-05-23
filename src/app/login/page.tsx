@@ -32,9 +32,9 @@ export default function Login() {
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ background: '#fff', borderRadius: '16px', padding: '40px', width: '400px', border: '1px solid #e2e8f0', boxShadow: '0 4px 24px rgba(0,0,0,0.06)' }}>
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <img src='/logo.png' alt='ESHCO ELEMENTS' style={{ height: '80px', objectFit: 'contain', display: 'block', margin: '0 auto' }} />
-          <div style={{ fontSize: '14px', color: '#64748b', marginTop: '16px' }}>Inventory Management System</div>
+        <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+          <img src='/logo.png' alt='ESHCO ELEMENTS' style={{ height: '120px', objectFit: 'contain', display: 'block', margin: '0 auto' }} />
+          <div style={{ fontSize: '14px', color: '#64748b', marginTop: '8px' }}>Inventory Management System</div>
         </div>
         {error && (
           <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '12px', marginBottom: '16px', fontSize: '13px', color: '#dc2626' }}>
