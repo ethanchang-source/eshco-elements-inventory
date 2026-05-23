@@ -216,6 +216,7 @@ export default function MarginPage() {
 
   return (
     <MainLayout>
+      <div style={{ width: '100%', overflowX: 'hidden' }}>
       <div style={{ padding: '32px', maxWidth: '1400px', margin: '0 auto' }}>
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
@@ -292,12 +293,12 @@ export default function MarginPage() {
         )}
 
         {/* Table */}
-        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', overflowX: 'auto', width: '100%' }}>
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
           {loading ? (
             <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>Loading margin data...</div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', minWidth: '1200px', borderCollapse: 'collapse' }}>
+            <div style={{ overflowX: 'auto', width: '100%' }}>
+              <table style={{ minWidth: '1400px', width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
                     <th style={th}>SKU</th>
@@ -373,6 +374,7 @@ export default function MarginPage() {
             Margins calculated on selling price
           </div>
         </div>
+      </div>
       </div>
     </MainLayout>
   )
