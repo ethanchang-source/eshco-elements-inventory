@@ -287,12 +287,12 @@ export default function MarginPage() {
         )}
 
         {/* Table */}
-        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', overflowX: 'auto', width: '100%' }}>
           {loading ? (
             <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>Loading margin data...</div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <table style={{ width: '100%', minWidth: '1200px', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
                     <th style={th}>SKU</th>
