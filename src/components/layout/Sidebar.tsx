@@ -68,7 +68,7 @@ export default function Sidebar() {
         <img src='/logo.png' alt='ESHCO ELEMENTS' style={{ height: '48px', objectFit: 'contain', display: 'block', margin: '0 auto', filter: 'brightness(0) invert(1)' }} />
         <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '8px' }}>Inventory Management System</div>
       </div>
-      <nav style={{ padding: '12px 0', flex: 1 }}>
+      <nav style={{ padding: '12px 0', flex: 1, overflowY: 'auto', scrollbarWidth: 'thin', scrollbarColor: '#334155 transparent' }}>
         {menuItems.map((item) => {
           const Icon = item.icon
           const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
@@ -86,7 +86,7 @@ export default function Sidebar() {
           )
         })}
       </nav>
-      <div style={{ padding: '12px 16px', borderTop: '1px solid #334155' }}>
+      <div style={{ padding: '12px 16px', borderTop: '1px solid #334155', flexShrink: 0 }}>
         {userEmail && (
           <div style={{ fontSize: '11px', color: '#64748b', padding: '6px 12px', marginBottom: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {userEmail}
@@ -122,7 +122,7 @@ export default function Sidebar() {
       `}</style>
 
       {/* Desktop sidebar */}
-      <aside className="desktop-sidebar" style={{ width: '240px', minHeight: '100vh', background: '#1e293b', color: '#fff', display: 'flex', flexDirection: 'column', position: 'fixed', left: 0, top: 0, zIndex: 100 }}>
+      <aside className="desktop-sidebar" style={{ width: '240px', height: '100vh', background: '#1e293b', color: '#fff', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'fixed', left: 0, top: 0, zIndex: 100 }}>
         {sidebarContent}
       </aside>
 
@@ -138,7 +138,7 @@ export default function Sidebar() {
       <div className="mobile-overlay" onClick={() => setMobileOpen(false)} style={{ display: 'none', position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 150 }} />
 
       {/* Mobile slide sidebar */}
-      <aside className="mobile-sidebar" style={{ position: 'fixed', left: 0, top: 0, bottom: 0, width: '260px', background: '#1e293b', color: '#fff', display: 'flex', flexDirection: 'column', zIndex: 200, transition: 'transform 0.3s ease' }}>
+      <aside className="mobile-sidebar" style={{ position: 'fixed', left: 0, top: 0, bottom: 0, width: '260px', height: '100vh', background: '#1e293b', color: '#fff', display: 'flex', flexDirection: 'column', overflow: 'hidden', zIndex: 200, transition: 'transform 0.3s ease' }}>
         {sidebarContent}
       </aside>
     </>
