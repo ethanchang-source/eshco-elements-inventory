@@ -28,6 +28,8 @@ export async function middleware(req: NextRequest) {
   const isAuthPage = req.nextUrl.pathname.startsWith('/login')
   const isPublic = req.nextUrl.pathname.startsWith('/_next') ||
     req.nextUrl.pathname.startsWith('/api') ||
+    req.nextUrl.pathname.startsWith('/auth/confirm') ||
+    req.nextUrl.pathname.startsWith('/reset-password') ||
     req.nextUrl.pathname.match(/\.(ico|png|jpg|svg|json|webmanifest)$/)
 
   if (!session && !isAuthPage && !isPublic) {
