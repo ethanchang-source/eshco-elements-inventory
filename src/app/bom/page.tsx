@@ -44,7 +44,10 @@ interface BomItem {
 
 function getItemUnitCost(item: BomItem): number {
   if (item.component_type === 'raw_material') {
-    return item.raw_materials?.cost_per_unit_cad ?? 0
+    const avg = item.raw_materials?.avg_cost_cad
+    const base = item.raw_materials?.cost_per_unit_cad ?? 0
+    if (avg && avg > 0 && Math.abs(avg - base) / (base || 1) < 5) return avg
+    return base
   }
   return item.packaging?.avg_cost_cad ?? item.packaging?.cost_cad ?? 0
 }
