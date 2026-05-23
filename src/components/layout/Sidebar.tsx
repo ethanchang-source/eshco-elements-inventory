@@ -22,6 +22,7 @@ import {
   History,
   Archive,
   Database,
+  TrendingUp,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
@@ -31,6 +32,7 @@ const menuItems = [
   { href: '/inventory', icon: BoxSelect, label: 'Inventory' },
   { href: '/inventory-history', icon: Archive, label: 'Inventory History' },
   { href: '/bom', icon: FlaskConical, label: 'BOM' },
+  { href: '/margin', icon: TrendingUp, label: 'Margin Analysis' },
   { href: '/production', icon: Factory, label: 'Production' },
   { href: '/invoices', icon: FileText, label: 'Invoices' },
   { href: '/customers', icon: Users, label: 'Customers' },
