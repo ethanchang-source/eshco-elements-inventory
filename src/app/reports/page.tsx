@@ -336,18 +336,25 @@ export default function Reports() {
 
   const fetchMarginData = useCallback(async () => {
     setMarginLoading(true)
-    const [{ data: items }, { data: expData }] = await Promise.all([
+    const [{ data: items, error: itemsError }, { data: expData }] = await Promise.all([
       supabase
         .from('invoice_items')
-        .select('qty, unit_price_cad, line_total_cad, product_id, products(sku, name, unit_cost_cad)')
-        .gte('created_at', `${selectedYear}-01-01`)
-        .lte('created_at', `${selectedYear}-12-31`),
+        .select(`
+          qty, unit_price_cad, line_total_cad, product_id,
+          products(sku, name, unit_cost_cad, price_whs_cad, msrp_cad),
+          invoices!inner(issued_at, status)
+        `)
+        .gte('invoices.issued_at', `${selectedYear}-01-01`)
+        .lte('invoices.issued_at', `${selectedYear}-12-31`)
+        .neq('invoices.status', 'draft'),
       supabase
         .from('expenses')
         .select('total_amount')
         .gte('expense_date', `${selectedYear}-01-01`)
         .lte('expense_date', `${selectedYear}-12-31`),
     ])
+
+    console.log('margin data:', items, 'error:', itemsError)
 
     const pmap: Record<string, ProductMarginRow> = {}
     for (const it of (items || []) as any[]) {
