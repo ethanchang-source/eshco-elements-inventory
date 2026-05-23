@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 
 export default function ResetPassword() {
@@ -8,6 +8,30 @@ export default function ResetPassword() {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    const hash = window.location.hash
+    if (hash && hash.includes('access_token')) {
+      const params = new URLSearchParams(hash.substring(1))
+      const accessToken = params.get('access_token')
+      const refreshToken = params.get('refresh_token')
+      if (accessToken && refreshToken) {
+        supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        }).then(({ error }) => {
+          if (error) console.error('setSession error:', error)
+        })
+      }
+    } else {
+      // token_hash 방식 처리
+      supabase.auth.getSession().then(({ data, error }) => {
+        if (error || !data.session) {
+          console.error('No session:', error)
+        }
+      })
+    }
+  }, [])
 
   async function handleReset() {
     if (password !== confirm) { setError('Passwords do not match.'); return }
