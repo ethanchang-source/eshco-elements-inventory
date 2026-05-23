@@ -46,7 +46,7 @@ function getItemUnitCost(item: BomItem): number {
   if (item.component_type === 'raw_material') {
     return item.raw_materials?.cost_per_unit_cad ?? 0
   }
-  return item.packaging?.avg_cost_cad ?? 0
+  return item.packaging?.avg_cost_cad ?? item.packaging?.cost_cad ?? 0
 }
 
 export default function BomPage() {

@@ -24,7 +24,7 @@ interface BomItem {
   qty_per_unit: number
   unit: string
   raw_materials?: { avg_cost_cad?: number; name: string; item_no: string }
-  packaging?: { avg_cost_cad?: number; name: string; item_no: string; type: string }
+  packaging?: { avg_cost_cad?: number; cost_cad?: number; name: string; item_no: string; type: string }
 }
 
 interface MarginRow {
@@ -80,7 +80,7 @@ export default function MarginPage() {
         .select(`
           product_id, component_type, qty_per_unit, unit,
           raw_materials(avg_cost_cad, name, item_no),
-          packaging(avg_cost_cad, name, item_no, type)
+          packaging(avg_cost_cad, cost_cad, name, item_no, type)
         `),
     ])
 
@@ -99,7 +99,7 @@ export default function MarginPage() {
             const unitCost =
               item.component_type === 'raw_material'
                 ? (item.raw_materials?.avg_cost_cad ?? 0)
-                : (item.packaging?.avg_cost_cad ?? 0)
+                : (item.packaging?.avg_cost_cad ?? item.packaging?.cost_cad ?? 0)
             return sum + unitCost * item.qty_per_unit
           }, 0)
         : (p.unit_cost_cad ?? 0)
