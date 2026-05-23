@@ -10,10 +10,6 @@ export const metadata: Metadata = {
     statusBarStyle: 'default',
     title: 'ESHCO ELEMENTS',
   },
-  icons: {
-    icon: '/favicon.svg',
-    apple: '/favicon.svg',
-  },
 }
 
 export default function RootLayout({
