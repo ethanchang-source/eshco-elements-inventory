@@ -2,13 +2,13 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'I Am Pure - Inventory Management',
+  title: 'ESHCO ELEMENTS',
   description: 'Hair Oil Inventory Management System',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'I Am Pure',
+    title: 'ESHCO ELEMENTS',
   },
   icons: {
     apple: '/apple-touch-icon.png',

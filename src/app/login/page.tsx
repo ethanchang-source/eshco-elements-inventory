@@ -33,7 +33,7 @@ export default function Login() {
     <div style={{ minHeight: '100vh', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ background: '#fff', borderRadius: '16px', padding: '40px', width: '400px', border: '1px solid #e2e8f0', boxShadow: '0 4px 24px rgba(0,0,0,0.06)' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <img src='/logo.png' alt='I AM PURE' style={{ height: '80px', objectFit: 'contain', display: 'block', margin: '0 auto' }} />
+          <img src='/logo.png' alt='ESHCO ELEMENTS' style={{ height: '80px', objectFit: 'contain', display: 'block', margin: '0 auto' }} />
           <div style={{ fontSize: '14px', color: '#64748b', marginTop: '16px' }}>Inventory Management System</div>
         </div>
         {error && (
@@ -71,7 +71,7 @@ export default function Login() {
           {loading ? 'Signing in...' : 'Sign In'}
         </button>
         <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '12px', color: '#94a3b8' }}>
-          &copy; 2026 I AM PURE
+          &copy; 2026 ESHCO ELEMENTS
         </div>
       </div>
     </div>

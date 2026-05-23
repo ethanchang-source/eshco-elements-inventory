@@ -65,7 +65,7 @@ export default function Sidebar() {
   const sidebarContent = (
     <>
       <div style={{ padding: '20px', borderBottom: '1px solid #334155', textAlign: 'center' }}>
-        <img src='/logo.png' alt='I AM PURE' style={{ height: '48px', objectFit: 'contain', display: 'block', margin: '0 auto', filter: 'brightness(0) invert(1)' }} />
+        <img src='/logo.png' alt='ESHCO ELEMENTS' style={{ height: '48px', objectFit: 'contain', display: 'block', margin: '0 auto', filter: 'brightness(0) invert(1)' }} />
         <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '8px' }}>Inventory Management System</div>
       </div>
       <nav style={{ padding: '12px 0', flex: 1 }}>
@@ -100,7 +100,7 @@ export default function Sidebar() {
         >
           <LogOut size={16} /> Sign Out
         </button>
-        <div style={{ fontSize: '11px', color: '#475569', textAlign: 'center', marginTop: '10px' }}>&copy; 2026 I AM PURE</div>
+        <div style={{ fontSize: '11px', color: '#475569', textAlign: 'center', marginTop: '10px' }}>&copy; 2026 ESHCO ELEMENTS</div>
       </div>
     </>
   )
@@ -131,7 +131,7 @@ export default function Sidebar() {
         <button onClick={() => setMobileOpen(true)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '4px', position: 'absolute', left: '16px' }}>
           <Menu size={24} />
         </button>
-        <img src='/logo.png' alt='I AM PURE' style={{ height: '32px', objectFit: 'contain', filter: 'brightness(0) invert(1)', display: 'block', margin: '0 auto' }} />
+        <img src='/logo.png' alt='ESHCO ELEMENTS' style={{ height: '32px', objectFit: 'contain', filter: 'brightness(0) invert(1)', display: 'block', margin: '0 auto' }} />
       </div>
 
       {/* Mobile overlay */}
