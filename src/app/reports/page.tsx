@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
-import { BarChart3, TrendingUp, DollarSign, Package, ShoppingCart, X, Factory } from 'lucide-react'
+import { BarChart3, TrendingUp, DollarSign, Package, ShoppingCart, X } from 'lucide-react'
 
 interface MonthlySales {
   month: string
@@ -52,12 +52,6 @@ interface GroupedCustomerRow {
   top_products: TopProduct[]
 }
 
-interface MonthlyProduction {
-  month: string
-  units: number
-  runs: number
-}
-
 interface ProductMarginRow {
   product_id: string
   sku: string
@@ -69,15 +63,6 @@ interface ProductMarginRow {
   total_cost: number
   gross_profit: number
   margin_pct: number
-}
-
-interface ProductionByProduct {
-  product_id: string
-  sku: string
-  name: string
-  total_units: number
-  runs: number
-  avg_batch: number
 }
 
 const QUARTERS = [
@@ -109,12 +94,6 @@ export default function Reports() {
   const [csLoading, setCsLoading] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [drillDown, setDrillDown] = useState<GroupedCustomerRow | null>(null)
-
-  const [prodLoading, setProdLoading] = useState(false)
-  const [prodStats, setProdStats] = useState({ total_units: 0, total_runs: 0, avg_batch: 0, most_produced: '—' })
-  const [monthlyProduction, setMonthlyProduction] = useState<MonthlyProduction[]>([])
-  const [prodByProduct, setProdByProduct] = useState<ProductionByProduct[]>([])
-  const [quarterlyProduction, setQuarterlyProduction] = useState<{ label: string; months: string; units: number; runs: number }[]>([])
 
   const [taxLoading, setTaxLoading] = useState(true)
   const [taxStats, setTaxStats] = useState({ collected: 0, paid: 0 })
@@ -246,78 +225,6 @@ export default function Reports() {
 
   useEffect(() => { fetchCustomerSales() }, [fetchCustomerSales])
 
-  const fetchProductionData = useCallback(async () => {
-    setProdLoading(true)
-    const { data } = await supabase
-      .from('production_orders')
-      .select('*, products(sku, name)')
-      .gte('produced_at', `${selectedYear}-01-01`)
-      .lte('produced_at', `${selectedYear}-12-31`)
-
-    if (data && data.length > 0) {
-      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-      const mProdMap: Record<string, { units: number; runs: number }> = {}
-      monthNames.forEach((_, i) => { mProdMap[String(i+1).padStart(2,'0')] = { units: 0, runs: 0 } })
-
-      const pmap: Record<string, { sku: string; name: string; total: number; runs: number }> = {}
-      for (const o of data as any[]) {
-        const mo = (o.produced_at || '').substring(5, 7)
-        if (mProdMap[mo]) {
-          mProdMap[mo].units += o.qty_produced || 0
-          mProdMap[mo].runs  += 1
-        }
-        if (o.product_id) {
-          if (!pmap[o.product_id]) pmap[o.product_id] = { sku: o.products?.sku || '', name: o.products?.name || '', total: 0, runs: 0 }
-          pmap[o.product_id].total += o.qty_produced || 0
-          pmap[o.product_id].runs  += 1
-        }
-      }
-
-      const monthly: MonthlyProduction[] = monthNames.map((m, i) => ({
-        month: m,
-        units: mProdMap[String(i+1).padStart(2,'0')].units,
-        runs:  mProdMap[String(i+1).padStart(2,'0')].runs,
-      }))
-      setMonthlyProduction(monthly)
-
-      const totalUnits = (data as any[]).reduce((s, o) => s + (o.qty_produced || 0), 0)
-      const totalRuns  = data.length
-      const mostProduced = Object.values(pmap).sort((a, b) => b.total - a.total)[0]
-      setProdStats({
-        total_units:   totalUnits,
-        total_runs:    totalRuns,
-        avg_batch:     totalRuns > 0 ? Math.round(totalUnits / totalRuns) : 0,
-        most_produced: mostProduced ? `${mostProduced.sku} (${mostProduced.total.toLocaleString()} units)` : '—',
-      })
-
-      setProdByProduct(
-        Object.entries(pmap).map(([id, p]) => ({
-          product_id: id,
-          sku: p.sku,
-          name: p.name,
-          total_units: p.total,
-          runs: p.runs,
-          avg_batch: p.runs > 0 ? Math.round(p.total / p.runs) : 0,
-        })).sort((a, b) => b.total_units - a.total_units).slice(0, 10)
-      )
-
-      setQuarterlyProduction(QUARTERS.map(q => ({
-        label: q.label, months: q.months,
-        units: q.indices.reduce((s, i) => s + monthly[i].units, 0),
-        runs:  q.indices.reduce((s, i) => s + monthly[i].runs, 0),
-      })))
-    } else {
-      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-      setMonthlyProduction(monthNames.map(m => ({ month: m, units: 0, runs: 0 })))
-      setProdStats({ total_units: 0, total_runs: 0, avg_batch: 0, most_produced: '—' })
-      setProdByProduct([])
-      setQuarterlyProduction(QUARTERS.map(q => ({ label: q.label, months: q.months, units: 0, runs: 0 })))
-    }
-    setProdLoading(false)
-  }, [selectedYear])
-
-  useEffect(() => { fetchProductionData() }, [fetchProductionData])
-
   const fetchTaxData = useCallback(async () => {
     setTaxLoading(true)
     const [{ data: invData }, { data: cmData }, { data: expData }] = await Promise.all([
@@ -400,10 +307,8 @@ export default function Reports() {
 
   useEffect(() => { fetchMarginData() }, [fetchMarginData])
 
-  const maxRevenue      = Math.max(...monthlySales.map(m => m.revenue), 1)
-  const maxQRevenue     = Math.max(...quarterlySales.map(q => q.revenue), 1)
-  const maxProdMonthly  = Math.max(...monthlyProduction.map(m => m.units), 1)
-  const maxQProdUnits   = Math.max(...quarterlyProduction.map(q => q.units), 1)
+  const maxRevenue  = Math.max(...monthlySales.map(m => m.revenue), 1)
+  const maxQRevenue = Math.max(...quarterlySales.map(q => q.revenue), 1)
 
   async function handleAnnualReport() {
     const PptxGenJS = (await import('pptxgenjs')).default
@@ -516,37 +421,7 @@ export default function Reports() {
     ]
     s5.addTable(topProdRows as any, { x: 0.4, y: 1.2, w: 12.4, rowH: 0.38, border: { color: 'e2e8f0', pt: 1 } })
 
-    // ─── Slide 6: Production Summary ───
-    const s6 = pptx.addSlide()
-    s6.addText('', { x: 0, y: 0, w: '100%', h: 1.0, fill: { color: GREEN } })
-    s6.addText(`Production Summary — ${selectedYear}`, { x: 0.4, y: 0.18, w: 12.3, fontSize: 24, fontFace: 'Arial', bold: true, color: WHITE })
-    const prodKpis = [
-      { label: 'Total Units Produced', value: prodStats.total_units.toLocaleString() },
-      { label: 'Production Runs',      value: prodStats.total_runs.toString() },
-      { label: 'Avg Batch Size',       value: prodStats.avg_batch.toFixed(1) },
-      { label: 'Most Produced',        value: prodStats.most_produced },
-    ]
-    prodKpis.forEach((kpi, i) => {
-      const x = 0.4 + i * 3.15
-      s6.addText('', { x, y: 1.3, w: 2.9, h: 1.6, fill: { color: LGRAY }, line: { color: 'e2e8f0', pt: 1 } })
-      s6.addText(kpi.value, { x, y: 1.5, w: 2.9, fontSize: 20, fontFace: 'Arial', bold: true, color: GREEN, align: 'center' })
-      s6.addText(kpi.label, { x, y: 2.45, w: 2.9, fontSize: 12, fontFace: 'Arial', color: GRAY, align: 'center' })
-    })
-    const qProdRows = [
-      [{ text: 'Quarter', options: hdrOpts }, { text: 'Period', options: hdrOpts }, { text: 'Units Produced', options: hdrOpts }, { text: 'Runs', options: hdrOpts }],
-      ...quarterlyProduction.map((q, i) => {
-        const bg = { color: i % 2 === 0 ? WHITE : LGRAY }
-        return [
-          { text: q.label, options: { fontSize: 14, fontFace: 'Arial', bold: true, color: GREEN, fill: bg } },
-          { text: q.months, options: { fontSize: 14, fontFace: 'Arial', color: DARK, fill: bg } },
-          { text: q.units.toLocaleString(), options: { fontSize: 14, fontFace: 'Arial', color: DARK, fill: bg } },
-          { text: q.runs.toString(), options: { fontSize: 14, fontFace: 'Arial', color: DARK, fill: bg } },
-        ]
-      }),
-    ]
-    s6.addTable(qProdRows as any, { x: 0.4, y: 3.2, w: 12.4, rowH: 0.6, border: { color: 'e2e8f0', pt: 1 } })
-
-    // ─── Slide 7: Customer Overview ───
+    // ─── Slide 6: Customer Overview ───
     const s7 = pptx.addSlide()
     s7.addText('', { x: 0, y: 0, w: '100%', h: 1.0, fill: { color: GREEN } })
     s7.addText(`Customer Overview — ${selectedYear}`, { x: 0.4, y: 0.18, w: 12.3, fontSize: 24, fontFace: 'Arial', bold: true, color: WHITE })
@@ -936,124 +811,6 @@ export default function Reports() {
             )}
           </table>
         </div>
-      </div>
-
-      {/* ── Production Report ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '32px 0 20px', paddingTop: '8px', borderTop: '2px solid #e2e8f0' }}>
-        <Factory size={18} color='#d97706' />
-        <h2 style={{ fontSize: '16px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Production Report</h2>
-      </div>
-
-      {/* Section 1: Yearly Production Summary KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-        {[
-          { label: 'Total Units Produced', value: prodStats.total_units.toLocaleString(), sub: `Completed orders · ${selectedYear}` },
-          { label: 'Production Runs',      value: prodStats.total_runs.toString(),        sub: 'Total orders completed' },
-          { label: 'Avg Batch Size',       value: prodStats.avg_batch.toLocaleString(),   sub: 'Units per run' },
-          { label: 'Most Produced',        value: prodStats.most_produced,                sub: 'Top product by volume', wide: true },
-        ].map(card => (
-          <div key={card.label} style={{ background: '#fff', borderRadius: '12px', padding: '16px 20px', border: '1px solid #e2e8f0' }}>
-            {prodLoading ? (
-              <div style={{ color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
-            ) : (
-              <>
-                <div style={{ fontSize: card.wide ? '14px' : '22px', fontWeight: '700', color: '#1e293b', marginBottom: '4px', wordBreak: 'break-word' }}>{card.value}</div>
-                <div style={{ fontSize: '12px', fontWeight: '600', color: '#374151' }}>{card.label}</div>
-                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>{card.sub}</div>
-              </>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Section 2 + 3: Monthly Chart + Production by Product */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
-        {/* Section 2: Monthly Production Chart */}
-        <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Monthly Production {selectedYear}</h3>
-          {prodLoading ? <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>Loading...</div> : (
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '160px' }}>
-              {monthlyProduction.map(m => (
-                <div key={m.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                  <div style={{ fontSize: '9px', color: '#64748b', fontWeight: '500' }}>
-                    {m.units > 0 ? m.units.toLocaleString() : ''}
-                  </div>
-                  <div style={{ width: '100%', height: `${Math.max((m.units / maxProdMonthly) * 120, m.units > 0 ? 4 : 0)}px`, background: m.units > 0 ? '#d97706' : '#e2e8f0', borderRadius: '4px 4px 0 0', minHeight: '2px' }} />
-                  <div style={{ fontSize: '9px', color: '#94a3b8' }}>{m.month}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Section 3: Production by Product */}
-        <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Production by Product (Top 10)</h3>
-          {prodLoading ? (
-            <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>Loading...</div>
-          ) : prodByProduct.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8', fontSize: '13px' }}>No production data for {selectedYear}</div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                    {['SKU', 'Product', 'Total Units', 'Runs', 'Avg Batch'].map(h => (
-                      <th key={h} style={{ padding: '8px 10px', textAlign: h === 'SKU' || h === 'Product' ? 'left' : 'right', fontSize: '10px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {prodByProduct.map((p, i) => (
-                    <tr key={p.product_id} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                      <td style={{ padding: '8px 10px', fontWeight: '600', color: '#374151', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{p.sku || '—'}</td>
-                      <td style={{ padding: '8px 10px', color: '#64748b', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name?.replace(/^I AM PURE /i, '') || '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: '700', color: '#1e293b' }}>{p.total_units.toLocaleString()}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', color: '#64748b' }}>{p.runs}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right', color: '#64748b' }}>{p.avg_batch.toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Section 4: Quarterly Production */}
-      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', marginBottom: '24px' }}>
-        <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Quarterly Production {selectedYear}</h3>
-        {prodLoading ? <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8' }}>Loading...</div> : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
-            {quarterlyProduction.map((q, qi) => {
-              const prev   = qi > 0 ? quarterlyProduction[qi - 1] : null
-              const change = prev ? qoqChange(q.units, prev.units) : null
-              return (
-                <div key={q.label} style={{ border: '1px solid #e2e8f0', borderRadius: '10px', padding: '16px', background: '#fafafa' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-                    <div>
-                      <div style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>{q.label}</div>
-                      <div style={{ fontSize: '11px', color: '#94a3b8' }}>{q.months}</div>
-                    </div>
-                    {change && (
-                      <span style={{ fontSize: '11px', fontWeight: '600', color: change.up ? '#16a34a' : '#dc2626', background: change.up ? '#f0fdf4' : '#fef2f2', padding: '2px 7px', borderRadius: '20px' }}>
-                        {change.text}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ height: '4px', background: '#e2e8f0', borderRadius: '2px', marginBottom: '12px' }}>
-                    <div style={{ height: '100%', width: `${maxQProdUnits > 0 ? (q.units / maxQProdUnits) * 100 : 0}%`, background: q.units > 0 ? '#d97706' : 'transparent', borderRadius: '2px', transition: 'width 0.3s' }} />
-                  </div>
-                  <div style={{ fontSize: '22px', fontWeight: '700', color: q.units > 0 ? '#1e293b' : '#cbd5e1', marginBottom: '6px' }}>
-                    {q.units > 0 ? q.units.toLocaleString() : '—'}
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#64748b' }}>{q.units > 0 ? 'units produced' : 'No data'}</div>
-                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>{q.runs > 0 ? `${q.runs} run${q.runs > 1 ? 's' : ''}` : ''}</div>
-                </div>
-              )
-            })}
-          </div>
-        )}
       </div>
 
       {/* Customer drill-down modal */}

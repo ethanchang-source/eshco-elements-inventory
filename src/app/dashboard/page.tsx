@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/utils'
-import { Package, FlaskConical, Factory, FileText, AlertTriangle, TrendingUp, RefreshCw } from 'lucide-react'
+import { Package, FileText, AlertTriangle, TrendingUp, RefreshCw } from 'lucide-react'
 
 interface LowStockProduct {
   id: string
@@ -26,7 +26,7 @@ interface RecentInvoice {
 const COLLAPSE_LIMIT = 5
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({ products: 0, rawMaterials: 0, production: 0, invoices: 0 })
+  const [stats, setStats] = useState({ products: 0, rawMaterials: 0, invoices: 0 })
   const [lowStock, setLowStock] = useState<LowStockProduct[]>([])
   const [recentInvoices, setRecentInvoices] = useState<RecentInvoice[]>([])
   const [loading, setLoading] = useState(true)
@@ -45,26 +45,22 @@ export default function Dashboard() {
     const [
       { data: products },
       { data: rawMaterials },
-      { data: productionData },
       { data: invoicesThisMonth },
       { data: allActiveProducts },
       { data: recentInvData },
     ] = await Promise.all([
       supabase.from('products').select('id').eq('is_active', true),
       supabase.from('raw_materials').select('id'),
-      supabase.from('production_orders').select('qty_produced').gte('produced_at', monthStart),
       supabase.from('invoices').select('id').gte('issued_at', monthStart),
       supabase.from('products').select('id, sku, name, current_stock, reorder_threshold').eq('is_active', true).gt('reorder_threshold', 0).order('current_stock'),
       supabase.from('invoices').select('id, invoice_no, issued_at, total_cad, status, customers(company_name)').order('invoice_no', { ascending: false }).limit(50),
     ])
 
-    const productionQty = (productionData || []).reduce((sum, o) => sum + (o.qty_produced || 0), 0)
     const lowStockItems = (allActiveProducts || []).filter(p => p.reorder_threshold != null && p.reorder_threshold > 0 && p.current_stock <= p.reorder_threshold)
 
     setStats({
       products: products?.length ?? 0,
       rawMaterials: rawMaterials?.length ?? 0,
-      production: productionQty,
       invoices: invoicesThisMonth?.length ?? 0,
     })
     setLowStock(lowStockItems)
@@ -81,7 +77,6 @@ export default function Dashboard() {
       .channel('dashboard-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' }, () => fetchDashboardData(true))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => fetchDashboardData(true))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_orders' }, () => fetchDashboardData(true))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'raw_materials' }, () => fetchDashboardData(true))
       .subscribe()
 
@@ -90,8 +85,6 @@ export default function Dashboard() {
 
   const statCards = [
     { title: 'Total Products', value: stats.products, subtitle: 'Active SKUs', icon: Package, color: '#2563eb', bg: '#eff6ff' },
-    { title: 'Raw Materials', value: stats.rawMaterials, subtitle: 'In inventory', icon: FlaskConical, color: '#16a34a', bg: '#f0fdf4' },
-    { title: 'Production', value: stats.production, subtitle: 'This month (units)', icon: Factory, color: '#d97706', bg: '#fffbeb' },
     { title: 'Invoices', value: stats.invoices, subtitle: 'This month', icon: FileText, color: '#7c3aed', bg: '#f5f3ff' },
   ]
 
@@ -237,7 +230,6 @@ export default function Dashboard() {
         <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Quick Actions</h2>
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
           {[
-            { label: '+ New Production', color: '#2563eb', href: '/production' },
             { label: '+ New Invoice', color: '#16a34a', href: '/invoices' },
             { label: '+ Receive Stock', color: '#d97706', href: '/inventory' },
             { label: '+ Add Product', color: '#7c3aed', href: '/products' },
