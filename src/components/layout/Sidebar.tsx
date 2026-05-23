@@ -64,9 +64,9 @@ export default function Sidebar() {
 
   const sidebarContent = (
     <>
-      <div style={{ padding: '20px', borderBottom: '1px solid #334155', textAlign: 'center' }}>
-        <img src='/logo.png' alt='ESHCO ELEMENTS' style={{ height: '48px', objectFit: 'contain', display: 'block', margin: '0 auto', filter: 'brightness(0) invert(1)' }} />
-        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '8px' }}>Inventory Management System</div>
+      <div style={{ padding: '12px 20px', borderBottom: '1px solid #334155', textAlign: 'center' }}>
+        <img src='/logo.png' alt='ESHCO ELEMENTS' style={{ height: '72px', objectFit: 'contain', display: 'block', margin: '0 auto', filter: 'brightness(0) invert(1)' }} />
+        <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>Inventory Management System</div>
       </div>
       <nav style={{ padding: '12px 0', flex: 1, overflowY: 'auto', scrollbarWidth: 'thin', scrollbarColor: '#334155 transparent' }}>
         {menuItems.map((item) => {
