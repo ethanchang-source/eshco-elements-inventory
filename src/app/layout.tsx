@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     title: 'ESHCO ELEMENTS',
   },
   icons: {
-    icon: '/favicon.svg',
+    icon: '/logo.png',
     apple: '/apple-touch-icon.png',
   },
 }
