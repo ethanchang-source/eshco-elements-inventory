@@ -145,8 +145,13 @@ export default function Suppliers() {
     if (!editSupplier) return
     if (!confirm(`"${editSupplier.name}" 공급업체를 삭제하시겠습니까?`)) return
     const old = { ...editSupplier }
+    const { error } = await supabase.from('suppliers').delete().eq('id', old.id)
+    console.log('[suppliers] delete id:', old.id, 'error:', error)
+    if (error) {
+      alert(`삭제 실패: ${error.message}`)
+      return
+    }
     await logActivity(supabase, 'suppliers', old.id, 'DELETE', old)
-    await supabase.from('suppliers').delete().eq('id', old.id)
     setShowModal(false)
     setEditSupplier(null)
     fetchSuppliers()
