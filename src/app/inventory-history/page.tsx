@@ -62,6 +62,7 @@ function DatePicker({ value, onChange }: { value: string; onChange: (v: string) 
 }
 
 export default function InventoryHistory() {
+  useEffect(() => { document.title = 'Inventory History | ESHCO ELEMENTS' }, [])
   const [selectedDate, setSelectedDate]     = useState(getTodayToronto())
   const [compareDate, setCompareDate]       = useState('')
   const [snapshots, setSnapshots]           = useState<Snapshot[]>([])

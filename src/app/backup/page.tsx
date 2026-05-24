@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { Database, Download } from 'lucide-react'
@@ -108,6 +108,7 @@ async function fetchAll() {
 }
 
 export default function BackupPage() {
+  useEffect(() => { document.title = 'Data Backup | ESHCO ELEMENTS' }, [])
   const [loading, setLoading] = useState(false)
   const [exportingKey, setExportingKey] = useState<string | null>(null)
 
