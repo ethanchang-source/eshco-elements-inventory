@@ -20,18 +20,12 @@ interface Supplier {
   ship_to_city: string
   ship_to_province: string
   ship_to_postal_code: string
-  address: string
-  city: string
-  province: string
-  postal_code: string
-  bill_to_same_as_ship_to: boolean
 }
 
 const emptyForm = {
   name: '', contact_name: '', contact_email: '',
   contact_phone: '', country: 'Canada', notes: '',
   ship_to_address: '', ship_to_city: '', ship_to_province: '', ship_to_postal_code: '',
-  address: '', city: '', province: '', postal_code: '',
 }
 
 export default function Suppliers() {
@@ -44,7 +38,7 @@ export default function Suppliers() {
   const [importResult, setImportResult] = useState('')
   const importFileRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState({ ...emptyForm })
-  const [billToSameAsShipTo, setBillToSameAsShipTo] = useState(false)
+
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [showImportConfirm, setShowImportConfirm] = useState(false)
   const [snapshot, setSnapshot] = useState<Supplier[] | null>(null)
@@ -81,7 +75,6 @@ export default function Suppliers() {
   function openAddModal() {
     setEditSupplier(null)
     setForm({ ...emptyForm })
-    setBillToSameAsShipTo(false)
     setShowModal(true)
   }
 
@@ -98,12 +91,7 @@ export default function Suppliers() {
       ship_to_city: s.ship_to_city || '',
       ship_to_province: s.ship_to_province || '',
       ship_to_postal_code: s.ship_to_postal_code || '',
-      address: s.address || '',
-      city: s.city || '',
-      province: s.province || '',
-      postal_code: s.postal_code || '',
     })
-    setBillToSameAsShipTo(s.bill_to_same_as_ship_to || false)
     setShowModal(true)
   }
 
@@ -120,11 +108,6 @@ export default function Suppliers() {
       ship_to_city: form.ship_to_city,
       ship_to_province: form.ship_to_province,
       ship_to_postal_code: form.ship_to_postal_code,
-      bill_to_same_as_ship_to: billToSameAsShipTo,
-      address: billToSameAsShipTo ? form.ship_to_address : form.address,
-      city: billToSameAsShipTo ? form.ship_to_city : form.city,
-      province: billToSameAsShipTo ? form.ship_to_province : form.province,
-      postal_code: billToSameAsShipTo ? form.ship_to_postal_code : form.postal_code,
     }
     if (editSupplier) {
       const old = { ...editSupplier }
@@ -141,7 +124,6 @@ export default function Suppliers() {
     setShowModal(false)
     setEditSupplier(null)
     setForm({ ...emptyForm })
-    setBillToSameAsShipTo(false)
     fetchSuppliers()
   }
 
@@ -198,7 +180,6 @@ export default function Suppliers() {
       for (const row of rows) {
         const name = String(row['Company Name'] || row['name'] || '').trim()
         if (!name) { failed++; continue }
-        const sameAs = Boolean(row['Bill To Same As Ship To'] || false)
         const payload = {
           name,
           contact_name: String(row['Contact Name'] || row['contact_name'] || ''),
@@ -206,15 +187,10 @@ export default function Suppliers() {
           contact_phone: String(row['Contact Phone'] || row['contact_phone'] || ''),
           country: String(row['Country'] || row['country'] || 'Canada'),
           notes: String(row['Notes'] || row['notes'] || ''),
-          ship_to_address: String(row['Ship To Address'] || ''),
+          ship_to_address: String(row['Ship To Address'] || row['address'] || ''),
           ship_to_city: String(row['Ship To City'] || ''),
           ship_to_province: String(row['Ship To Province'] || ''),
           ship_to_postal_code: String(row['Ship To Postal Code'] || ''),
-          bill_to_same_as_ship_to: sameAs,
-          address: String(row['Bill To Address'] || ''),
-          city: String(row['Bill To City'] || ''),
-          province: String(row['Bill To Province'] || ''),
-          postal_code: String(row['Bill To Postal Code'] || ''),
         }
         const { data: existing } = await supabase.from('suppliers').select('id').eq('name', name).maybeSingle()
         let error
@@ -366,15 +342,6 @@ export default function Suppliers() {
                     </span>
                   </div>
                 )}
-                {!s.bill_to_same_as_ship_to && (s.address || s.city) && (
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '13px', color: '#64748b' }}>
-                    <MapPin size={14} style={{ marginTop: '2px', flexShrink: 0, color: '#f97316' }} />
-                    <span>
-                      <span style={{ fontSize: '10px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginRight: '4px' }}>Bill To</span>
-                      {[s.address, s.city, s.province, s.postal_code].filter(Boolean).join(', ')}
-                    </span>
-                  </div>
-                )}
                 {s.notes && <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px', fontStyle: 'italic' }}>{s.notes}</div>}
               </div>
             </div>
@@ -442,28 +409,6 @@ export default function Suppliers() {
               </div>
             ))}
 
-            {/* Bill To */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', marginTop: '4px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f97316', display: 'inline-block', flexShrink: 0 }} />
-                <div style={{ fontSize: '11px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Bill To</div>
-              </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
-                <input type='checkbox' checked={billToSameAsShipTo} onChange={e => setBillToSameAsShipTo(e.target.checked)} style={{ cursor: 'pointer' }} />
-                Same as Ship To
-              </label>
-            </div>
-            {!billToSameAsShipTo && [
-              { label: 'Address', key: 'address', placeholder: '123 Main St' },
-              { label: 'City', key: 'city', placeholder: 'Toronto' },
-              { label: 'Province / State', key: 'province', placeholder: 'ON' },
-              { label: 'Postal Code', key: 'postal_code', placeholder: 'M1M 1M1' },
-            ].map(field => (
-              <div key={field.key} style={{ marginBottom: '10px' }}>
-                <label style={lbl}>{field.label}</label>
-                <input value={form[field.key as keyof typeof form]} onChange={e => setForm({ ...form, [field.key]: e.target.value })} placeholder={field.placeholder} style={inp} />
-              </div>
-            ))}
 
             {/* Notes */}
             <div style={{ marginBottom: '14px', marginTop: '4px' }}>
