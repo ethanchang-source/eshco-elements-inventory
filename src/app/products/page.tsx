@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatTorontoDate } from '@/lib/utils'
-import { FlaskConical, Package, Search, TableIcon } from 'lucide-react'
+import { Search, TableIcon } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { logActivity } from '@/lib/activityLog'
 import UndoToast from '@/components/UndoToast'
@@ -62,6 +62,10 @@ interface PurchaseHistoryEntry {
   } | null
 }
 
+type UnifiedItem =
+  | (RawMaterial & { itemType: 'Raw Material' })
+  | (Packaging & { itemType: 'Packaging' })
+
 function formatShrinkBand(stock: number | null | undefined, roll_length_m: number | null | undefined): string {
   const s = stock ?? 0
   if (roll_length_m) return `${s.toLocaleString()} rolls (${roll_length_m}m/roll)`
@@ -80,12 +84,12 @@ function formatPackStock(stock: number | null | undefined, module_qty: number | 
 }
 
 export default function Products() {
-  const [tab, setTab] = useState<'raw' | 'packaging'>('raw')
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([])
   const [packaging, setPackaging] = useState<Packaging[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState<'all' | 'Raw Material' | 'Packaging'>('all')
   const [editRaw, setEditRaw] = useState<RawMaterial | null>(null)
   const [editPack, setEditPack] = useState<Packaging | null>(null)
   const [editRawForm, setEditRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', cost_per_unit_usd: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '', purchase_unit: '', purchase_unit_kg: '' })
@@ -262,47 +266,47 @@ export default function Products() {
     })
   }
 
-  function handleExport() {
-    if (tab === 'raw') {
-      const rows = filteredRaw.map(r => ({
-        item_no: r.item_no,
-        name: r.name,
-        unit: r.unit,
-        cost_cad: r.cost_per_unit_cad,
-        avg_cost_cad: r.avg_cost_cad ?? '',
-        current_stock: r.current_stock,
-        reorder_threshold: r.reorder_threshold,
-        preferred_supplier: suppliers.find(s => s.id === r.preferred_supplier_id)?.name || '',
-      }))
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Raw Materials')
-      XLSX.writeFile(wb, `raw_materials_${new Date().toISOString().slice(0, 10)}.xlsx`)
-    } else {
-      const rows = filteredPack.map(p => ({
-        item_no: p.item_no,
-        name: p.name,
-        type: p.type,
-        unit: p.unit || (p.type === 'shrink_band' ? 'roll' : 'ea'),
-        cost_cad: p.cost_cad,
-        avg_cost_cad: p.avg_cost_cad ?? '',
-        current_stock: p.current_stock,
-        reorder_threshold: p.reorder_threshold,
-        preferred_supplier: suppliers.find(s => s.id === p.preferred_supplier_id)?.name || '',
-      }))
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Packaging')
-      XLSX.writeFile(wb, `packaging_${new Date().toISOString().slice(0, 10)}.xlsx`)
-    }
-  }
+  const allItems: UnifiedItem[] = [
+    ...rawMaterials.map(r => ({ ...r, itemType: 'Raw Material' as const })),
+    ...packaging.map(p => ({ ...p, itemType: 'Packaging' as const })),
+  ].sort((a, b) => a.item_no.localeCompare(b.item_no))
 
-  const filteredRaw = rawMaterials.filter(r =>
-    r.name?.toLowerCase().includes(search.toLowerCase()) ||
-    r.item_no?.toLowerCase().includes(search.toLowerCase())
-  )
-  const filteredPack = packaging.filter(p =>
-    p.name?.toLowerCase().includes(search.toLowerCase()) ||
-    p.item_no?.toLowerCase().includes(search.toLowerCase())
-  )
+  const filteredItems = allItems.filter(item => {
+    const q = search.toLowerCase()
+    const matchesSearch = !q || item.name?.toLowerCase().includes(q) || item.item_no?.toLowerCase().includes(q)
+    const matchesType = typeFilter === 'all' || item.itemType === typeFilter
+    return matchesSearch && matchesType
+  })
+
+  function handleExport() {
+    const rows = filteredItems.map(item => {
+      if (item.itemType === 'Raw Material') {
+        return {
+          type: 'Raw Material',
+          item_no: item.item_no,
+          name: item.name,
+          unit: item.unit,
+          cost_cad: item.cost_per_unit_cad,
+          current_stock: item.current_stock,
+          reorder_at: item.reorder_threshold,
+        }
+      } else {
+        const p = item as Packaging & { itemType: 'Packaging' }
+        return {
+          type: 'Packaging',
+          item_no: p.item_no,
+          name: p.name,
+          unit: p.type === 'shrink_band' ? 'roll' : (p.unit && p.unit !== '') ? p.unit : 'ea',
+          cost_cad: p.cost_cad,
+          current_stock: p.current_stock,
+          reorder_at: p.reorder_threshold,
+        }
+      }
+    })
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Materials & Packaging')
+    XLSX.writeFile(wb, `materials_packaging_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
 
   const inp: React.CSSProperties = { width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }
   const lbl: React.CSSProperties = { display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }
@@ -318,14 +322,17 @@ export default function Products() {
         }
       `}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ display: 'flex', gap: '0' }}>
-          {([{ key: 'raw', label: 'Raw Materials' }, { key: 'packaging', label: 'Packaging' }] as const).map((t, i) => (
-            <button key={t.key} onClick={() => { setTab(t.key); setSearch('') }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', background: tab === t.key ? '#2563eb' : '#fff', color: tab === t.key ? '#fff' : '#64748b', cursor: 'pointer', fontSize: '14px', fontWeight: '500', borderRadius: i === 0 ? '8px 0 0 8px' : '0 8px 8px 0', borderLeft: i > 0 ? 'none' : '1px solid #e2e8f0' }}>
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <h1 style={{ fontSize: '20px', fontWeight: '700', color: '#1e293b' }}>Materials & Packaging</h1>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <select
+            value={typeFilter}
+            onChange={e => setTypeFilter(e.target.value as typeof typeFilter)}
+            style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', outline: 'none', background: '#fff', color: '#374151', cursor: 'pointer' }}
+          >
+            <option value='all'>All Types</option>
+            <option value='Raw Material'>Raw Material</option>
+            <option value='Packaging'>Packaging</option>
+          </select>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px' }}>
             <Search size={16} color='#94a3b8' />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '160px' }} />
@@ -341,59 +348,52 @@ export default function Products() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                {tab === 'raw'
-                  ? ['Item No', 'Name', 'Unit', 'Cost (CAD)', 'Avg Cost', 'Current Stock', 'Reorder At', 'Preferred Supplier'].map(h => (
-                    <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
-                  ))
-                  : ['Item No', 'Name', 'Type', 'Unit', 'Cost (CAD)', 'Avg Cost', 'Current Stock', 'Reorder At', 'Preferred Supplier'].map(h => (
-                    <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
-                  ))
-                }
+                {['Type', 'Item No', 'Name', 'Unit', 'Cost (CAD)', 'Current Stock', 'Reorder At'].map(h => (
+                  <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>Loading...</td></tr>
-              ) : tab === 'raw' ? (
-                filteredRaw.length === 0 ? (
-                  <tr><td colSpan={8} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
-                    <FlaskConical size={32} color='#e2e8f0' style={{ display: 'block', margin: '0 auto 8px' }} />
-                    No raw materials found
-                  </td></tr>
-                ) : filteredRaw.map(r => (
-                  <tr key={r.id} onClick={() => openEditRaw(r)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }} {...rowHover}>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{r.item_no}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{r.name}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.unit}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${r.cost_per_unit_cad?.toFixed(4)}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.avg_cost_cad != null ? `$${r.avg_cost_cad.toFixed(4)}` : '—'}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: r.current_stock <= r.reorder_threshold ? '#dc2626' : '#16a34a' }}>{r.current_stock?.toLocaleString()} {r.unit}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.reorder_threshold?.toLocaleString()} {r.unit}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{suppliers.find(s => s.id === r.preferred_supplier_id)?.name || '—'}</td>
-                  </tr>
-                ))
-              ) : (
-                filteredPack.length === 0 ? (
-                  <tr><td colSpan={9} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
-                    <Package size={32} color='#e2e8f0' style={{ display: 'block', margin: '0 auto 8px' }} />
-                    No packaging items found
-                  </td></tr>
-                ) : filteredPack.map(p => (
-                  <tr key={p.id} onClick={() => openEditPack(p)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }} {...rowHover}>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{p.item_no}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{p.name}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.type}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.type === 'shrink_band' ? 'roll' : (p.unit && p.unit !== '') ? p.unit : 'ea'}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.cost_cad?.toFixed(5)}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.avg_cost_cad != null ? `$${p.avg_cost_cad.toFixed(5)}` : '—'}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a' }}>
-                      {p.type === 'shrink_band' ? formatShrinkBand(p.current_stock, p.roll_length_m) : formatPackStock(p.current_stock, p.module_qty)}
-                    </td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.reorder_threshold?.toLocaleString()}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{suppliers.find(s => s.id === p.preferred_supplier_id)?.name || '—'}</td>
-                  </tr>
-                ))
-              )}
+                <tr><td colSpan={7} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>Loading...</td></tr>
+              ) : filteredItems.length === 0 ? (
+                <tr><td colSpan={7} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>No items found</td></tr>
+              ) : filteredItems.map(item => {
+                if (item.itemType === 'Raw Material') {
+                  const r = item as RawMaterial & { itemType: 'Raw Material' }
+                  return (
+                    <tr key={`r-${r.id}`} onClick={() => openEditRaw(r)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }} {...rowHover}>
+                      <td style={{ padding: '12px 16px', fontSize: '13px' }}>
+                        <span style={{ background: '#eff6ff', color: '#2563eb', borderRadius: '10px', padding: '2px 8px', fontSize: '11px', fontWeight: '600' }}>Raw Material</span>
+                      </td>
+                      <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{r.item_no}</td>
+                      <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{r.name}</td>
+                      <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.unit}</td>
+                      <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${r.cost_per_unit_cad?.toFixed(4)}</td>
+                      <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: r.current_stock <= r.reorder_threshold ? '#dc2626' : '#16a34a' }}>{r.current_stock?.toLocaleString()} {r.unit}</td>
+                      <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.reorder_threshold?.toLocaleString()} {r.unit}</td>
+                    </tr>
+                  )
+                } else {
+                  const p = item as Packaging & { itemType: 'Packaging' }
+                  const unit = p.type === 'shrink_band' ? 'roll' : (p.unit && p.unit !== '') ? p.unit : 'ea'
+                  return (
+                    <tr key={`p-${p.id}`} onClick={() => openEditPack(p)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }} {...rowHover}>
+                      <td style={{ padding: '12px 16px', fontSize: '13px' }}>
+                        <span style={{ background: '#f5f3ff', color: '#7c3aed', borderRadius: '10px', padding: '2px 8px', fontSize: '11px', fontWeight: '600' }}>Packaging</span>
+                      </td>
+                      <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{p.item_no}</td>
+                      <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{p.name}</td>
+                      <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{unit}</td>
+                      <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.cost_cad?.toFixed(5)}</td>
+                      <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a' }}>
+                        {p.type === 'shrink_band' ? formatShrinkBand(p.current_stock, p.roll_length_m) : formatPackStock(p.current_stock, p.module_qty)}
+                      </td>
+                      <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.reorder_threshold?.toLocaleString()}</td>
+                    </tr>
+                  )
+                }
+              })}
             </tbody>
           </table>
         </div>
