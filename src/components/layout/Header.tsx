@@ -23,10 +23,10 @@ const pageTitles: { [key: string]: string } = {
 export default function Header() {
   const pathname = usePathname()
   const base = '/' + pathname.split('/')[1]
-  const title = pageTitles[base] || 'I AM PURE'
+  const title = pageTitles[base] || 'ESHCO ELEMENTS'
 
   useEffect(() => {
-    document.title = title === 'I AM PURE' ? 'I AM PURE' : `${title} | I AM PURE`
+    document.title = title === 'ESHCO ELEMENTS' ? 'ESHCO ELEMENTS' : `${title} | ESHCO ELEMENTS`
   }, [title])
 
   return (

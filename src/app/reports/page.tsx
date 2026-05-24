@@ -600,7 +600,7 @@ export default function Reports() {
                 <div key={p.sku} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: i<3?'#eff6ff':'#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: '600', color: i<3?'#2563eb':'#94a3b8', flexShrink: 0 }}>{i+1}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '12px', fontWeight: '500', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.sku}{p.name ? ` - ${p.name.replace(/^I AM PURE /i, '')}` : ''}</div>
+                    <div style={{ fontSize: '12px', fontWeight: '500', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.sku}{p.name ? ` - ${p.name.replace(/^ESHCO ELEMENTS /i, '')}` : ''}</div>
                     <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.total_qty} units</div>
                   </div>
                   <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b', flexShrink: 0 }}>${formatCurrency(p.total_revenue)}</div>
@@ -878,7 +878,7 @@ export default function Reports() {
                       <td style={{ padding: '9px 12px', color: i < 3 ? '#2563eb' : '#94a3b8', fontWeight: '600', fontSize: '12px' }}>{i + 1}</td>
                       <td style={{ padding: '9px 12px', color: '#374151', fontWeight: '500', fontFamily: 'monospace', fontSize: '12px' }}>{p.sku || '—'}</td>
                       <td style={{ padding: '9px 12px', color: '#64748b', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {p.name?.replace(/^I AM PURE /i, '') || '—'}
+                        {p.name?.replace(/^ESHCO ELEMENTS /i, '') || '—'}
                       </td>
                       <td style={{ padding: '9px 12px', textAlign: 'right', color: '#374151', fontWeight: '500' }}>{p.total_qty.toLocaleString()}</td>
                       <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(p.total_revenue)}</td>
