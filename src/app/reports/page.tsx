@@ -568,6 +568,59 @@ export default function Reports() {
         )}
       </div>
 
+      {/* Expenses by Category */}
+      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', marginBottom: '24px' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Expenses by Category</h3>
+          <span style={{ fontSize: '12px', color: '#94a3b8' }}>({selectedYear})</span>
+        </div>
+        {expenseCatLoading ? (
+          <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
+        ) : expenseCatData.length === 0 ? (
+          <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>No expense data for {selectedYear}</div>
+        ) : (() => {
+          const monthlyTotals = Array(12).fill(0) as number[]
+          expenseCatData.forEach(r => r.months.forEach((v, i) => { monthlyTotals[i] += v }))
+          const grandTotal = monthlyTotals.reduce((s, v) => s + v, 0)
+          const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+          return (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '900px' }}>
+                <thead>
+                  <tr style={{ background: '#1e293b', color: '#fff' }}>
+                    <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: '600', position: 'sticky', left: 0, background: '#1e293b', zIndex: 2, whiteSpace: 'nowrap' }}>Category</th>
+                    {monthNames.map(m => (
+                      <th key={m} style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>{m}</th>
+                    ))}
+                    <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {expenseCatData.map((row, idx) => (
+                    <tr key={row.category} style={{ background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                      <td style={{ padding: '8px 14px', fontWeight: '600', color: '#1e293b', position: 'sticky', left: 0, background: idx % 2 === 0 ? '#fff' : '#f8fafc', zIndex: 1, whiteSpace: 'nowrap', borderRight: '1px solid #e2e8f0' }}>{row.category}</td>
+                      {row.months.map((v, i) => (
+                        <td key={i} style={{ padding: '8px', textAlign: 'right', color: '#475569', whiteSpace: 'nowrap' }}>{v > 0 ? `$${formatCurrency(v)}` : ''}</td>
+                      ))}
+                      <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{row.total > 0 ? `$${formatCurrency(row.total)}` : ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ background: '#dbeafe', color: '#1e40af', fontWeight: '700' }}>
+                    <td style={{ padding: '10px 14px', fontWeight: '700', position: 'sticky', left: 0, background: '#dbeafe', zIndex: 1, borderRight: '1px solid #bfdbfe' }}>TOTAL</td>
+                    {monthlyTotals.map((v, i) => (
+                      <td key={i} style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>{v > 0 ? `$${formatCurrency(v)}` : ''}</td>
+                    ))}
+                    <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>${formatCurrency(grandTotal)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )
+        })()}
+      </div>
+
       {/* Tax Summary */}
       <div style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
