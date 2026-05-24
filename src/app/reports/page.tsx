@@ -65,6 +65,23 @@ interface ProductMarginRow {
   margin_pct: number
 }
 
+async function resolveItems(items: any[]): Promise<Map<string, { item_no: string; name: string; unit_cost: number }>> {
+  const rawIds  = [...new Set(items.filter((i: any) => i.item_type === 'raw_material' && i.item_id).map((i: any) => i.item_id as string))]
+  const packIds = [...new Set(items.filter((i: any) => i.item_type === 'packaging'    && i.item_id).map((i: any) => i.item_id as string))]
+  const map = new Map<string, { item_no: string; name: string; unit_cost: number }>()
+  const promises: Promise<void>[] = []
+  if (rawIds.length > 0) promises.push(
+    supabase.from('raw_materials').select('id, item_no, name, cost_per_unit_cad').in('id', rawIds)
+      .then(({ data }) => { for (const r of data || []) map.set(r.id, { item_no: r.item_no || '', name: r.name || '', unit_cost: r.cost_per_unit_cad || 0 }) })
+  )
+  if (packIds.length > 0) promises.push(
+    supabase.from('packaging').select('id, item_no, name, cost_cad').in('id', packIds)
+      .then(({ data }) => { for (const p of data || []) map.set(p.id, { item_no: p.item_no || '', name: p.name || '', unit_cost: p.cost_cad || 0 }) })
+  )
+  await Promise.all(promises)
+  return map
+}
+
 const QUARTERS = [
   { label: 'Q1', months: 'Jan–Mar', indices: [0, 1, 2] },
   { label: 'Q2', months: 'Apr–Jun', indices: [3, 4, 5] },
@@ -106,7 +123,7 @@ export default function Reports() {
     setLoading(true)
     const { data: invoices } = await supabase
       .from('invoices')
-      .select('*, invoice_items(qty, unit_price_cad, line_total_cad, product_id, products(sku, name))')
+      .select('*, invoice_items(qty, unit_price_cad, line_total_cad, item_id, item_type)')
       .gte('issued_at', `${selectedYear}-01-01`)
       .lte('issued_at', `${selectedYear}-12-31`)
 
@@ -143,12 +160,14 @@ export default function Reports() {
         total_qty:     q.indices.reduce((s, i) => s + monthly[i].total_qty, 0),
       })))
 
+      const itemMap = await resolveItems(allItems.filter((it: any) => it.item_id))
       const pmap: Record<string, TopProduct> = {}
       allItems.forEach((it: any) => {
-        if (!it.product_id) return
-        if (!pmap[it.product_id]) pmap[it.product_id] = { sku: it.products?.sku || '', name: it.products?.name || '', total_qty: 0, total_revenue: 0 }
-        pmap[it.product_id].total_qty     += it.qty || 0
-        pmap[it.product_id].total_revenue += it.line_total_cad || 0
+        if (!it.item_id) return
+        const info = itemMap.get(it.item_id)
+        if (!pmap[it.item_id]) pmap[it.item_id] = { sku: info?.item_no || '', name: info?.name || '', total_qty: 0, total_revenue: 0 }
+        pmap[it.item_id].total_qty     += it.qty || 0
+        pmap[it.item_id].total_revenue += it.line_total_cad || 0
       })
       setTopProducts(Object.values(pmap).sort((a, b) => b.total_revenue - a.total_revenue).slice(0, 10))
     }
@@ -161,11 +180,14 @@ export default function Reports() {
     setCsLoading(true)
     let query = supabase
       .from('invoices')
-      .select('customer_id, subtotal_cad, tax_amount_cad, total_cad, status, customers(company_name), invoice_items(qty, line_total_cad, products(sku, name))')
+      .select('customer_id, subtotal_cad, tax_amount_cad, total_cad, status, customers(company_name), invoice_items(qty, line_total_cad, item_id, item_type)')
       .gte('issued_at', `${selectedYear}-01-01`)
       .lte('issued_at', `${selectedYear}-12-31`)
     if (csStatus !== 'all') query = query.eq('status', csStatus)
     const { data } = await query
+
+    const allItemsCs = (data || []).flatMap((inv: any) => inv.invoice_items || []).filter((it: any) => it.item_id)
+    const itemMapCs = await resolveItems(allItemsCs)
 
     type Builder = Omit<CustomerSalesRow, 'top_products'> & { _pmap: Record<string, TopProduct> }
     const bmap: Record<string, Builder> = {}
@@ -179,8 +201,9 @@ export default function Reports() {
       bmap[id].total    += inv.total_cad || 0
       for (const it of (inv.invoice_items || []) as any[]) {
         bmap[id].total_qty += it.qty || 0
-        const pKey = it.products?.sku || it.product_id || 'unknown'
-        if (!bmap[id]._pmap[pKey]) bmap[id]._pmap[pKey] = { sku: it.products?.sku || '', name: it.products?.name || '', total_qty: 0, total_revenue: 0 }
+        const info = itemMapCs.get(it.item_id)
+        const pKey = it.item_id || 'unknown'
+        if (!bmap[id]._pmap[pKey]) bmap[id]._pmap[pKey] = { sku: info?.item_no || '', name: info?.name || '', total_qty: 0, total_revenue: 0 }
         bmap[id]._pmap[pKey].total_qty     += it.qty || 0
         bmap[id]._pmap[pKey].total_revenue += it.line_total_cad || 0
       }
@@ -243,14 +266,10 @@ export default function Reports() {
 
   const fetchMarginData = useCallback(async () => {
     setMarginLoading(true)
-    const [{ data: items, error: itemsError }, { data: expData }] = await Promise.all([
+    const [{ data: items }, { data: expData }] = await Promise.all([
       supabase
         .from('invoice_items')
-        .select(`
-          qty, unit_price_cad, line_total_cad, product_id,
-          products(sku, name, unit_cost_cad, price_whs_cad, msrp_cad),
-          invoices!inner(issued_at, status)
-        `)
+        .select('qty, unit_price_cad, line_total_cad, item_id, item_type, invoices!inner(issued_at, status)')
         .gte('invoices.issued_at', `${selectedYear}-01-01`)
         .lte('invoices.issued_at', `${selectedYear}-12-31`)
         .neq('invoices.status', 'draft'),
@@ -261,27 +280,28 @@ export default function Reports() {
         .lte('expense_date', `${selectedYear}-12-31`),
     ])
 
-    console.log('margin data:', items, 'error:', itemsError)
+    const itemMapM = await resolveItems((items || []).filter((it: any) => it.item_id))
 
     const pmap: Record<string, ProductMarginRow> = {}
     for (const it of (items || []) as any[]) {
-      if (!it.product_id) continue
-      if (!pmap[it.product_id]) {
-        pmap[it.product_id] = {
-          product_id: it.product_id,
-          sku: it.products?.sku || '',
-          name: it.products?.name || '',
+      if (!it.item_id) continue
+      const info = itemMapM.get(it.item_id)
+      if (!pmap[it.item_id]) {
+        pmap[it.item_id] = {
+          product_id: it.item_id,
+          sku: info?.item_no || '',
+          name: info?.name || '',
           total_qty: 0,
           total_revenue: 0,
           avg_selling_price: 0,
-          unit_cost: it.products?.unit_cost_cad || 0,
+          unit_cost: info?.unit_cost || 0,
           total_cost: 0,
           gross_profit: 0,
           margin_pct: 0,
         }
       }
-      pmap[it.product_id].total_qty += it.qty || 0
-      pmap[it.product_id].total_revenue += it.line_total_cad || 0
+      pmap[it.item_id].total_qty += it.qty || 0
+      pmap[it.item_id].total_revenue += it.line_total_cad || 0
     }
 
     const rows: ProductMarginRow[] = Object.values(pmap).map(r => {

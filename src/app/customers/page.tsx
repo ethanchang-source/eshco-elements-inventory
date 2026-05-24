@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { formatCurrency } from '@/lib/utils'
 import { Users, Plus, Search, MapPin, Phone, Mail, Upload, Download, AlertTriangle } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { logActivity } from '@/lib/activityLog'
@@ -29,15 +28,6 @@ interface Customer {
   notes: string
 }
 
-interface Product {
-  id: string
-  sku: string
-  name: string
-  size_oz: number
-  price_whs_cad: number
-  unit_cost_cad: number
-}
-
 const emptyForm = {
   company_name: '', warehouse_address: '', city: '', province: '',
   postal_code: '', ship_to_address: '', ship_to_city: '', ship_to_province: '', ship_to_postal_code: '',
@@ -59,15 +49,10 @@ export default function Customers() {
   const [showImportConfirm, setShowImportConfirm] = useState(false)
   const [snapshot, setSnapshot] = useState<Customer[] | null>(null)
   const [undoRestoring, setUndoRestoring] = useState(false)
-  const [products, setProducts] = useState<Product[]>([])
-  const [modalTab, setModalTab] = useState<'info' | 'prices'>('info')
-  const [priceList, setPriceList] = useState<{ product_id: string; sku: string; name: string; size: string; default_price: number | null; custom_price: string }[]>([])
-  const [savingPrices, setSavingPrices] = useState(false)
-  const [pricesSaveMsg, setPricesSaveMsg] = useState('')
   const [billToSameAsShipTo, setBillToSameAsShipTo] = useState(false)
   const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
 
-  useEffect(() => { fetchCustomers(); fetchProducts() }, [])
+  useEffect(() => { fetchCustomers() }, [])
 
   useEffect(() => {
     const channel = supabase
@@ -86,15 +71,9 @@ export default function Customers() {
   }, [showModal])
 
   async function fetchCustomers() {
-    const { data } = await supabase.from('customers').select('*').is('deleted_at', null).order('company_name')
+    const { data } = await supabase.from('customers').select('*').order('company_name')
     setCustomers(data || [])
     setLoading(false)
-  }
-
-  async function fetchProducts() {
-    const { data, error } = await supabase.from('products').select('id, sku, name, size_oz, price_whs_cad, unit_cost_cad').eq('is_active', true).order('sku')
-    if (error) console.error('fetchProducts error:', error)
-    setProducts(data || [])
   }
 
   function openAddModal() {
@@ -131,21 +110,6 @@ export default function Customers() {
       notes: c.notes || '',
     })
     setBillToSameAsShipTo(c.bill_to_same_as_ship_to || false)
-    const [{ data: prices, error: pricesError }, { data: freshProducts, error: productsError }] = await Promise.all([
-      supabase.from('customer_prices').select('*').eq('customer_id', c.id),
-      supabase.from('products').select('id, sku, name, size_oz, price_whs_cad, unit_cost_cad').eq('is_active', true).order('sku'),
-    ])
-    if (pricesError) console.error('customer_prices fetch error:', pricesError)
-    if (productsError) console.error('products fetch error (openEditModal):', productsError)
-    const priceMap: Record<string, number> = {}
-    if (prices) prices.forEach((p: any) => { priceMap[p.product_id] = p.custom_price })
-    const productList = freshProducts || products
-    setPriceList(productList.map(p => ({
-      product_id: p.id, sku: p.sku, name: p.name, size: `${p.size_oz} FL. OZ.`,
-      default_price: p.price_whs_cad ?? null,
-      custom_price: priceMap[p.id] != null ? String(priceMap[p.id]) : '',
-    })))
-    setModalTab('info')
     setShowModal(true)
   }
 
@@ -193,62 +157,6 @@ export default function Customers() {
     setEditCustomer(null)
     setForm({ ...emptyForm })
     fetchCustomers()
-  }
-
-  async function handleSavePrices() {
-    if (!editCustomer) return
-    setSavingPrices(true)
-    setPricesSaveMsg('')
-
-    const toUpsert = priceList
-      .filter(p => p.custom_price.trim() !== '' && !isNaN(parseFloat(p.custom_price)))
-      .map(p => ({ customer_id: editCustomer.id, product_id: p.product_id, custom_price: parseFloat(p.custom_price) }))
-
-    const toClearIds = priceList
-      .filter(p => p.custom_price.trim() === '' || isNaN(parseFloat(p.custom_price)))
-      .map(p => p.product_id)
-
-    if (toUpsert.length > 0) {
-      const { error: upsertErr } = await supabase
-        .from('customer_prices')
-        .upsert(toUpsert, { onConflict: 'customer_id,product_id' })
-      if (upsertErr) {
-        console.error('customer_prices upsert error:', upsertErr)
-        setPricesSaveMsg(`❌ Save error: ${upsertErr.message}`)
-        setSavingPrices(false)
-        return
-      }
-    }
-
-    if (toClearIds.length > 0) {
-      const { error: delErr } = await supabase
-        .from('customer_prices')
-        .delete()
-        .eq('customer_id', editCustomer.id)
-        .in('product_id', toClearIds)
-      if (delErr) {
-        console.error('customer_prices delete error:', delErr)
-        setPricesSaveMsg(`❌ Delete error: ${delErr.message}`)
-        setSavingPrices(false)
-        return
-      }
-    }
-
-    const { data: refreshed, error: refetchError } = await supabase
-      .from('customer_prices')
-      .select('product_id, custom_price')
-      .eq('customer_id', editCustomer.id)
-    if (refetchError) {
-      console.error('customer_prices refetch error:', refetchError)
-      setPricesSaveMsg(`❌ Refetch error: ${refetchError.message}`)
-      setSavingPrices(false)
-      return
-    }
-    const refreshedMap: Record<string, number> = {}
-    if (refreshed) refreshed.forEach(p => { refreshedMap[p.product_id] = p.custom_price })
-    setPriceList(prev => prev.map(p => ({ ...p, custom_price: refreshedMap[p.product_id] != null ? String(refreshedMap[p.product_id]) : '' })))
-    setPricesSaveMsg(`✅ Saved ${toUpsert.length} prices`)
-    setSavingPrices(false)
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -490,18 +398,9 @@ export default function Customers() {
               <h2 style={{ fontSize: '18px', fontWeight: '600' }}>
                 {editCustomer ? 'Edit Customer' : 'Add New Customer'}
               </h2>
-              {editCustomer && (
-                <div style={{ display: 'flex', gap: '3px', background: '#f1f5f9', borderRadius: '8px', padding: '3px' }}>
-                  {(['info', 'prices'] as const).map(tab => (
-                    <button key={tab} onClick={() => setModalTab(tab)} style={{ padding: '5px 14px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: '500', background: modalTab === tab ? '#fff' : 'transparent', color: modalTab === tab ? '#1e293b' : '#64748b', boxShadow: modalTab === tab ? '0 1px 3px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s' }}>
-                      {tab === 'info' ? 'Info' : 'Price List'}
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
 
-            {modalTab === 'info' && <>
+            <>
               <div style={{ marginBottom: '14px' }}>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }}>Company Name *</label>
                 <input value={form.company_name} onChange={e => setForm({ ...form, company_name: e.target.value })} placeholder='ABC Beauty Inc.' style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }} />
@@ -582,55 +481,7 @@ export default function Customers() {
                   </button>
                 </div>
               </div>
-            </>}
-
-            {modalTab === 'prices' && editCustomer && <>
-              {priceList.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '48px', color: '#94a3b8', fontSize: '13px' }}>No active products found.</div>
-              ) : (
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', marginBottom: '16px' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                        {['SKU', 'Product', 'Size', 'Default Price', 'Custom Price'].map(h => (
-                          <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {priceList.map((item, idx) => (
-                        <tr key={item.product_id} style={{ borderBottom: '1px solid #f1f5f9', background: item.custom_price ? '#eff6ff' : '#fff' }}>
-                          <td style={{ padding: '8px 12px', fontSize: '12px', fontWeight: '600', color: '#2563eb' }}>{item.sku}</td>
-                          <td style={{ padding: '8px 12px', fontSize: '12px', color: '#1e293b' }}>{item.name}</td>
-                          <td style={{ padding: '8px 12px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{item.size}</td>
-                          <td style={{ padding: '8px 12px', fontSize: '12px', color: '#94a3b8' }}>{item.default_price != null ? `$${formatCurrency(item.default_price)}` : '—'}</td>
-                          <td style={{ padding: '8px 12px' }}>
-                            <input
-                              type='number'
-                              value={item.custom_price}
-                              onChange={e => setPriceList(prev => { const u = [...prev]; u[idx] = { ...u[idx], custom_price: e.target.value }; return u })}
-                              placeholder={item.default_price != null ? item.default_price.toFixed(2) : ''}
-                              style={{ width: '80px', padding: '4px 8px', border: item.custom_price ? '1px solid #2563eb' : '1px solid #e2e8f0', borderRadius: '4px', fontSize: '12px', outline: 'none' }}
-                            />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
-                {pricesSaveMsg && (
-                  <span style={{ fontSize: '13px', color: pricesSaveMsg.startsWith('❌') ? '#dc2626' : '#16a34a', fontWeight: '500' }}>{pricesSaveMsg}</span>
-                )}
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <button onClick={() => { setShowModal(false); setEditCustomer(null) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-                  <button onClick={handleSavePrices} disabled={savingPrices} style={{ padding: '8px 20px', background: savingPrices ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: savingPrices ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
-                    {savingPrices ? 'Saving...' : 'Save Prices'}
-                  </button>
-                </div>
-              </div>
-            </>}
+            </>
           </div>
         </div>
       )}
