@@ -72,7 +72,8 @@ export default function Suppliers() {
   }, [showModal, showImportConfirm])
 
   async function fetchSuppliers() {
-    const { data } = await supabase.from('suppliers').select('*').is('deleted_at', null).order('name')
+    const { data, error } = await supabase.from('suppliers').select('*').order('name')
+    console.log('[suppliers] data:', data, 'error:', error)
     setSuppliers(data || [])
     setLoading(false)
   }

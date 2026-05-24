@@ -71,7 +71,8 @@ export default function Customers() {
   }, [showModal])
 
   async function fetchCustomers() {
-    const { data } = await supabase.from('customers').select('*').order('company_name')
+    const { data, error } = await supabase.from('customers').select('*').order('company_name')
+    console.log('[customers] data:', data, 'error:', error)
     setCustomers(data || [])
     setLoading(false)
   }
