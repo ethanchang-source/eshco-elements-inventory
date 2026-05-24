@@ -562,7 +562,7 @@ function InventoryContent() {
                 </tr>
                 )
               })
-            )}
+            ) : null}
           </tbody>
           <tfoot>
             {tab === 'raw' && !loading && filteredRaw.length > 0 && (() => {
