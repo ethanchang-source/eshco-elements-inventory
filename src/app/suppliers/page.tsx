@@ -17,12 +17,21 @@ interface Supplier {
   country: string
   notes: string
   ship_to_address: string
+  ship_to_city: string
+  ship_to_province: string
+  ship_to_postal_code: string
+  bill_to_same_as_ship_to: boolean
+  bill_to_address: string
+  bill_to_city: string
+  bill_to_province: string
+  bill_to_postal_code: string
 }
 
 const emptyForm = {
   name: '', contact_name: '', contact_email: '',
   contact_phone: '', country: 'Canada', notes: '',
-  ship_to_address: '',
+  ship_to_address: '', ship_to_city: '', ship_to_province: '', ship_to_postal_code: '',
+  bill_to_address: '', bill_to_city: '', bill_to_province: '', bill_to_postal_code: '',
 }
 
 export default function Suppliers() {
@@ -35,7 +44,7 @@ export default function Suppliers() {
   const [importResult, setImportResult] = useState('')
   const importFileRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState({ ...emptyForm })
-
+  const [billToSameAsShipTo, setBillToSameAsShipTo] = useState(false)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [showImportConfirm, setShowImportConfirm] = useState(false)
   const [snapshot, setSnapshot] = useState<Supplier[] | null>(null)
@@ -72,6 +81,7 @@ export default function Suppliers() {
   function openAddModal() {
     setEditSupplier(null)
     setForm({ ...emptyForm })
+    setBillToSameAsShipTo(false)
     setShowModal(true)
   }
 
@@ -85,7 +95,15 @@ export default function Suppliers() {
       country: s.country || 'Canada',
       notes: s.notes || '',
       ship_to_address: s.ship_to_address || '',
+      ship_to_city: s.ship_to_city || '',
+      ship_to_province: s.ship_to_province || '',
+      ship_to_postal_code: s.ship_to_postal_code || '',
+      bill_to_address: s.bill_to_address || '',
+      bill_to_city: s.bill_to_city || '',
+      bill_to_province: s.bill_to_province || '',
+      bill_to_postal_code: s.bill_to_postal_code || '',
     })
+    setBillToSameAsShipTo(s.bill_to_same_as_ship_to || false)
     setShowModal(true)
   }
 
@@ -99,6 +117,14 @@ export default function Suppliers() {
       country: form.country,
       notes: form.notes,
       ship_to_address: form.ship_to_address,
+      ship_to_city: form.ship_to_city,
+      ship_to_province: form.ship_to_province,
+      ship_to_postal_code: form.ship_to_postal_code,
+      bill_to_same_as_ship_to: billToSameAsShipTo,
+      bill_to_address: billToSameAsShipTo ? form.ship_to_address : form.bill_to_address,
+      bill_to_city: billToSameAsShipTo ? form.ship_to_city : form.bill_to_city,
+      bill_to_province: billToSameAsShipTo ? form.ship_to_province : form.bill_to_province,
+      bill_to_postal_code: billToSameAsShipTo ? form.ship_to_postal_code : form.bill_to_postal_code,
     }
     if (editSupplier) {
       const old = { ...editSupplier }
@@ -115,6 +141,7 @@ export default function Suppliers() {
     setShowModal(false)
     setEditSupplier(null)
     setForm({ ...emptyForm })
+    setBillToSameAsShipTo(false)
     fetchSuppliers()
   }
 
@@ -171,6 +198,11 @@ export default function Suppliers() {
       for (const row of rows) {
         const name = String(row['Company Name'] || row['name'] || '').trim()
         if (!name) { failed++; continue }
+        const sameAs = Boolean(row['Bill To Same As Ship To'] || false)
+        const shipAddr = String(row['Ship To Address'] || row['address'] || '')
+        const shipCity = String(row['Ship To City'] || '')
+        const shipProv = String(row['Ship To Province'] || '')
+        const shipPost = String(row['Ship To Postal Code'] || '')
         const payload = {
           name,
           contact_name: String(row['Contact Name'] || row['contact_name'] || ''),
@@ -178,7 +210,15 @@ export default function Suppliers() {
           contact_phone: String(row['Contact Phone'] || row['contact_phone'] || ''),
           country: String(row['Country'] || row['country'] || 'Canada'),
           notes: String(row['Notes'] || row['notes'] || ''),
-          ship_to_address: String(row['Ship To Address'] || row['address'] || ''),
+          ship_to_address: shipAddr,
+          ship_to_city: shipCity,
+          ship_to_province: shipProv,
+          ship_to_postal_code: shipPost,
+          bill_to_same_as_ship_to: sameAs,
+          bill_to_address: sameAs ? shipAddr : String(row['Bill To Address'] || ''),
+          bill_to_city: sameAs ? shipCity : String(row['Bill To City'] || ''),
+          bill_to_province: sameAs ? shipProv : String(row['Bill To Province'] || ''),
+          bill_to_postal_code: sameAs ? shipPost : String(row['Bill To Postal Code'] || ''),
         }
         const { data: existing } = await supabase.from('suppliers').select('id').eq('name', name).maybeSingle()
         let error
@@ -233,6 +273,7 @@ export default function Suppliers() {
   const filtered = suppliers.filter(s =>
     s.name?.toLowerCase().includes(search.toLowerCase()) ||
     s.country?.toLowerCase().includes(search.toLowerCase()) ||
+    s.ship_to_city?.toLowerCase().includes(search.toLowerCase()) ||
     s.ship_to_address?.toLowerCase().includes(search.toLowerCase())
   )
 
@@ -321,10 +362,22 @@ export default function Suppliers() {
                     <Phone size={14} /><span>{s.contact_phone}</span>
                   </div>
                 )}
-                {s.ship_to_address && (
+                {(s.ship_to_address || s.ship_to_city) && (
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '13px', color: '#64748b' }}>
                     <MapPin size={14} style={{ marginTop: '2px', flexShrink: 0, color: '#16a34a' }} />
-                    <span>{s.ship_to_address}</span>
+                    <span>
+                      <span style={{ fontSize: '10px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginRight: '4px' }}>Ship To</span>
+                      {[s.ship_to_address, s.ship_to_city, s.ship_to_province, s.ship_to_postal_code].filter(Boolean).join(', ')}
+                    </span>
+                  </div>
+                )}
+                {!s.bill_to_same_as_ship_to && (s.bill_to_address || s.bill_to_city) && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '13px', color: '#64748b' }}>
+                    <MapPin size={14} style={{ marginTop: '2px', flexShrink: 0, color: '#f97316' }} />
+                    <span>
+                      <span style={{ fontSize: '10px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginRight: '4px' }}>Bill To</span>
+                      {[s.bill_to_address, s.bill_to_city, s.bill_to_province, s.bill_to_postal_code].filter(Boolean).join(', ')}
+                    </span>
                   </div>
                 )}
                 {s.notes && <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px', fontStyle: 'italic' }}>{s.notes}</div>}
@@ -373,16 +426,49 @@ export default function Suppliers() {
             ].map(field => (
               <div key={field.key} style={{ marginBottom: '12px' }}>
                 <label style={lbl}>{field.label}</label>
-                <input value={form[field.key as keyof typeof form]} onChange={e => setForm({ ...form, [field.key]: e.target.value })} placeholder={field.placeholder} style={inp} />
+                <input value={form[field.key as keyof typeof form] as string} onChange={e => setForm({ ...form, [field.key]: e.target.value })} placeholder={field.placeholder} style={inp} />
               </div>
             ))}
 
-            {/* Address */}
-            <div style={{ marginBottom: '10px' }}>
-              <label style={lbl}>Address</label>
-              <input value={form.ship_to_address} onChange={e => setForm({ ...form, ship_to_address: e.target.value })} placeholder='123 Warehouse St' style={inp} />
+            {/* Ship To */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', marginTop: '4px' }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#16a34a', display: 'inline-block', flexShrink: 0 }} />
+              <div style={{ fontSize: '11px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Ship To</div>
             </div>
+            {[
+              { label: 'Address', key: 'ship_to_address', placeholder: '123 Warehouse St' },
+              { label: 'City', key: 'ship_to_city', placeholder: 'Toronto' },
+              { label: 'Province / State', key: 'ship_to_province', placeholder: 'ON' },
+              { label: 'Postal Code', key: 'ship_to_postal_code', placeholder: 'M1M 1M1' },
+            ].map(field => (
+              <div key={field.key} style={{ marginBottom: '10px' }}>
+                <label style={lbl}>{field.label}</label>
+                <input value={form[field.key as keyof typeof form] as string} onChange={e => setForm({ ...form, [field.key]: e.target.value })} placeholder={field.placeholder} style={inp} />
+              </div>
+            ))}
 
+            {/* Bill To */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', marginTop: '4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f97316', display: 'inline-block', flexShrink: 0 }} />
+                <div style={{ fontSize: '11px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Bill To</div>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
+                <input type='checkbox' checked={billToSameAsShipTo} onChange={e => setBillToSameAsShipTo(e.target.checked)} style={{ cursor: 'pointer' }} />
+                Same as Ship To
+              </label>
+            </div>
+            {!billToSameAsShipTo && [
+              { label: 'Address', key: 'bill_to_address', placeholder: '123 Main St' },
+              { label: 'City', key: 'bill_to_city', placeholder: 'Toronto' },
+              { label: 'Province / State', key: 'bill_to_province', placeholder: 'ON' },
+              { label: 'Postal Code', key: 'bill_to_postal_code', placeholder: 'M1M 1M1' },
+            ].map(field => (
+              <div key={field.key} style={{ marginBottom: '10px' }}>
+                <label style={lbl}>{field.label}</label>
+                <input value={form[field.key as keyof typeof form] as string} onChange={e => setForm({ ...form, [field.key]: e.target.value })} placeholder={field.placeholder} style={inp} />
+              </div>
+            ))}
 
             {/* Notes */}
             <div style={{ marginBottom: '14px', marginTop: '4px' }}>
