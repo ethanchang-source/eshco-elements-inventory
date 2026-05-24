@@ -24,20 +24,21 @@ interface Customer {
   currency: string
 }
 
-interface Product {
+interface MaterialItem {
   id: string
-  sku: string
+  item_no: string
   name: string
-  size_oz: number
-  price_whs_cad: number
-  current_stock: number
+  unit: string
+  cost: number
+  item_type: 'raw_material' | 'packaging'
 }
 
 interface InvoiceLineItem {
-  product_id: string
-  sku: string
+  item_id: string
+  item_type: 'raw_material' | 'packaging'
+  item_no: string
   name: string
-  size: string
+  unit: string
   unit_price: number
   qty: number
   total: number
@@ -104,7 +105,7 @@ function InvoicesContent() {
   const [cadInvoices, setCadInvoices] = useState<Invoice[]>([])
   const [usdInvoices, setUsdInvoices] = useState<Invoice[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
-  const [products, setProducts] = useState<Product[]>([])
+  const [materials, setMaterials] = useState<MaterialItem[]>([])
   const [loading, setLoading] = useState(true)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [paymentInfo, setPaymentInfo] = useState({ invoiceId: '', date: getLocalDateString() })
@@ -196,17 +197,22 @@ function InvoicesContent() {
   }, [showModal, showCmModal, showDeliveryModal, showPaymentModal, showAppliedModal, showUsImportModal])
 
   async function fetchAll() {
-    const [cad, usd, cust, prod, cm] = await Promise.all([
+    const [cad, usd, cust, rawMats, pack, cm] = await Promise.all([
       supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').eq('currency', 'CAD').gte('issued_at', `${selectedYear}-01-01`).lte('issued_at', `${selectedYear}-12-31`).order('invoice_no', { ascending: false }),
       supabase.from('invoices').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').eq('currency', 'USD').gte('issued_at', `${selectedYear}-01-01`).lte('issued_at', `${selectedYear}-12-31`).order('invoice_no', { ascending: false }),
       supabase.from('customers').select('*').order('company_name'),
-      supabase.from('products').select('*').eq('is_active', true).order('sku'),
+      supabase.from('raw_materials').select('id, item_no, name, unit, cost_per_unit_cad, cost_cad').order('item_no'),
+      supabase.from('packaging').select('id, item_no, name, unit, avg_cost_cad, cost_cad').order('item_no'),
       supabase.from('credit_memos').select('*, customers(company_name, warehouse_address, city, province, postal_code, payment_terms)').gte('issued_at', `${selectedYear}-01-01`).lte('issued_at', `${selectedYear}-12-31`).order('memo_no', { ascending: false }),
     ])
     setCadInvoices(cad.data || [])
     setUsdInvoices(usd.data || [])
     setCustomers(cust.data || [])
-    setProducts(prod.data || [])
+    const allMaterials: MaterialItem[] = [
+      ...(rawMats.data || []).map((r: any) => ({ id: r.id, item_no: r.item_no, name: r.name, unit: r.unit || '', cost: r.cost_per_unit_cad ?? r.cost_cad ?? 0, item_type: 'raw_material' as const })),
+      ...(pack.data || []).map((p: any) => ({ id: p.id, item_no: p.item_no, name: p.name, unit: p.unit || '', cost: p.avg_cost_cad ?? p.cost_cad ?? 0, item_type: 'packaging' as const })),
+    ].sort((a, b) => a.item_no.localeCompare(b.item_no))
+    setMaterials(allMaterials)
     setCreditMemos(cm.data || [])
     setLoading(false)
   }
@@ -215,17 +221,13 @@ function InvoicesContent() {
     const customer = customers.find(c => c.id === customerId) || null
     setSelectedCustomer(customer)
     setForm(prev => ({ ...prev, customer_id: customerId }))
-    const priceMap: Record<string, number> = {}
-    if (customerId) {
-      const { data: prices } = await supabase.from('customer_prices').select('product_id, custom_price').eq('customer_id', customerId)
-      if (prices) prices.forEach(p => { priceMap[p.product_id] = p.custom_price })
-    }
-    setLineItems(products.map(p => ({
-      product_id: p.id,
-      sku: p.sku,
-      name: p.name,
-      size: `${p.size_oz} FL. OZ.`,
-      unit_price: priceMap[p.id] ?? p.price_whs_cad ?? 0,
+    setLineItems(materials.map(m => ({
+      item_id: m.id,
+      item_type: m.item_type,
+      item_no: m.item_no,
+      name: m.name,
+      unit: m.unit,
+      unit_price: m.cost,
       qty: 0,
       total: 0,
     })))
@@ -247,30 +249,26 @@ function InvoicesContent() {
       wire_fee: String(invoice.wire_fee || 0),
       invoice_no: invoice.invoice_no,
     })
-    const [{ data: items }, { data: custPrices }] = await Promise.all([
-      supabase.from('invoice_items').select('*, products(id, sku, name, size_oz, price_whs_cad)').eq('invoice_id', invoice.id),
-      supabase.from('customer_prices').select('product_id, custom_price').eq('customer_id', invoice.customer_id),
-    ])
+    const { data: items } = await supabase.from('invoice_items').select('item_id, item_type, qty, unit_price_cad').eq('invoice_id', invoice.id)
 
     const existingMap: { [key: string]: { qty: number; unit_price: number } } = {}
     if (items) {
       items.forEach(item => {
-        if (item.products?.id) {
-          existingMap[item.products.id] = { qty: item.qty, unit_price: item.unit_price_cad }
+        if (item.item_id) {
+          existingMap[item.item_id] = { qty: item.qty, unit_price: item.unit_price_cad }
         }
       })
     }
-    const custPriceMap: Record<string, number> = {}
-    if (custPrices) custPrices.forEach(p => { custPriceMap[p.product_id] = p.custom_price })
 
-    setLineItems(products.map(p => ({
-      product_id: p.id,
-      sku: p.sku,
-      name: p.name,
-      size: `${p.size_oz} FL. OZ.`,
-      unit_price: existingMap[p.id]?.unit_price ?? custPriceMap[p.id] ?? p.price_whs_cad ?? 0,
-      qty: existingMap[p.id]?.qty ?? 0,
-      total: (existingMap[p.id]?.unit_price ?? custPriceMap[p.id] ?? p.price_whs_cad ?? 0) * (existingMap[p.id]?.qty ?? 0),
+    setLineItems(materials.map(m => ({
+      item_id: m.id,
+      item_type: m.item_type,
+      item_no: m.item_no,
+      name: m.name,
+      unit: m.unit,
+      unit_price: existingMap[m.id]?.unit_price ?? m.cost,
+      qty: existingMap[m.id]?.qty ?? 0,
+      total: (existingMap[m.id]?.unit_price ?? m.cost) * (existingMap[m.id]?.qty ?? 0),
     })))
     setShowModal(true)
   }
@@ -359,7 +357,8 @@ function InvoicesContent() {
       await supabase.from('invoice_items').insert(
         activeItems.map(item => ({
           invoice_id: editInvoice.id,
-          product_id: item.product_id,
+          item_id: item.item_id,
+          item_type: item.item_type,
           qty: item.qty,
           unit_price_cad: item.unit_price,
           line_total_cad: item.total,
@@ -396,7 +395,8 @@ function InvoicesContent() {
         await supabase.from('invoice_items').insert(
           activeItems.map(item => ({
             invoice_id: invoice.id,
-            product_id: item.product_id,
+            item_id: item.item_id,
+            item_type: item.item_type,
             qty: item.qty,
             unit_price_cad: item.unit_price,
             line_total_cad: item.total,
@@ -414,13 +414,28 @@ function InvoicesContent() {
     fetchAll()
   }
 
+  async function resolveItemInfo(items: { item_id: string; item_type: string }[]): Promise<Map<string, { item_no: string; name: string; unit: string }>> {
+    const rawIds = items.filter(i => i.item_type === 'raw_material').map(i => i.item_id)
+    const packIds = items.filter(i => i.item_type === 'packaging').map(i => i.item_id)
+    const infoMap = new Map<string, { item_no: string; name: string; unit: string }>()
+    const [rawRes, packRes] = await Promise.all([
+      rawIds.length > 0 ? supabase.from('raw_materials').select('id, item_no, name, unit').in('id', rawIds) : { data: [] },
+      packIds.length > 0 ? supabase.from('packaging').select('id, item_no, name, unit').in('id', packIds) : { data: [] },
+    ])
+    for (const r of rawRes.data || []) infoMap.set(r.id, { item_no: r.item_no, name: r.name, unit: r.unit || '' })
+    for (const p of packRes.data || []) infoMap.set(p.id, { item_no: p.item_no, name: p.name, unit: p.unit || '' })
+    return infoMap
+  }
+
   async function handleDownloadPDF(invoice: Invoice) {
     const { data: items } = await supabase
       .from('invoice_items')
-      .select('*, products(sku, name, size_oz)')
+      .select('item_id, item_type, qty, unit_price_cad, line_total_cad')
       .eq('invoice_id', invoice.id)
 
     if (!items || !invoice.customers) return
+
+    const infoMap = await resolveItemInfo(items)
 
     generateInvoicePDF({
       invoice_no: invoice.invoice_no,
@@ -437,14 +452,17 @@ function InvoicesContent() {
         province: invoice.customers.province,
         postal_code: invoice.customers.postal_code,
       },
-      items: items.map(item => ({
-        sku: item.products?.sku || '',
-        name: item.products?.name || '',
-        size: `${item.products?.size_oz} FL. OZ.`,
-        unit_price: item.unit_price_cad,
-        qty: item.qty,
-        total: item.line_total_cad,
-      })),
+      items: items.map(item => {
+        const info = infoMap.get(item.item_id)
+        return {
+          sku: info?.item_no || '',
+          name: info?.name || '',
+          size: info?.unit || '',
+          unit_price: item.unit_price_cad,
+          qty: item.qty,
+          total: item.line_total_cad,
+        }
+      }),
       subtotal: invoice.subtotal_cad,
       shipping: 0,
       tax_rate: invoice.tax_rate,
@@ -470,9 +488,10 @@ function InvoicesContent() {
       if (!invoice.customers) continue
       const { data: items } = await supabase
         .from('invoice_items')
-        .select('*, products(sku, name, size_oz)')
+        .select('item_id, item_type, qty, unit_price_cad, line_total_cad')
         .eq('invoice_id', invoice.id)
       if (!items) continue
+      const infoMap = await resolveItemInfo(items)
       const blob = generateInvoicePDF({
         invoice_no: invoice.invoice_no,
         issued_at: invoice.issued_at,
@@ -488,14 +507,17 @@ function InvoicesContent() {
           province: invoice.customers.province,
           postal_code: invoice.customers.postal_code,
         },
-        items: items.map(item => ({
-          sku: item.products?.sku || '',
-          name: item.products?.name || '',
-          size: `${item.products?.size_oz} FL. OZ.`,
-          unit_price: item.unit_price_cad,
-          qty: item.qty,
-          total: item.line_total_cad,
-        })),
+        items: items.map(item => {
+          const info = infoMap.get(item.item_id)
+          return {
+            sku: info?.item_no || '',
+            name: info?.name || '',
+            size: info?.unit || '',
+            unit_price: item.unit_price_cad,
+            qty: item.qty,
+            total: item.line_total_cad,
+          }
+        }),
         subtotal: invoice.subtotal_cad,
         shipping: 0,
         tax_rate: invoice.tax_rate,
@@ -602,15 +624,17 @@ function InvoicesContent() {
     }
 
     const { data: allCustomers } = await supabase.from('customers').select('id, company_name')
-    const { data: allProducts } = await supabase.from('products').select('id, sku, price_whs_cad')
+    const { data: allRawMats } = await supabase.from('raw_materials').select('id, item_no, cost_per_unit_cad, cost_cad')
+    const { data: allPack } = await supabase.from('packaging').select('id, item_no, avg_cost_cad, cost_cad')
     const { data: existingInvoices } = await supabase.from('invoices').select('invoice_no')
     const existingNos = new Set((existingInvoices || []).map(i => i.invoice_no))
 
     const customerMap: { [name: string]: string } = {}
     for (const c of allCustomers || []) customerMap[c.company_name.toLowerCase()] = c.id
 
-    const productMap: { [sku: string]: { id: string; price: number } } = {}
-    for (const p of allProducts || []) productMap[p.sku.toUpperCase()] = { id: p.id, price: p.price_whs_cad }
+    const itemMap: { [itemNo: string]: { id: string; item_type: 'raw_material' | 'packaging'; cost: number } } = {}
+    for (const r of allRawMats || []) itemMap[r.item_no.toUpperCase()] = { id: r.id, item_type: 'raw_material', cost: r.cost_per_unit_cad ?? r.cost_cad ?? 0 }
+    for (const p of allPack || []) itemMap[p.item_no.toUpperCase()] = { id: p.id, item_type: 'packaging', cost: p.avg_cost_cad ?? p.cost_cad ?? 0 }
 
     let imported = 0, skipped = 0
     const errors: string[] = []
@@ -639,7 +663,7 @@ function InvoicesContent() {
       const paymentDate = String(first['Payment Date'] || '').trim() || null
       const notes = String(first['Notes'] || '').trim()
 
-      const lineItems: { product_id: string; qty: number; unit_price_cad: number; line_total_cad: number }[] = []
+      const lineItems: { item_id: string; item_type: string; qty: number; unit_price_cad: number; line_total_cad: number }[] = []
       let hasError = false
 
       for (const row of rows) {
@@ -647,13 +671,13 @@ function InvoicesContent() {
         const qty = parseInt(String(row['Qty'] || '0'))
         const unitPrice = parseFloat(String(row['Unit Price CAD'] || '0'))
         if (!sku || qty <= 0) continue
-        const product = productMap[sku]
-        if (!product) {
-          errors.push(`${invoiceNo}: SKU "${sku}" not found`)
+        const item = itemMap[sku]
+        if (!item) {
+          errors.push(`${invoiceNo}: Item # "${sku}" not found`)
           hasError = true
           break
         }
-        lineItems.push({ product_id: product.id, qty, unit_price_cad: unitPrice, line_total_cad: unitPrice * qty })
+        lineItems.push({ item_id: item.id, item_type: item.item_type, qty, unit_price_cad: unitPrice, line_total_cad: unitPrice * qty })
       }
 
       if (hasError || lineItems.length === 0) {
@@ -761,15 +785,17 @@ function InvoicesContent() {
     }
 
     const { data: allCustomers } = await supabase.from('customers').select('id, company_name')
-    const { data: allProducts } = await supabase.from('products').select('id, sku, price_whs_cad')
+    const { data: allRawMatsUs } = await supabase.from('raw_materials').select('id, item_no, cost_per_unit_cad, cost_cad')
+    const { data: allPackUs } = await supabase.from('packaging').select('id, item_no, avg_cost_cad, cost_cad')
     const { data: existingInvoices } = await supabase.from('invoices').select('invoice_no')
     const existingNos = new Set((existingInvoices || []).map(i => i.invoice_no))
 
     const customerMap: { [name: string]: string } = {}
     for (const c of allCustomers || []) customerMap[c.company_name.toLowerCase()] = c.id
 
-    const productMap: { [sku: string]: { id: string; price: number } } = {}
-    for (const p of allProducts || []) productMap[p.sku.toUpperCase()] = { id: p.id, price: p.price_whs_cad }
+    const itemMapUs: { [itemNo: string]: { id: string; item_type: 'raw_material' | 'packaging'; cost: number } } = {}
+    for (const r of allRawMatsUs || []) itemMapUs[r.item_no.toUpperCase()] = { id: r.id, item_type: 'raw_material', cost: r.cost_per_unit_cad ?? r.cost_cad ?? 0 }
+    for (const p of allPackUs || []) itemMapUs[p.item_no.toUpperCase()] = { id: p.id, item_type: 'packaging', cost: p.avg_cost_cad ?? p.cost_cad ?? 0 }
 
     let imported = 0, skipped = 0
     const errors: string[] = []
@@ -798,7 +824,7 @@ function InvoicesContent() {
       const paymentDate = String(first['Payment Date'] || '').trim() || null
       const notes = String(first['Notes'] || '').trim()
 
-      const lineItems: { product_id: string; qty: number; unit_price_cad: number; line_total_cad: number }[] = []
+      const lineItems: { item_id: string; item_type: 'raw_material' | 'packaging'; qty: number; unit_price_cad: number; line_total_cad: number }[] = []
       let hasError = false
 
       for (const row of rows) {
@@ -806,13 +832,13 @@ function InvoicesContent() {
         const qty = parseInt(String(row['Qty'] || '0'))
         const unitPrice = parseFloat(String(row['Unit Price USD'] || '0'))
         if (!sku || qty <= 0) continue
-        const product = productMap[sku]
-        if (!product) {
+        const item = itemMapUs[sku]
+        if (!item) {
           errors.push(`${invoiceNo}: SKU "${sku}" not found`)
           hasError = true
           break
         }
-        lineItems.push({ product_id: product.id, qty, unit_price_cad: unitPrice, line_total_cad: unitPrice * qty })
+        lineItems.push({ item_id: item.id, item_type: item.item_type, qty, unit_price_cad: unitPrice, line_total_cad: unitPrice * qty })
       }
 
       if (hasError || lineItems.length === 0) {
@@ -861,14 +887,9 @@ function InvoicesContent() {
     const customer = customers.find(c => c.id === customerId) || null
     setCmSelectedCustomer(customer)
     setCmForm(prev => ({ ...prev, customer_id: customerId }))
-    const priceMap: Record<string, number> = {}
-    if (customerId) {
-      const { data: prices } = await supabase.from('customer_prices').select('product_id, custom_price').eq('customer_id', customerId)
-      if (prices) prices.forEach(p => { priceMap[p.product_id] = p.custom_price })
-    }
-    setCmLineItems(products.map(p => ({
-      product_id: p.id, sku: p.sku, name: p.name,
-      size: `${p.size_oz} FL. OZ.`, unit_price: priceMap[p.id] ?? p.price_whs_cad ?? 0, qty: 0, total: 0,
+    setCmLineItems(materials.map(m => ({
+      item_id: m.id, item_type: m.item_type, item_no: m.item_no, name: m.name,
+      unit: m.unit, unit_price: m.cost, qty: 0, total: 0,
     })))
   }
 
@@ -876,19 +897,14 @@ function InvoicesContent() {
     setEditCm(cm)
     setCmSelectedCustomer(customers.find(c => c.id === cm.customer_id) || null)
     setCmForm({ customer_id: cm.customer_id, issued_at: cm.issued_at, po_number: cm.po_number || '', tax_rate: String(Math.round(cm.tax_rate * 100)), notes: cm.notes || '', applied_date: cm.applied_date || '', memo_no: cm.memo_no })
-    const [{ data: items }, { data: cmCustPrices }] = await Promise.all([
-      supabase.from('credit_memo_items').select('*, products(id, sku, name, size_oz, price_whs_cad)').eq('memo_id', cm.id),
-      supabase.from('customer_prices').select('product_id, custom_price').eq('customer_id', cm.customer_id),
-    ])
+    const { data: items } = await supabase.from('credit_memo_items').select('item_id, item_type, qty, unit_price_cad').eq('memo_id', cm.id)
     const existingMap: { [key: string]: { qty: number; unit_price: number } } = {}
-    if (items) items.forEach(item => { if (item.products?.id) existingMap[item.products.id] = { qty: item.qty, unit_price: item.unit_price_cad } })
-    const cmCustPriceMap: Record<string, number> = {}
-    if (cmCustPrices) cmCustPrices.forEach(p => { cmCustPriceMap[p.product_id] = p.custom_price })
-    setCmLineItems(products.map(p => ({
-      product_id: p.id, sku: p.sku, name: p.name, size: `${p.size_oz} FL. OZ.`,
-      unit_price: existingMap[p.id]?.unit_price ?? cmCustPriceMap[p.id] ?? p.price_whs_cad ?? 0,
-      qty: existingMap[p.id]?.qty ?? 0,
-      total: (existingMap[p.id]?.unit_price ?? cmCustPriceMap[p.id] ?? p.price_whs_cad ?? 0) * (existingMap[p.id]?.qty ?? 0),
+    if (items) items.forEach(item => { if (item.item_id) existingMap[item.item_id] = { qty: item.qty, unit_price: item.unit_price_cad } })
+    setCmLineItems(materials.map(m => ({
+      item_id: m.id, item_type: m.item_type, item_no: m.item_no, name: m.name, unit: m.unit,
+      unit_price: existingMap[m.id]?.unit_price ?? m.cost,
+      qty: existingMap[m.id]?.qty ?? 0,
+      total: (existingMap[m.id]?.unit_price ?? m.cost) * (existingMap[m.id]?.qty ?? 0),
     })))
     setShowCmModal(true)
   }
@@ -982,7 +998,7 @@ function InvoicesContent() {
         }).eq('id', editCm.id)
         if (updErr) throw updErr
         await supabase.from('credit_memo_items').delete().eq('memo_id', editCm.id)
-        const { error: itemErr } = await supabase.from('credit_memo_items').insert(cmActiveItems.map(i => ({ memo_id: editCm.id, product_id: i.product_id, qty: i.qty, unit_price_cad: i.unit_price, line_total_cad: i.total })))
+        const { error: itemErr } = await supabase.from('credit_memo_items').insert(cmActiveItems.map(i => ({ memo_id: editCm.id, item_id: i.item_id, item_type: i.item_type, qty: i.qty, unit_price_cad: i.unit_price, line_total_cad: i.total })))
         if (itemErr) throw itemErr
       } else {
         const { data: dup } = await supabase.from('credit_memos').select('id').eq('memo_no', memo_no).maybeSingle()
@@ -996,7 +1012,7 @@ function InvoicesContent() {
         }]).select().single()
         if (insErr) throw insErr
         if (cm) {
-          const { error: itemErr } = await supabase.from('credit_memo_items').insert(cmActiveItems.map(i => ({ memo_id: cm.id, product_id: i.product_id, qty: i.qty, unit_price_cad: i.unit_price, line_total_cad: i.total })))
+          const { error: itemErr } = await supabase.from('credit_memo_items').insert(cmActiveItems.map(i => ({ memo_id: cm.id, item_id: i.item_id, item_type: i.item_type, qty: i.qty, unit_price_cad: i.unit_price, line_total_cad: i.total })))
           if (itemErr) throw itemErr
         }
       }
@@ -1011,13 +1027,17 @@ function InvoicesContent() {
   }
 
   async function handleCmDownloadPDF(cm: CreditMemo) {
-    const { data: items } = await supabase.from('credit_memo_items').select('*, products(sku, name, size_oz)').eq('memo_id', cm.id)
+    const { data: items } = await supabase.from('credit_memo_items').select('item_id, item_type, qty, unit_price_cad, line_total_cad').eq('memo_id', cm.id)
     if (!items || !cm.customers) return
+    const infoMap = await resolveItemInfo(items.filter(i => i.item_id && i.item_type))
     generateCreditMemoPDF({
       memo_no: cm.memo_no, issued_at: cm.issued_at, applied_date: cm.applied_date || undefined, po_number: cm.po_number || '',
       payment_terms: cm.customers.payment_terms || '',
       customer: { company_name: cm.customers.company_name, warehouse_address: cm.customers.warehouse_address, city: cm.customers.city, province: cm.customers.province, postal_code: cm.customers.postal_code },
-      items: items.map(i => ({ sku: i.products?.sku || '', name: i.products?.name || '', size: `${i.products?.size_oz} FL. OZ.`, unit_price: i.unit_price_cad, qty: i.qty, total: i.line_total_cad })),
+      items: items.map(i => {
+        const info = infoMap.get(i.item_id)
+        return { sku: info?.item_no || '', name: info?.name || '', size: info?.unit || '', unit_price: i.unit_price_cad, qty: i.qty, total: i.line_total_cad }
+      }),
       subtotal: cm.subtotal_cad, tax_rate: cm.tax_rate, tax_amount: cm.tax_amount_cad, total: cm.total_cad, notes: cm.notes || '',
     })
   }
@@ -1084,16 +1104,18 @@ function InvoicesContent() {
       grouped[no].push(row)
     }
 
-    const { data: allCustomers } = await supabase.from('customers').select('id, company_name')
-    const { data: allProducts } = await supabase.from('products').select('id, sku, price_whs_cad')
+    const { data: allCustomersCm } = await supabase.from('customers').select('id, company_name')
+    const { data: allRawMatsCm } = await supabase.from('raw_materials').select('id, item_no, cost_per_unit_cad, cost_cad')
+    const { data: allPackCm } = await supabase.from('packaging').select('id, item_no, avg_cost_cad, cost_cad')
     const { data: existingMemos } = await supabase.from('credit_memos').select('memo_no')
     const existingNos = new Set((existingMemos || []).map(m => m.memo_no))
 
     const customerMap: { [name: string]: string } = {}
-    for (const c of allCustomers || []) customerMap[c.company_name.toLowerCase()] = c.id
+    for (const c of allCustomersCm || []) customerMap[c.company_name.toLowerCase()] = c.id
 
-    const productMap: { [sku: string]: { id: string; price: number } } = {}
-    for (const p of allProducts || []) productMap[p.sku.toUpperCase()] = { id: p.id, price: p.price_whs_cad }
+    const itemMapCm: { [itemNo: string]: { id: string; item_type: 'raw_material' | 'packaging'; cost: number } } = {}
+    for (const r of allRawMatsCm || []) itemMapCm[r.item_no.toUpperCase()] = { id: r.id, item_type: 'raw_material', cost: r.cost_per_unit_cad ?? r.cost_cad ?? 0 }
+    for (const p of allPackCm || []) itemMapCm[p.item_no.toUpperCase()] = { id: p.id, item_type: 'packaging', cost: p.avg_cost_cad ?? p.cost_cad ?? 0 }
 
     let imported = 0, skipped = 0
     const errors: string[] = []
@@ -1121,7 +1143,7 @@ function InvoicesContent() {
       const appliedDate = String(first['Applied Date'] || '').trim() || null
       const notes = String(first['Notes'] || '').trim()
 
-      const lineItemsToInsert: { product_id: string; qty: number; unit_price_cad: number; line_total_cad: number }[] = []
+      const lineItemsToInsert: { item_id: string; item_type: 'raw_material' | 'packaging'; qty: number; unit_price_cad: number; line_total_cad: number }[] = []
       let hasError = false
 
       for (const row of rows) {
@@ -1129,13 +1151,13 @@ function InvoicesContent() {
         const qty = parseInt(String(row['Qty'] || '0'))
         const unitPrice = parseFloat(String(row['Unit Price CAD'] || '0'))
         if (!sku || qty <= 0) continue
-        const product = productMap[sku]
-        if (!product) {
+        const item = itemMapCm[sku]
+        if (!item) {
           errors.push(`${memoNo}: SKU "${sku}" not found`)
           hasError = true
           break
         }
-        lineItemsToInsert.push({ product_id: product.id, qty, unit_price_cad: unitPrice, line_total_cad: unitPrice * qty })
+        lineItemsToInsert.push({ item_id: item.id, item_type: item.item_type, qty, unit_price_cad: unitPrice, line_total_cad: unitPrice * qty })
       }
 
       if (hasError || lineItemsToInsert.length === 0) {
@@ -1956,17 +1978,17 @@ function InvoicesContent() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                      {['Item #', 'Description', 'Size', 'Unit Cost', 'Qty', 'Total'].map(h => (
+                      {['Item #', 'Description', 'Unit', 'Unit Cost', 'Qty', 'Total'].map(h => (
                         <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {cmLineItems.map((item, index) => (
-                      <tr key={item.product_id} style={{ borderBottom: '1px solid #f1f5f9', background: item.qty > 0 ? '#faf5ff' : '#fff' }}>
-                        <td style={{ padding: '8px 12px', fontSize: '12px', fontWeight: '600', color: '#7c3aed' }}>{item.sku}</td>
+                      <tr key={item.item_id} style={{ borderBottom: '1px solid #f1f5f9', background: item.qty > 0 ? '#faf5ff' : '#fff' }}>
+                        <td style={{ padding: '8px 12px', fontSize: '12px', fontWeight: '600', color: '#7c3aed' }}>{item.item_no}</td>
                         <td style={{ padding: '8px 12px', fontSize: '12px', color: '#1e293b' }}>{item.name}</td>
-                        <td style={{ padding: '8px 12px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{item.size}</td>
+                        <td style={{ padding: '8px 12px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{item.unit}</td>
                         <td style={{ padding: '8px 12px' }}>
                           <input type='number' value={item.unit_price} onChange={e => cmUpdateUnitPrice(index, parseFloat(e.target.value) || 0)} style={{ width: '70px', padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '12px', outline: 'none' }} />
                         </td>
@@ -1985,7 +2007,7 @@ function InvoicesContent() {
 
             {!cmSelectedCustomer && (
               <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '13px', marginBottom: '16px', border: '1px dashed #e2e8f0' }}>
-                Select a customer to load all products
+                Select a customer to load all items
               </div>
             )}
 
@@ -2078,17 +2100,17 @@ function InvoicesContent() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                      {['Item #', 'Description', 'Size', 'Unit Cost', 'Qty', 'Total'].map(h => (
+                      {['Item #', 'Description', 'Unit', 'Unit Cost', 'Qty', 'Total'].map(h => (
                         <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {lineItems.map((item, index) => (
-                      <tr key={item.product_id} style={{ borderBottom: '1px solid #f1f5f9', background: item.qty > 0 ? '#f0fdf4' : '#fff' }}>
-                        <td style={{ padding: '8px 12px', fontSize: '12px', fontWeight: '600', color: '#2563eb' }}>{item.sku}</td>
+                      <tr key={item.item_id} style={{ borderBottom: '1px solid #f1f5f9', background: item.qty > 0 ? '#f0fdf4' : '#fff' }}>
+                        <td style={{ padding: '8px 12px', fontSize: '12px', fontWeight: '600', color: '#2563eb' }}>{item.item_no}</td>
                         <td style={{ padding: '8px 12px', fontSize: '12px', color: '#1e293b' }}>{item.name}</td>
-                        <td style={{ padding: '8px 12px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{item.size}</td>
+                        <td style={{ padding: '8px 12px', fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{item.unit}</td>
                         <td style={{ padding: '8px 12px' }}>
                           <input type='number' value={item.unit_price} onChange={e => updateUnitPrice(index, parseFloat(e.target.value) || 0)} style={{ width: '70px', padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '12px', outline: 'none' }} />
                         </td>
@@ -2107,7 +2129,7 @@ function InvoicesContent() {
 
             {!selectedCustomer && (
               <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '13px', marginBottom: '16px', border: '1px dashed #e2e8f0' }}>
-                Select a customer to load all products
+                Select a customer to load all items
               </div>
             )}
 
