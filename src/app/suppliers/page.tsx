@@ -130,12 +130,12 @@ export default function Suppliers() {
       const old = { ...editSupplier }
       const { error: updateError } = await supabase.from('suppliers').update(payload).eq('id', editSupplier.id)
       console.log('[suppliers] update id:', editSupplier.id, 'error:', updateError)
-      if (updateError) { alert(`저장 실패: ${updateError.message}`); return }
+      if (updateError) { alert(`Failed to save: ${updateError.message}`); return }
       await logActivity(supabase, 'suppliers', editSupplier.id, 'UPDATE', old, payload)
     } else {
       const { data: inserted, error: insertError } = await supabase.from('suppliers').insert([payload]).select().single()
       console.log('[suppliers] insert result:', inserted, 'error:', insertError)
-      if (insertError) { alert(`추가 실패: ${insertError.message}`); return }
+      if (insertError) { alert(`Failed to add supplier: ${insertError.message}`); return }
       if (inserted) await logActivity(supabase, 'suppliers', inserted.id, 'INSERT', null, payload)
     }
     setShowModal(false)
@@ -147,12 +147,12 @@ export default function Suppliers() {
 
   async function handleDelete() {
     if (!editSupplier) return
-    if (!confirm(`"${editSupplier.name}" 공급업체를 삭제하시겠습니까?`)) return
+    if (!confirm(`Are you sure you want to delete "${editSupplier.name}"?`)) return
     const old = { ...editSupplier }
     const { error } = await supabase.from('suppliers').delete().eq('id', old.id)
     console.log('[suppliers] delete id:', old.id, 'error:', error)
     if (error) {
-      alert(`삭제 실패: ${error.message}`)
+      alert(`Failed to delete: ${error.message}`)
       return
     }
     await logActivity(supabase, 'suppliers', old.id, 'DELETE', old)
