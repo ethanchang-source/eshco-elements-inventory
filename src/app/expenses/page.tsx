@@ -120,6 +120,8 @@ export default function Expenses() {
   const [importResult, setImportResult] = useState('')
   const [saveError, setSaveError] = useState('')
   const [inlineUploadError, setInlineUploadError] = useState<string | null>(null)
+  const activeMonthRef = useRef(currentMonthIdx)
+  useEffect(() => { activeMonthRef.current = activeMonth }, [activeMonth])
   const importRef = useRef<HTMLInputElement>(null)
   const inlineUploadRef = useRef<HTMLInputElement>(null)
   const modalReceiptRef = useRef<HTMLInputElement>(null)
@@ -152,14 +154,25 @@ export default function Expenses() {
 
   async function fetchExpenses(year: number) {
     setLoading(true)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('expenses')
       .select('*')
-      .is('deleted_at', null)
       .gte('expense_date', `${year}-01-01`)
       .lte('expense_date', `${year}-12-31`)
       .order('expense_date', { ascending: false })
-    setExpenses(data || [])
+    console.log('[expenses] year:', year, 'count:', data?.length, 'error:', error)
+    if (error) console.error('[expenses] fetch error detail:', error)
+    const rows = data || []
+    setExpenses(rows)
+    // If current month has no data, jump to the most recent month that does
+    if (rows.length > 0) {
+      const hasCurrentMonth = rows.some(e => parseInt((e.expense_date || '').slice(5, 7)) - 1 === activeMonthRef.current)
+      if (!hasCurrentMonth) {
+        const months = rows.map(e => parseInt((e.expense_date || '').slice(5, 7)) - 1)
+        const latest = Math.max(...months)
+        setActiveMonth(latest)
+      }
+    }
     setLoading(false)
   }
 
