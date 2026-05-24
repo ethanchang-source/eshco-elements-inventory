@@ -26,7 +26,7 @@ interface RecentInvoice {
 const COLLAPSE_LIMIT = 5
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({ products: 0, rawMaterials: 0, invoices: 0 })
+  const [stats, setStats] = useState({ materials: 0, invoices: 0 })
   const [lowStock, setLowStock] = useState<LowStockProduct[]>([])
   const [recentInvoices, setRecentInvoices] = useState<RecentInvoice[]>([])
   const [loading, setLoading] = useState(true)
@@ -43,14 +43,14 @@ export default function Dashboard() {
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
 
     const [
-      { data: products },
       { data: rawMaterials },
+      { data: packaging },
       { data: invoicesThisMonth },
       { data: allActiveProducts },
       { data: recentInvData },
     ] = await Promise.all([
-      supabase.from('products').select('id').eq('is_active', true),
       supabase.from('raw_materials').select('id'),
+      supabase.from('packaging').select('id'),
       supabase.from('invoices').select('id').gte('issued_at', monthStart),
       supabase.from('products').select('id, sku, name, current_stock, reorder_threshold').eq('is_active', true).gt('reorder_threshold', 0).order('current_stock'),
       supabase.from('invoices').select('id, invoice_no, issued_at, total_cad, status, customers(company_name)').order('invoice_no', { ascending: false }).limit(50),
@@ -59,8 +59,7 @@ export default function Dashboard() {
     const lowStockItems = (allActiveProducts || []).filter(p => p.reorder_threshold != null && p.reorder_threshold > 0 && p.current_stock <= p.reorder_threshold)
 
     setStats({
-      products: products?.length ?? 0,
-      rawMaterials: rawMaterials?.length ?? 0,
+      materials: (rawMaterials?.length ?? 0) + (packaging?.length ?? 0),
       invoices: invoicesThisMonth?.length ?? 0,
     })
     setLowStock(lowStockItems)
@@ -76,15 +75,15 @@ export default function Dashboard() {
     const channel = supabase
       .channel('dashboard-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' }, () => fetchDashboardData(true))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => fetchDashboardData(true))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'raw_materials' }, () => fetchDashboardData(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'packaging' }, () => fetchDashboardData(true))
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
   }, [fetchDashboardData])
 
   const statCards = [
-    { title: 'Total Products', value: stats.products, subtitle: 'Active SKUs', icon: Package, color: '#2563eb', bg: '#eff6ff' },
+    { title: 'Total Raw Materials + Packaging Items', value: stats.materials, subtitle: 'Active items', icon: Package, color: '#2563eb', bg: '#eff6ff' },
     { title: 'Invoices', value: stats.invoices, subtitle: 'This month', icon: FileText, color: '#7c3aed', bg: '#f5f3ff' },
   ]
 

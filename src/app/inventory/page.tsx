@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { formatCurrency, formatTorontoDate } from '@/lib/utils'
+import { formatTorontoDate } from '@/lib/utils'
 import { FlaskConical, Plus, Search, Package, Upload, Download, AlertTriangle } from 'lucide-react'
 import { parseCSV, downloadCSVTemplate } from '@/lib/csvImport'
 import * as XLSX from 'xlsx'
@@ -64,21 +64,6 @@ interface PurchaseHistoryEntry {
   } | null
 }
 
-interface Product {
-  id: string
-  sku: string
-  name: string
-  size_oz: number
-  unit_cost_cad: number
-  current_stock: number
-  reorder_threshold: number
-  max_capacity?: number | null
-  is_active: boolean
-  barcode_upc?: string | null
-  barcode_itf14?: string | null
-  whs_price_cad?: number | null
-  msrp_cad?: number | null
-}
 
 function formatRawStock(stock_ml: number, purchase_unit: string | null | undefined, purchase_unit_kg: number | null | undefined): string {
   const kg = stock_ml / 1000
@@ -110,40 +95,33 @@ function InventoryContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
 
-  function resolveTab(params: ReturnType<typeof useSearchParams>): 'raw' | 'packaging' | 'finished' {
+  function resolveTab(params: ReturnType<typeof useSearchParams>): 'raw' | 'packaging' {
     const t = params.get('tab')
-    if (t === 'raw' || t === 'packaging' || t === 'finished') return t
-    return 'finished'
+    if (t === 'raw' || t === 'packaging') return t
+    return 'raw'
   }
 
-  const [tab, setTab] = useState<'raw' | 'packaging' | 'finished'>(() => resolveTab(searchParams))
+  const [tab, setTab] = useState<'raw' | 'packaging'>(() => resolveTab(searchParams))
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([])
   const [packaging, setPackaging] = useState<Packaging[]>([])
-  const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState('')
   const [pendingFile, setPendingFile] = useState<File | null>(null)
-  const [pendingTab, setPendingTab] = useState<'raw' | 'packaging' | 'finished' | null>(null)
+  const [pendingTab, setPendingTab] = useState<'raw' | 'packaging' | null>(null)
   const [showImportConfirm, setShowImportConfirm] = useState(false)
   const [snapshotRaw, setSnapshotRaw] = useState<RawMaterial[] | null>(null)
   const [snapshotPack, setSnapshotPack] = useState<Packaging[] | null>(null)
-  const [snapshotFinished, setSnapshotFinished] = useState<Product[] | null>(null)
   const [undoRestoring, setUndoRestoring] = useState(false)
   const [rawForm, setRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '' })
   const [packForm, setPackForm] = useState({ item_no: '', name: '', type: 'bottle', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '' })
 
   const [editRaw, setEditRaw] = useState<RawMaterial | null>(null)
   const [editPack, setEditPack] = useState<Packaging | null>(null)
-  const [editFinished, setEditFinished] = useState<Product | null>(null)
   const [editRawForm, setEditRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', cost_per_unit_usd: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '', purchase_unit: '', purchase_unit_kg: '' })
   const [editPackForm, setEditPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', unit: 'ea', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '', modules: '', maxCapModules: '', roll_length_m: '' })
-  const [editFinishedStock, setEditFinishedStock] = useState('')
-  const [editFinishedReorderThreshold, setEditFinishedReorderThreshold] = useState('')
-  const [editFinishedMaxCapacity, setEditFinishedMaxCapacity] = useState('')
-  const [editFinishedReplenishUserEdited, setEditFinishedReplenishUserEdited] = useState(false)
   const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
   const [inventorySuppliers, setInventorySuppliers] = useState<Supplier[]>([])
   const [itemPurchaseHistory, setItemPurchaseHistory] = useState<PurchaseHistoryEntry[]>([])
@@ -153,15 +131,13 @@ function InventoryContent() {
   useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
-    const [r, p, fg, sup] = await Promise.all([
+    const [r, p, sup] = await Promise.all([
       supabase.from('raw_materials').select('*').order('item_no'),
       supabase.from('packaging').select('*').order('item_no'),
-      supabase.from('products').select('*').eq('is_active', true).is('deleted_at', null).order('sku'),
       supabase.from('suppliers').select('id, name').order('name'),
     ])
     setRawMaterials(r.data || [])
     setPackaging(p.data || [])
-    setProducts(fg.data || [])
     setInventorySuppliers(sup.data || [])
     setLoading(false)
   }
@@ -227,17 +203,6 @@ function InventoryContent() {
     fetchItemPurchaseHistory('packaging', p.id)
   }
 
-  function openEditFinished(p: Product) {
-    setEditFinished(p)
-    setEditFinishedStock(String(p.current_stock != null ? Math.round(p.current_stock / 36) : ''))
-    const maxBoxes = p.max_capacity != null ? Math.round(p.max_capacity / 36) : 0
-    setEditFinishedMaxCapacity(p.max_capacity != null ? String(maxBoxes) : '')
-    const replenishBoxes = p.reorder_threshold != null && p.reorder_threshold > 0
-      ? Math.round(p.reorder_threshold / 36)
-      : maxBoxes > 0 ? Math.floor(maxBoxes / 2) : 0
-    setEditFinishedReorderThreshold(String(replenishBoxes))
-    setEditFinishedReplenishUserEdited(false)
-  }
 
   async function handleUpdateRaw() {
     if (!editRaw) return
@@ -331,36 +296,6 @@ function InventoryContent() {
     })
   }
 
-  async function handleUpdateFinished() {
-    if (!editFinished) return
-    const { error } = await supabase.from('products').update({
-      current_stock: (parseInt(editFinishedStock) || 0) * 36,
-      reorder_threshold: editFinishedReorderThreshold !== '' ? (parseInt(editFinishedReorderThreshold) || 0) * 36 : 0,
-      max_capacity: editFinishedMaxCapacity !== '' ? (parseInt(editFinishedMaxCapacity) || 0) * 36 : null,
-    }).eq('id', editFinished.id)
-    if (error) console.error('finished product update error:', error)
-    setEditFinished(null)
-    fetchAll()
-  }
-
-  async function handleDeleteFinished() {
-    if (!editFinished) return
-    if (!confirm(`Delete product "${editFinished.sku} – ${editFinished.name}"?`)) return
-    const old = { ...editFinished }
-    await logActivity(supabase, 'products', old.id, 'DELETE', old)
-    await supabase.from('products').delete().eq('id', old.id)
-    setEditFinished(null)
-    fetchAll()
-    setUndoToast({
-      message: `"${old.sku}" deleted.`,
-      onUndo: async () => {
-        await supabase.from('products').upsert([old])
-        await logActivity(supabase, 'products', old.id, 'UPDATE', null, old)
-        setUndoToast(null)
-        fetchAll()
-      },
-    })
-  }
 
   async function handleRawSubmit() {
     await supabase.from('raw_materials').insert([{
@@ -402,7 +337,6 @@ function InventoryContent() {
     if (!pendingFile || !pendingTab) return
     if (pendingTab === 'raw') setSnapshotRaw([...rawMaterials])
     else if (pendingTab === 'packaging') setSnapshotPack([...packaging])
-    else setSnapshotFinished([...products])
     await runImport(pendingFile, pendingTab)
     setPendingFile(null)
     setPendingTab(null)
@@ -420,57 +354,31 @@ function InventoryContent() {
     return parseCSV(await file.text())
   }
 
-  async function runImport(file: File, importTab: 'raw' | 'packaging' | 'finished') {
+  async function runImport(file: File, importTab: 'raw' | 'packaging') {
     setImporting(true)
     setImportResult('')
     try {
       const rows = await parseFileRows(file)
       let success = 0, failed = 0
       for (const row of rows) {
-        if (importTab === 'finished') {
-          if (!row.sku) { failed++; continue }
-          const existing = products.find(p => p.sku === row.sku.trim())
-          const upsertData: Record<string, unknown> = { sku: row.sku.trim(), is_active: true }
-          if (row.name) upsertData.name = row.name.trim()
-          else if (existing) upsertData.name = existing.name
-          if (row.size_oz) upsertData.size_oz = parseFloat(row.size_oz)
-          else if (existing) upsertData.size_oz = existing.size_oz
-          if (row.barcode_upc) upsertData.barcode_upc = row.barcode_upc.trim()
-          else if (existing?.barcode_upc) upsertData.barcode_upc = existing.barcode_upc
-          if (row.barcode_itf14) upsertData.barcode_itf14 = row.barcode_itf14.trim()
-          else if (existing?.barcode_itf14) upsertData.barcode_itf14 = existing.barcode_itf14
-          if (row.unit_cost_cad) upsertData.unit_cost_cad = parseFloat(row.unit_cost_cad)
-          else if (existing) upsertData.unit_cost_cad = existing.unit_cost_cad
-          if (row.price_whs_cad) upsertData.whs_price_cad = parseFloat(row.price_whs_cad)
-          else if (existing?.whs_price_cad != null) upsertData.whs_price_cad = existing.whs_price_cad
-          if (row.msrp_cad) upsertData.msrp_cad = parseFloat(row.msrp_cad)
-          else if (existing?.msrp_cad != null) upsertData.msrp_cad = existing.msrp_cad
-          if (row.current_stock) upsertData.current_stock = parseInt(row.current_stock)
-          else if (existing) upsertData.current_stock = existing.current_stock
-          if (row.reorder_threshold) upsertData.reorder_threshold = parseInt(row.reorder_threshold)
-          else if (existing) upsertData.reorder_threshold = existing.reorder_threshold
-          const { error } = await supabase.from('products').upsert([upsertData], { onConflict: 'sku' })
+        if (!row.item_no || !row.name) { failed++; continue }
+        if (importTab === 'raw') {
+          const { error } = await supabase.from('raw_materials').upsert([{
+            item_no: row.item_no, name: row.name, unit: row.unit || 'ml',
+            cost_per_unit_cad: parseFloat(row.cost_per_unit_cad) || 0,
+            current_stock: parseFloat(row.current_stock) || 0,
+            reorder_threshold: parseFloat(row.reorder_threshold) || 0,
+          }], { onConflict: 'item_no' })
           if (error) failed++; else success++
         } else {
-          if (!row.item_no || !row.name) { failed++; continue }
-          if (importTab === 'raw') {
-            const { error } = await supabase.from('raw_materials').upsert([{
-              item_no: row.item_no, name: row.name, unit: row.unit || 'ml',
-              cost_per_unit_cad: parseFloat(row.cost_per_unit_cad) || 0,
-              current_stock: parseFloat(row.current_stock) || 0,
-              reorder_threshold: parseFloat(row.reorder_threshold) || 0,
-            }], { onConflict: 'item_no' })
-            if (error) failed++; else success++
-          } else {
-            const { error } = await supabase.from('packaging').upsert([{
-              item_no: row.item_no, name: row.name, type: row.type || 'bottle',
-              size_oz: parseFloat(row.size_oz) || 0,
-              cost_cad: parseFloat(row.cost_cad) || 0,
-              current_stock: parseInt(row.current_stock) || 0,
-              reorder_threshold: parseInt(row.reorder_threshold) || 0,
-            }], { onConflict: 'item_no' })
-            if (error) failed++; else success++
-          }
+          const { error } = await supabase.from('packaging').upsert([{
+            item_no: row.item_no, name: row.name, type: row.type || 'bottle',
+            size_oz: parseFloat(row.size_oz) || 0,
+            cost_cad: parseFloat(row.cost_cad) || 0,
+            current_stock: parseInt(row.current_stock) || 0,
+            reorder_threshold: parseInt(row.reorder_threshold) || 0,
+          }], { onConflict: 'item_no' })
+          if (error) failed++; else success++
         }
       }
       setImportResult(`✅ ${success} items imported. ${failed > 0 ? `❌ ${failed} failed.` : ''}`)
@@ -489,9 +397,6 @@ function InventoryContent() {
     } else if (tab === 'packaging' && snapshotPack) {
       await supabase.from('packaging').upsert(snapshotPack, { onConflict: 'id' })
       setSnapshotPack(null)
-    } else if (tab === 'finished' && snapshotFinished) {
-      await supabase.from('products').upsert(snapshotFinished, { onConflict: 'id' })
-      setSnapshotFinished(null)
     }
     setImportResult('')
     fetchAll()
@@ -503,20 +408,13 @@ function InventoryContent() {
       downloadCSVTemplate(['item_no', 'name', 'unit', 'cost_per_unit_cad', 'current_stock', 'reorder_threshold'], 'raw_materials_template.csv')
     } else if (tab === 'packaging') {
       downloadCSVTemplate(['item_no', 'name', 'type', 'size_oz', 'cost_cad', 'current_stock', 'reorder_threshold'], 'packaging_template.csv')
-    } else if (tab === 'finished') {
-      const ws = XLSX.utils.aoa_to_sheet([['sku', 'name', 'size_oz', 'barcode_upc', 'barcode_itf14', 'unit_cost_cad', 'price_whs_cad', 'msrp_cad', 'current_stock', 'reorder_threshold']])
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'Finished Goods')
-      XLSX.writeFile(wb, 'finished_goods_template.xlsx')
     }
   }
 
   const filteredRaw = rawMaterials.filter(r => r.name?.toLowerCase().includes(search.toLowerCase()) || r.item_no?.toLowerCase().includes(search.toLowerCase()))
   const filteredPack = packaging.filter(p => p.name?.toLowerCase().includes(search.toLowerCase()) || p.item_no?.toLowerCase().includes(search.toLowerCase()))
-  const filteredProducts = products.filter(p => p.name?.toLowerCase().includes(search.toLowerCase()) || p.sku?.toLowerCase().includes(search.toLowerCase()))
 
   const tabs = [
-    { key: 'finished', label: 'Finished Goods' },
     { key: 'raw', label: 'Raw Materials' },
     { key: 'packaging', label: 'Packaging' },
   ] as const
@@ -554,15 +452,13 @@ function InventoryContent() {
             <Upload size={14} /> {importing ? 'Importing...' : 'Import'}
             <input type='file' accept='.csv,.xlsx,.xls' onChange={handleFileSelect} style={{ display: 'none' }} />
           </label>
-          {tab !== 'finished' && (
-            <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
-              <Plus size={14} /> Add
-            </button>
-          )}
+          <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
+            <Plus size={14} /> Add
+          </button>
         </div>
       </div>
 
-      {((tab === 'raw' && snapshotRaw) || (tab === 'packaging' && snapshotPack) || (tab === 'finished' && snapshotFinished)) && (
+      {((tab === 'raw' && snapshotRaw) || (tab === 'packaging' && snapshotPack)) && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: '8px', padding: '10px 16px', marginBottom: '12px' }}>
           <div style={{ fontSize: '13px', color: '#92400e', fontWeight: '500' }}>Import applied. You can restore the previous data.</div>
           <button onClick={handleUndo} disabled={undoRestoring} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#92400e', border: '1px solid #fcd34d', borderRadius: '6px', padding: '6px 14px', fontSize: '13px', fontWeight: '500', cursor: undoRestoring ? 'not-allowed' : 'pointer' }}>
@@ -586,9 +482,6 @@ function InventoryContent() {
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
               {tab === 'packaging' && ['Item #', 'Name', 'Type', 'Unit', 'Cost (CAD)', 'Cost (Avg)', 'Current Stock', 'Replenish At', 'Status'].map(h => (
-                <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
-              ))}
-              {tab === 'finished' && ['SKU', 'Name', 'Size', 'MFG Cost (CAD)', 'Current Stock', 'Replenish At', 'Status'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
@@ -669,45 +562,6 @@ function InventoryContent() {
                 </tr>
                 )
               })
-            ) : (
-              filteredProducts.length === 0 ? (
-                <tr><td colSpan={7} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
-                  <Package size={32} color='#e2e8f0' style={{ display: 'block', margin: '0 auto 8px' }} />
-                  No finished goods yet
-                </td></tr>
-              ) : filteredProducts.map(p => {
-                const fgPct = p.max_capacity ? Math.min(100, (p.current_stock / p.max_capacity) * 100) : null
-                const fgBarColor = fgPct === null ? '#94a3b8' : fgPct >= 80 ? '#16a34a' : fgPct >= 50 ? '#f59e0b' : '#dc2626'
-                return (
-                <tr key={p.id} onClick={() => openEditFinished(p)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }} {...rowHover}>
-                  <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{p.sku}</td>
-                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{p.name}</td>
-                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.size_oz} oz</td>
-                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${formatCurrency(p.unit_cost_cad)}</td>
-                  <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a' }}>
-                    <div>
-                      {p.current_stock?.toLocaleString()} units ({Math.round((p.current_stock || 0) / 36)} boxes)
-                      {p.max_capacity != null && ` / ${p.max_capacity.toLocaleString()} units (${Math.round(p.max_capacity / 36)} boxes)`}
-                    </div>
-                    {fgPct !== null && (
-                      <div style={{ marginTop: '4px', height: '4px', background: '#e2e8f0', borderRadius: '2px', width: '120px' }}>
-                        <div style={{ height: '100%', width: `${fgPct}%`, background: fgBarColor, borderRadius: '2px', transition: 'width 0.3s' }} />
-                      </div>
-                    )}
-                  </td>
-                  <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>
-                    {p.reorder_threshold != null
-                      ? `${p.reorder_threshold.toLocaleString()} units (${Math.round(p.reorder_threshold / 36)} boxes)`
-                      : '—'}
-                  </td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <span style={{ background: p.current_stock <= p.reorder_threshold ? '#fef2f2' : '#f0fdf4', color: p.current_stock <= p.reorder_threshold ? '#dc2626' : '#16a34a', padding: '2px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '500' }}>
-                      {p.current_stock <= p.reorder_threshold ? 'Low Stock' : 'OK'}
-                    </span>
-                  </td>
-                </tr>
-                )
-              })
             )}
           </tbody>
           <tfoot>
@@ -741,21 +595,6 @@ function InventoryContent() {
                 </tr>
               )
             })()}
-            {tab === 'finished' && !loading && filteredProducts.length > 0 && (() => {
-              const mfgVal = filteredProducts.reduce((s, p) => s + (p.unit_cost_cad || 0) * (p.current_stock || 0), 0)
-              const whsVal = filteredProducts.reduce((s, p) => s + (p.whs_price_cad || 0) * (p.current_stock || 0), 0)
-              const fmt = (n: number) => '$' + n.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-              return (
-                <tr style={{ background: '#eff6ff', borderTop: '2px solid #bfdbfe' }}>
-                  <td colSpan={7} style={{ padding: '12px 16px' }}>
-                    <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '12px', color: '#1e40af', fontWeight: '600' }}>Total MFG Cost Value: <strong>{fmt(mfgVal)}</strong></span>
-                      <span style={{ fontSize: '12px', color: '#1e40af', fontWeight: '600' }}>Total WHS Revenue Potential: <strong>{fmt(whsVal)}</strong></span>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })()}
           </tfoot>
         </table>
         </div>
@@ -782,7 +621,7 @@ function InventoryContent() {
       )}
 
       {/* Add Modal (Raw / Packaging) */}
-      {showModal && tab !== 'finished' && (
+      {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Add {tab === 'raw' ? 'Raw Material' : 'Packaging Item'}</h2>
@@ -1095,58 +934,7 @@ function InventoryContent() {
         </div>
       )}
 
-      {/* Edit Finished Goods Modal */}
-      {editFinished && (
-        <div className="modal-overlay" onClick={() => setEditFinished(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '400px', margin: '20px auto' }}>
-            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '4px' }}>Edit Stock</h2>
-            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>{editFinished.sku} – {editFinished.name}</p>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={lbl}>Boxes (1 box = 36 units)</label>
-              <input type='number' value={editFinishedStock} onChange={e => setEditFinishedStock(e.target.value)} style={inp} placeholder='0' />
-              {editFinishedStock !== '' && (
-                <div style={{ marginTop: '6px', fontSize: '13px', color: '#2563eb', fontWeight: '500' }}>
-                  {parseInt(editFinishedStock) || 0} boxes = {(parseInt(editFinishedStock) || 0) * 36} units
-                </div>
-              )}
-            </div>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={lbl}>Replenish At (Boxes)</label>
-              <input type='number' min='0' value={editFinishedReorderThreshold} onChange={e => {
-                setEditFinishedReorderThreshold(e.target.value)
-                setEditFinishedReplenishUserEdited(true)
-              }} style={inp} placeholder='0' />
-              {editFinishedReorderThreshold !== '' && (
-                <div style={{ marginTop: '6px', fontSize: '13px', color: '#2563eb', fontWeight: '500' }}>
-                  {(parseInt(editFinishedReorderThreshold) || 0) * 36} units ({parseInt(editFinishedReorderThreshold) || 0} boxes)
-                </div>
-              )}
-            </div>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={lbl}>Max Capacity (boxes)</label>
-              <input type='number' value={editFinishedMaxCapacity} onChange={e => {
-                setEditFinishedMaxCapacity(e.target.value)
-                const boxes = parseInt(e.target.value) || 0
-                if (!editFinishedReplenishUserEdited) {
-                  setEditFinishedReorderThreshold(String(Math.floor(boxes / 2)))
-                }
-              }} style={inp} placeholder='0' />
-              {editFinishedMaxCapacity !== '' && (
-                <div style={{ marginTop: '6px', fontSize: '13px', color: '#64748b', fontWeight: '500' }}>
-                  {parseInt(editFinishedMaxCapacity) || 0} boxes = {(parseInt(editFinishedMaxCapacity) || 0) * 36} units
-                </div>
-              )}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
-              <button onClick={handleDeleteFinished} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>Delete</button>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <button onClick={() => setEditFinished(null)} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-                <button onClick={handleUpdateFinished} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Save Changes</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+
       {undoToast && <UndoToast message={undoToast.message} onUndo={undoToast.onUndo} onDismiss={() => setUndoToast(null)} />}
     </MainLayout>
   )
