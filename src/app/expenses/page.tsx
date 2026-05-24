@@ -126,6 +126,7 @@ export default function Expenses() {
   const [inlineUploadTarget, setInlineUploadTarget] = useState<Expense | null>(null)
   const [inlineUploadingId, setInlineUploadingId] = useState<string | null>(null)
   const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
+  const [categoryFilter, setCategoryFilter] = useState('')
 
   useEffect(() => { fetchExpenses(activeYear) }, [activeYear])
 
@@ -167,6 +168,20 @@ export default function Expenses() {
     return m === activeMonth
   })
 
+  const monthCategories = Array.from(new Set(monthExpenses.map(e => e.category).filter((c): c is string => Boolean(c)))).sort()
+  const filteredExpenses = categoryFilter ? monthExpenses.filter(e => e.category === categoryFilter) : monthExpenses
+
+  const summaryMap = new Map<string, { subtotal: number; tax: number; total: number }>()
+  filteredExpenses.forEach(e => {
+    const cat = e.category || '(No Category)'
+    if (!summaryMap.has(cat)) summaryMap.set(cat, { subtotal: 0, tax: 0, total: 0 })
+    const row = summaryMap.get(cat)!
+    row.subtotal += e.amount_before_tax || 0
+    row.tax += e.sales_tax || 0
+    row.total += e.total_amount || 0
+  })
+  const summaryRows = Array.from(summaryMap.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+
   // KPI
   const kpiMonthStr = `${activeYear}-${String(currentMonthIdx + 1).padStart(2, '0')}`
   const thisMonth = expenses.filter(e => e.expense_date?.startsWith(kpiMonthStr))
@@ -174,10 +189,10 @@ export default function Expenses() {
   const kpiUSD = thisMonth.reduce((s, e) => s + (e.amount_usd || 0), 0)
   const ytdCAD = expenses.reduce((s, e) => s + (e.total_amount || 0), 0)
 
-  const monthTotal = monthExpenses.reduce((s, e) => s + (e.total_amount || 0), 0)
-  const monthBeforeTax = monthExpenses.reduce((s, e) => s + (e.amount_before_tax || 0), 0)
-  const monthSalesTax = monthExpenses.reduce((s, e) => s + (e.sales_tax || 0), 0)
-  const monthFreight = monthExpenses.reduce((s, e) => s + (e.freight_tip || 0), 0)
+  const monthTotal = filteredExpenses.reduce((s, e) => s + (e.total_amount || 0), 0)
+  const monthBeforeTax = filteredExpenses.reduce((s, e) => s + (e.amount_before_tax || 0), 0)
+  const monthSalesTax = filteredExpenses.reduce((s, e) => s + (e.sales_tax || 0), 0)
+  const monthFreight = filteredExpenses.reduce((s, e) => s + (e.freight_tip || 0), 0)
 
   const computedTotal =
     (parseFloat(form.amount_before_tax) || 0) +
@@ -494,12 +509,16 @@ export default function Expenses() {
         ))}
       </div>
 
-      {/* Year Dropdown */}
-      <div style={{ marginBottom: '12px' }}>
+      {/* Year + Category Filter Row */}
+      <div style={{ marginBottom: '12px', display: 'flex', gap: '10px', alignItems: 'center' }}>
         <select value={activeYear} onChange={e => setActiveYear(Number(e.target.value))} style={{ height: '36px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0 12px', fontSize: '14px', fontWeight: '500', color: '#1e293b', cursor: 'pointer', outline: 'none' }}>
           {Array.from({ length: 21 }, (_, i) => 2020 + i).map(yr => (
             <option key={yr} value={yr}>{yr}</option>
           ))}
+        </select>
+        <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} style={{ height: '36px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0 12px', fontSize: '14px', color: '#1e293b', cursor: 'pointer', outline: 'none' }}>
+          <option value=''>All Categories</option>
+          {monthCategories.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
 
@@ -557,19 +576,19 @@ export default function Expenses() {
               </tr>
             </thead>
             <tbody>
-              {monthExpenses.length === 0 ? (
+              {filteredExpenses.length === 0 ? (
                 <tr>
                   <td colSpan={15} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>
-                    No expenses for {MONTHS[activeMonth]} {activeYear}
+                    No expenses for {MONTHS[activeMonth]} {activeYear}{categoryFilter ? ` · ${categoryFilter}` : ''}
                   </td>
                 </tr>
-              ) : monthExpenses.map((e, i) => {
+              ) : filteredExpenses.map((e, i) => {
                 const urls = getReceiptUrls(e)
                 return (
                   <tr
                     key={e.id}
                     onClick={() => openEdit(e)}
-                    style={{ borderBottom: i < monthExpenses.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer' }}
+                    style={{ borderBottom: i < filteredExpenses.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer' }}
                     onMouseEnter={ev => (ev.currentTarget as HTMLTableRowElement).style.background = '#f8fafc'}
                     onMouseLeave={ev => (ev.currentTarget as HTMLTableRowElement).style.background = 'transparent'}
                   >
@@ -614,11 +633,11 @@ export default function Expenses() {
                 )
               })}
             </tbody>
-            {monthExpenses.length > 0 && (
+            {filteredExpenses.length > 0 && (
               <tfoot>
                 <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
                   <td colSpan={6} style={{ padding: '10px 12px', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>
-                    {monthExpenses.length} record{monthExpenses.length !== 1 ? 's' : ''}
+                    {filteredExpenses.length} record{filteredExpenses.length !== 1 ? 's' : ''}
                   </td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${formatCurrency(monthBeforeTax)}</td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>${formatCurrency(monthSalesTax)}</td>
@@ -628,6 +647,42 @@ export default function Expenses() {
                 </tr>
               </tfoot>
             )}
+          </table>
+        </div>
+      )}
+
+      {/* Monthly Summary by Category */}
+      {filteredExpenses.length > 0 && (
+        <div style={{ marginTop: '24px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+          <div style={{ padding: '14px 20px', borderBottom: '1px solid #e2e8f0' }}>
+            <h2 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', margin: 0 }}>Monthly Summary by Category</h2>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+            <thead>
+              <tr style={{ background: '#1e293b' }}>
+                {['Category', 'Subtotal', 'Tax', 'Total'].map((h, i) => (
+                  <th key={i} style={{ padding: '10px 16px', textAlign: i === 0 ? 'left' : 'right', fontSize: '12px', fontWeight: '600', color: '#f1f5f9', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {summaryRows.map(([cat, vals], i) => (
+                <tr key={cat} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                  <td style={{ padding: '10px 16px', fontWeight: '500', color: '#1e293b' }}>{cat}</td>
+                  <td style={{ padding: '10px 16px', textAlign: 'right', color: '#374151' }}>${formatCurrency(vals.subtotal)}</td>
+                  <td style={{ padding: '10px 16px', textAlign: 'right', color: '#374151' }}>${formatCurrency(vals.tax)}</td>
+                  <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(vals.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: '#f1f5f9', borderTop: '2px solid #e2e8f0' }}>
+                <td style={{ padding: '10px 16px', fontWeight: '700', color: '#1e293b', fontSize: '13px' }}>GRAND TOTAL</td>
+                <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: '700', color: '#1e293b' }}>${formatCurrency(monthBeforeTax)}</td>
+                <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: '700', color: '#1e293b' }}>${formatCurrency(monthSalesTax)}</td>
+                <td style={{ padding: '10px 16px', textAlign: 'right', fontWeight: '700', color: '#1e293b' }}>${formatCurrency(monthTotal)}</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       )}
