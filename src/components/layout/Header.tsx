@@ -18,6 +18,8 @@ const pageTitles: { [key: string]: string } = {
   '/reports': 'Reports',
   '/scan': 'Scan Stock',
   '/activity': 'Activity Log',
+  '/inventory-history': 'Inventory History',
+  '/backup': 'Data Backup',
 }
 
 export default function Header() {
