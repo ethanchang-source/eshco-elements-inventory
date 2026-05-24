@@ -128,10 +128,14 @@ export default function Suppliers() {
     }
     if (editSupplier) {
       const old = { ...editSupplier }
-      await supabase.from('suppliers').update(payload).eq('id', editSupplier.id)
+      const { error: updateError } = await supabase.from('suppliers').update(payload).eq('id', editSupplier.id)
+      console.log('[suppliers] update id:', editSupplier.id, 'error:', updateError)
+      if (updateError) { alert(`저장 실패: ${updateError.message}`); return }
       await logActivity(supabase, 'suppliers', editSupplier.id, 'UPDATE', old, payload)
     } else {
-      const { data: inserted } = await supabase.from('suppliers').insert([payload]).select().single()
+      const { data: inserted, error: insertError } = await supabase.from('suppliers').insert([payload]).select().single()
+      console.log('[suppliers] insert result:', inserted, 'error:', insertError)
+      if (insertError) { alert(`추가 실패: ${insertError.message}`); return }
       if (inserted) await logActivity(supabase, 'suppliers', inserted.id, 'INSERT', null, payload)
     }
     setShowModal(false)
