@@ -17,15 +17,12 @@ interface Supplier {
   country: string
   notes: string
   ship_to_address: string
-  ship_to_city: string
-  ship_to_province: string
-  ship_to_postal_code: string
 }
 
 const emptyForm = {
   name: '', contact_name: '', contact_email: '',
   contact_phone: '', country: 'Canada', notes: '',
-  ship_to_address: '', ship_to_city: '', ship_to_province: '', ship_to_postal_code: '',
+  ship_to_address: '',
 }
 
 export default function Suppliers() {
@@ -88,9 +85,6 @@ export default function Suppliers() {
       country: s.country || 'Canada',
       notes: s.notes || '',
       ship_to_address: s.ship_to_address || '',
-      ship_to_city: s.ship_to_city || '',
-      ship_to_province: s.ship_to_province || '',
-      ship_to_postal_code: s.ship_to_postal_code || '',
     })
     setShowModal(true)
   }
@@ -105,9 +99,6 @@ export default function Suppliers() {
       country: form.country,
       notes: form.notes,
       ship_to_address: form.ship_to_address,
-      ship_to_city: form.ship_to_city,
-      ship_to_province: form.ship_to_province,
-      ship_to_postal_code: form.ship_to_postal_code,
     }
     if (editSupplier) {
       const old = { ...editSupplier }
@@ -188,9 +179,6 @@ export default function Suppliers() {
           country: String(row['Country'] || row['country'] || 'Canada'),
           notes: String(row['Notes'] || row['notes'] || ''),
           ship_to_address: String(row['Ship To Address'] || row['address'] || ''),
-          ship_to_city: String(row['Ship To City'] || ''),
-          ship_to_province: String(row['Ship To Province'] || ''),
-          ship_to_postal_code: String(row['Ship To Postal Code'] || ''),
         }
         const { data: existing } = await supabase.from('suppliers').select('id').eq('name', name).maybeSingle()
         let error
@@ -245,7 +233,7 @@ export default function Suppliers() {
   const filtered = suppliers.filter(s =>
     s.name?.toLowerCase().includes(search.toLowerCase()) ||
     s.country?.toLowerCase().includes(search.toLowerCase()) ||
-    s.ship_to_city?.toLowerCase().includes(search.toLowerCase())
+    s.ship_to_address?.toLowerCase().includes(search.toLowerCase())
   )
 
   const inp: React.CSSProperties = { width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }
@@ -333,13 +321,10 @@ export default function Suppliers() {
                     <Phone size={14} /><span>{s.contact_phone}</span>
                   </div>
                 )}
-                {(s.ship_to_address || s.ship_to_city) && (
+                {s.ship_to_address && (
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '13px', color: '#64748b' }}>
                     <MapPin size={14} style={{ marginTop: '2px', flexShrink: 0, color: '#16a34a' }} />
-                    <span>
-                      <span style={{ fontSize: '10px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginRight: '4px' }}>Ship To</span>
-                      {[s.ship_to_address, s.ship_to_city, s.ship_to_province, s.ship_to_postal_code].filter(Boolean).join(', ')}
-                    </span>
+                    <span>{s.ship_to_address}</span>
                   </div>
                 )}
                 {s.notes && <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px', fontStyle: 'italic' }}>{s.notes}</div>}
@@ -392,22 +377,11 @@ export default function Suppliers() {
               </div>
             ))}
 
-            {/* Ship To */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', marginTop: '4px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#16a34a', display: 'inline-block', flexShrink: 0 }} />
-              <div style={{ fontSize: '11px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Ship To</div>
+            {/* Address */}
+            <div style={{ marginBottom: '10px' }}>
+              <label style={lbl}>Address</label>
+              <input value={form.ship_to_address} onChange={e => setForm({ ...form, ship_to_address: e.target.value })} placeholder='123 Warehouse St' style={inp} />
             </div>
-            {[
-              { label: 'Address', key: 'ship_to_address', placeholder: '123 Warehouse St' },
-              { label: 'City', key: 'ship_to_city', placeholder: 'Toronto' },
-              { label: 'Province / State', key: 'ship_to_province', placeholder: 'ON' },
-              { label: 'Postal Code', key: 'ship_to_postal_code', placeholder: 'M1M 1M1' },
-            ].map(field => (
-              <div key={field.key} style={{ marginBottom: '10px' }}>
-                <label style={lbl}>{field.label}</label>
-                <input value={form[field.key as keyof typeof form]} onChange={e => setForm({ ...form, [field.key]: e.target.value })} placeholder={field.placeholder} style={inp} />
-              </div>
-            ))}
 
 
             {/* Notes */}
