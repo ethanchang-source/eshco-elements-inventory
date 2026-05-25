@@ -652,63 +652,6 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* Expenses by Category */}
-      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '24px' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', margin: 0 }}>Expenses by Category ({selectedYear})</h3>
-        </div>
-        {expenseCatLoading ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
-        ) : expenseCatData.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>No expense data for {selectedYear}</div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '1100px' }}>
-              <thead>
-                <tr style={{ background: '#1e293b' }}>
-                  <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: '600', color: '#f1f5f9', fontSize: '11px', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Category</th>
-                  {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map(h => (
-                    <th key={h} style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '600', color: '#f1f5f9', fontSize: '11px', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
-                  ))}
-                  <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '600', color: '#fbbf24', fontSize: '11px', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {expenseCatData.map((row, i) => (
-                  <tr key={row.category} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#f8fafc' }}>
-                    <td style={{ padding: '9px 14px', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{row.category}</td>
-                    {row.months.map((v, mi) => (
-                      <td key={mi} style={{ padding: '9px 8px', textAlign: 'right', color: '#374151' }}>
-                        {v > 0 ? `$${formatCurrency(v)}` : ''}
-                      </td>
-                    ))}
-                    <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: '700', color: '#1e293b' }}>${formatCurrency(row.total)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                {(() => {
-                  const monthTotals = Array(12).fill(0) as number[]
-                  expenseCatData.forEach(row => row.months.forEach((v, i) => { monthTotals[i] += v }))
-                  const grandTotal = monthTotals.reduce((s, v) => s + v, 0)
-                  return (
-                    <tr style={{ background: '#dbeafe', borderTop: '2px solid #93c5fd' }}>
-                      <td style={{ padding: '10px 14px', fontWeight: '700', color: '#1e293b', fontSize: '13px' }}>TOTAL</td>
-                      {monthTotals.map((v, mi) => (
-                        <td key={mi} style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '700', color: '#1e293b' }}>
-                          {v > 0 ? `$${formatCurrency(v)}` : ''}
-                        </td>
-                      ))}
-                      <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '700', color: '#1e293b' }}>${formatCurrency(grandTotal)}</td>
-                    </tr>
-                  )
-                })()}
-              </tfoot>
-            </table>
-          </div>
-        )}
-      </div>
-
       {/* Monthly chart + Top Products */}
       <div className="reports-half-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
         <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0' }}>
