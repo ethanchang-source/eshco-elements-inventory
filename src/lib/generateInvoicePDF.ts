@@ -34,12 +34,12 @@ interface InvoiceData {
 }
 
 const COMPANY = {
-  name: 'ESHC Inc.',
+  name: 'ESHCO SUPPLY INC.',
   address: '328 North Rivermede Road, Unit 9',
   city: 'Concord, ON L4K 3N5',
   phone: '(647) 400-7180',
   email: 'sales@iampurebeauty.com',
-  hst: '752458133RT0001',
+  hst: '783684236RT0001',
 }
 
 function fmt(n: number): string {
