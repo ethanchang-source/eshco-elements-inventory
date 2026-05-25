@@ -38,7 +38,7 @@ const COMPANY = {
   address: '328 North Rivermede Road, Unit 9',
   city: 'Concord, ON L4K 3N5',
   phone: '(647) 400-7180',
-  email: 'sales@iampurebeauty.com',
+  email: 'eshcosupply@gmail.com',
   hst: '783684236RT0001',
 }
 
@@ -201,7 +201,7 @@ export function generateInvoicePDF(data: InvoiceData, returnBlob?: boolean): Blo
   doc.setFontSize(8)
   doc.setDrawColor(200, 200, 200)
   doc.line(14, bottomY - 5, pageWidth - 14, bottomY - 5)
-  doc.text('If you have any questions about this invoice, please contact us at sales@iampurebeauty.com', pageWidth / 2, bottomY, { align: 'center' })
+  doc.text('If you have any questions about this invoice, please contact us at eshcosupply@gmail.com', pageWidth / 2, bottomY, { align: 'center' })
   doc.text('Thank You For Your Business!', pageWidth / 2, bottomY + 5, { align: 'center' })
   doc.setFont('helvetica', 'bold')
   doc.text(`HST / GST #: ${COMPANY.hst}`, pageWidth / 2, bottomY + 10, { align: 'center' })
