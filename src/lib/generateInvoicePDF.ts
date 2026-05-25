@@ -63,7 +63,7 @@ export function generateInvoicePDF(data: InvoiceData, returnBlob?: boolean): Blo
 
   // 로고 (가운데)
   try {
-    const logoHeight = 15
+    const logoHeight = 13.5
     const logoWidth = logoHeight * (2026 / 790)
     doc.addImage(logoBase64, 'PNG', pageWidth / 2 - logoWidth / 2, 10, logoWidth, logoHeight)
   } catch {}
@@ -106,29 +106,18 @@ export function generateInvoicePDF(data: InvoiceData, returnBlob?: boolean): Blo
   // 구분선
   doc.line(14, 80, pageWidth - 14, 80)
 
-  // 총 박스 수 자동 계산
-  const totalQty = data.items.reduce((sum, item) => sum + item.qty, 0)
-  const totalBoxes = Math.ceil(totalQty / 36)
-
   // 아이템 테이블
   autoTable(doc, {
     startY: 84,
     head: [['ITEM #', 'ITEM DESCRIPTION', 'SIZE', 'UNIT COST', 'ORDER QTY', 'TOTAL AMOUNT']],
-    body: [
-      ...data.items.map(item => [
-        item.sku,
-        item.name,
-        item.size,
-        `$${fmt(item.unit_price)}`,
-        item.qty.toString(),
-        `$${fmt(item.total)}`,
-      ]),
-      [{
-        content: `Total number of Boxes: ${totalBoxes}`,
-        colSpan: 6,
-        styles: { fontStyle: 'italic' as const, textColor: [80, 80, 80] as [number, number, number], fillColor: [245, 247, 250] as [number, number, number] }
-      }]
-    ],
+    body: data.items.map(item => [
+      item.sku,
+      item.name,
+      item.size,
+      `$${fmt(item.unit_price)}`,
+      item.qty.toString(),
+      `$${fmt(item.total)}`,
+    ]),
     styles: { fontSize: 8, cellPadding: 2.5 },
     headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold', fontSize: 8 },
     columnStyles: {
