@@ -64,7 +64,7 @@ export function generateInvoicePDF(data: InvoiceData, returnBlob?: boolean): Blo
   // 로고 (가운데)
   try {
     const logoHeight = 15
-    const logoWidth = logoHeight * (2186 / 1460)
+    const logoWidth = logoHeight * (2026 / 790)
     doc.addImage(logoBase64, 'PNG', pageWidth / 2 - logoWidth / 2, 10, logoWidth, logoHeight)
   } catch {}
 
