@@ -160,8 +160,6 @@ export default function Expenses() {
       .gte('expense_date', `${year}-01-01`)
       .lte('expense_date', `${year}-12-31`)
       .order('expense_date', { ascending: false })
-    console.log('[expenses] year:', year, 'count:', data?.length, 'error:', error)
-    if (error) console.error('[expenses] fetch error detail:', error)
     const rows = data || []
     setExpenses(rows)
     // If current month has no data, jump to the most recent month that does

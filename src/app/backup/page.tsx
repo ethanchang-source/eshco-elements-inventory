@@ -90,8 +90,6 @@ async function fetchAll() {
     `).order('produced_at', { ascending: false }),
   ])
 
-  console.log('production fetch:', productionRaw?.length, productionErr)
-
   return {
     invoices: invoicesRaw || [],
     invoiceItems: invoiceItemsRaw || [],
@@ -119,10 +117,6 @@ export default function BackupPage() {
         .from('products')
         .select('sku, name, size_oz, barcode_upc, barcode_itf14, unit_cost_cad, price_whs_cad, msrp_cad, price_dist_cad, current_stock, reorder_threshold, max_capacity, is_active')
         .order('sku')
-
-      console.log('=== BACKUP DEBUG ===')
-      console.log('products count:', products?.length)
-      console.log('first product:', products?.[0])
 
       if (!products || products.length === 0) {
         alert('No products data found!')
@@ -158,9 +152,6 @@ export default function BackupPage() {
         p.is_active ? 'Yes' : 'No',
         '',
       ])
-
-      console.log('productRows count:', productRows.length)
-      console.log('first row:', productRows[0])
 
       const productTotalRow = [
         'TOTAL', '', '', '', '', '', '', '', '',

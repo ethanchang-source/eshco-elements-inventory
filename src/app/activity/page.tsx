@@ -442,8 +442,6 @@ export default function ActivityLog() {
       .order('created_at', { ascending: false })
       .limit(500)
 
-    console.log('activity_log result:', data?.length, error)
-
     if (error) {
       setFetchError(error.message || 'Failed to load activity log')
       setEntries([])

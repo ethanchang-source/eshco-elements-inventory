@@ -660,7 +660,6 @@ export default function Purchasing() {
 
   async function handleUploadAttachments() {
     if (!attachmentPO || attachmentFiles.length === 0) return
-    console.log('[ATTACH DEBUG] attachmentPO:', attachmentPO?.id, 'files:', attachmentFiles.length)
     setUploadingAttachment(true)
     setAttachUploadStatus('')
     const poId = attachmentPO.id
@@ -668,7 +667,6 @@ export default function Purchasing() {
     let failCount = 0
     let lastError = ''
     for (const file of attachmentFiles) {
-      console.log('[ATTACH DEBUG] trying to upload:', file.name, 'to po-attachments bucket')
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       const path = `${poId}/${Date.now()}_${safeName}`
       const { error: uploadError } = await supabase.storage.from('po-attachments').upload(path, file)
@@ -1493,14 +1491,9 @@ export default function Purchasing() {
             <div style={{ marginBottom: '16px' }}>
               <input id="attach-file-input" ref={fileInputRef} type='file' multiple style={{ display: 'none' }}
                 onChange={e => {
-                  console.log('[ATTACH DEBUG] onChange fired, files:', e.target.files?.length, e.target.files)
                   const files = e.target.files ? Array.from(e.target.files) : []
-                  console.log('[ATTACH DEBUG] parsed files:', files.map(f => f.name))
                   if (files.length > 0) {
-                    setAttachmentFiles(prev => {
-                      console.log('[ATTACH DEBUG] setAttachmentFiles prev:', prev.length, '+ new:', files.length)
-                      return [...prev, ...files]
-                    })
+                    setAttachmentFiles(prev => [...prev, ...files])
                   }
                   e.target.value = ''
                 }} />
@@ -1531,7 +1524,7 @@ export default function Purchasing() {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               <button onClick={() => { setShowAttachments(false); setAttachmentFiles([]); setAttachUploadStatus('') }}
                 style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Close</button>
-              <button onClick={() => { console.log('[ATTACH DEBUG] Upload clicked, attachmentFiles:', attachmentFiles.length, 'uploadingAttachment:', uploadingAttachment); handleUploadAttachments() }}
+              <button onClick={() => handleUploadAttachments()}
                 disabled={uploadingAttachment || attachmentFiles.length === 0}
                 style={{ padding: '8px 16px', background: uploadingAttachment || attachmentFiles.length === 0 ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: uploadingAttachment || attachmentFiles.length === 0 ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: '500' }}>
                 {uploadingAttachment ? 'Uploading...' : 'Upload'}

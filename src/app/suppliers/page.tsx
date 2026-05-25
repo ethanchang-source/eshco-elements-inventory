@@ -72,8 +72,7 @@ export default function Suppliers() {
   }, [showModal, showImportConfirm])
 
   async function fetchSuppliers() {
-    const { data, error } = await supabase.from('suppliers').select('*').order('name')
-    console.log('[suppliers] data:', data, 'error:', error)
+    const { data } = await supabase.from('suppliers').select('*').order('name')
     setSuppliers(data || [])
     setLoading(false)
   }
@@ -129,12 +128,10 @@ export default function Suppliers() {
     if (editSupplier) {
       const old = { ...editSupplier }
       const { error: updateError } = await supabase.from('suppliers').update(payload).eq('id', editSupplier.id)
-      console.log('[suppliers] update id:', editSupplier.id, 'error:', updateError)
       if (updateError) { alert(`Failed to save: ${updateError.message}`); return }
       await logActivity(supabase, 'suppliers', editSupplier.id, 'UPDATE', old, payload)
     } else {
       const { data: inserted, error: insertError } = await supabase.from('suppliers').insert([payload]).select().single()
-      console.log('[suppliers] insert result:', inserted, 'error:', insertError)
       if (insertError) { alert(`Failed to add supplier: ${insertError.message}`); return }
       if (inserted) await logActivity(supabase, 'suppliers', inserted.id, 'INSERT', null, payload)
     }
@@ -150,7 +147,6 @@ export default function Suppliers() {
     if (!confirm(`Are you sure you want to delete "${editSupplier.name}"?`)) return
     const old = { ...editSupplier }
     const { error } = await supabase.from('suppliers').delete().eq('id', old.id)
-    console.log('[suppliers] delete id:', old.id, 'error:', error)
     if (error) {
       alert(`Failed to delete: ${error.message}`)
       return
