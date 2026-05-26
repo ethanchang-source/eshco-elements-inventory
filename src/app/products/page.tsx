@@ -17,6 +17,8 @@ interface RawMaterial {
   cost_per_unit_cad: number
   cost_per_unit_usd?: number | null
   avg_cost_cad: number | null
+  price_whs_cad?: number | null
+  barcode?: string | null
   current_stock: number
   reorder_threshold: number
   max_capacity?: number | null
@@ -35,6 +37,8 @@ interface Packaging {
   unit?: string | null
   cost_cad: number
   avg_cost_cad: number | null
+  price_whs_cad?: number | null
+  barcode?: string | null
   current_stock: number
   reorder_threshold: number
   max_capacity?: number | null
@@ -66,18 +70,27 @@ type UnifiedItem =
   | (RawMaterial & { itemType: 'Raw Material' })
   | (Packaging & { itemType: 'Packaging' })
 
-const emptyAddRawForm = { item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '' }
-const emptyAddPackForm = { item_no: '', name: '', type: 'bottle', unit: 'ea', cost_cad: '', current_stock: '', reorder_threshold: '' }
+const emptyAddRawForm = { item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', price_whs_cad: '', barcode: '', current_stock: '', reorder_threshold: '' }
+const emptyAddPackForm = { item_no: '', name: '', type: 'bottle', unit: 'ea', cost_cad: '', price_whs_cad: '', barcode: '', current_stock: '', reorder_threshold: '' }
 
-function getDisplayCost(item: UnifiedItem): string {
+function getDisplayCost(item: UnifiedItem): number | null {
   if (item.itemType === 'Raw Material') {
-    const cost = item.avg_cost_cad != null ? item.avg_cost_cad : item.cost_per_unit_cad
-    return cost != null ? `$${cost.toFixed(4)}` : '—'
+    return item.avg_cost_cad != null ? item.avg_cost_cad : item.cost_per_unit_cad
   } else {
     const p = item as Packaging & { itemType: 'Packaging' }
-    const cost = p.avg_cost_cad != null ? p.avg_cost_cad : p.cost_cad
-    return cost != null ? `$${cost.toFixed(5)}` : '—'
+    return p.avg_cost_cad != null ? p.avg_cost_cad : p.cost_cad
   }
+}
+
+function fmtCost(item: UnifiedItem): string {
+  const cost = getDisplayCost(item)
+  if (cost == null) return '—'
+  return item.itemType === 'Raw Material' ? `$${cost.toFixed(4)}` : `$${cost.toFixed(5)}`
+}
+
+function getMargin(cost: number | null, whs: number | null | undefined): string | null {
+  if (cost == null || whs == null || whs === 0) return null
+  return ((whs - cost) / whs * 100).toFixed(1)
 }
 
 export default function Products() {
@@ -90,13 +103,22 @@ export default function Products() {
 
   const [editRaw, setEditRaw] = useState<RawMaterial | null>(null)
   const [editPack, setEditPack] = useState<Packaging | null>(null)
-  const [editRawForm, setEditRawForm] = useState({ item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', cost_per_unit_usd: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '', purchase_unit: '', purchase_unit_kg: '' })
-  const [editPackForm, setEditPackForm] = useState({ item_no: '', name: '', type: 'bottle', size_oz: '', unit: 'ea', cost_cad: '', current_stock: '', reorder_threshold: '', max_capacity: '', preferred_supplier_id: '', modules: '', maxCapModules: '', roll_length_m: '' })
+  const [editRawForm, setEditRawForm] = useState({
+    item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', cost_per_unit_usd: '',
+    price_whs_cad: '', barcode: '',
+    current_stock: '', reorder_threshold: '', max_capacity: '',
+    preferred_supplier_id: '', purchase_unit: '', purchase_unit_kg: '',
+  })
+  const [editPackForm, setEditPackForm] = useState({
+    item_no: '', name: '', type: 'bottle', size_oz: '', unit: 'ea',
+    cost_cad: '', price_whs_cad: '', barcode: '',
+    current_stock: '', reorder_threshold: '', max_capacity: '',
+    preferred_supplier_id: '', modules: '', maxCapModules: '', roll_length_m: '',
+  })
   const [editPackError, setEditPackError] = useState('')
   const [itemPurchaseHistory, setItemPurchaseHistory] = useState<PurchaseHistoryEntry[]>([])
   const [loadingItemHistory, setLoadingItemHistory] = useState(false)
 
-  // Unified add modal
   const [showAddModal, setShowAddModal] = useState(false)
   const [addType, setAddType] = useState<'raw_material' | 'packaging'>('raw_material')
   const [addRawForm, setAddRawForm] = useState({ ...emptyAddRawForm })
@@ -137,6 +159,8 @@ export default function Products() {
       item_no: r.item_no || '', name: r.name || '', unit: r.unit || 'ml',
       cost_per_unit_cad: String(r.cost_per_unit_cad ?? ''),
       cost_per_unit_usd: String(r.cost_per_unit_usd ?? ''),
+      price_whs_cad: String(r.price_whs_cad ?? ''),
+      barcode: r.barcode || '',
       current_stock: String(r.current_stock ?? ''),
       reorder_threshold: String(r.reorder_threshold ?? ''),
       max_capacity: String(r.max_capacity ?? ''),
@@ -157,6 +181,8 @@ export default function Products() {
       item_no: p.item_no || '', name: p.name || '', type: p.type || 'bottle',
       size_oz: p.size_oz > 0 ? String(p.size_oz) : '', unit: p.unit || 'ea',
       cost_cad: String(p.cost_cad ?? ''),
+      price_whs_cad: String(p.price_whs_cad ?? ''),
+      barcode: p.barcode || '',
       current_stock: String(p.current_stock ?? ''),
       reorder_threshold: String(p.reorder_threshold ?? ''),
       max_capacity: String(p.max_capacity ?? ''),
@@ -173,6 +199,8 @@ export default function Products() {
       item_no: editRawForm.item_no.trim(), name: editRawForm.name.trim(), unit: editRawForm.unit,
       cost_per_unit_cad: parseFloat(editRawForm.cost_per_unit_cad) || 0,
       cost_per_unit_usd: editRawForm.cost_per_unit_usd !== '' ? parseFloat(editRawForm.cost_per_unit_usd) : null,
+      price_whs_cad: editRawForm.price_whs_cad !== '' ? parseFloat(editRawForm.price_whs_cad) : null,
+      barcode: editRawForm.barcode.trim() || null,
       current_stock: parseFloat(editRawForm.current_stock) || 0,
       reorder_threshold: parseFloat(editRawForm.reorder_threshold) || 0,
       max_capacity: editRawForm.max_capacity !== '' ? parseFloat(editRawForm.max_capacity) : null,
@@ -211,6 +239,8 @@ export default function Products() {
       item_no: editPackForm.item_no.trim(), name: editPackForm.name.trim(), type: editPackForm.type,
       size_oz: parseFloat(editPackForm.size_oz) || 0, unit: editPackForm.unit || null,
       cost_cad: parseFloat(editPackForm.cost_cad) || 0,
+      price_whs_cad: editPackForm.price_whs_cad !== '' ? parseFloat(editPackForm.price_whs_cad) : null,
+      barcode: editPackForm.barcode.trim() || null,
       current_stock: parseInt(editPackForm.current_stock) || 0,
       reorder_threshold: parseInt(editPackForm.reorder_threshold) || 0,
       max_capacity: maxCap != null && !isNaN(maxCap) ? maxCap : null,
@@ -245,6 +275,8 @@ export default function Products() {
       const { error } = await supabase.from('raw_materials').insert([{
         item_no: addRawForm.item_no.trim(), name: addRawForm.name.trim(), unit: addRawForm.unit,
         cost_per_unit_cad: parseFloat(addRawForm.cost_per_unit_cad) || 0,
+        price_whs_cad: addRawForm.price_whs_cad !== '' ? parseFloat(addRawForm.price_whs_cad) : null,
+        barcode: addRawForm.barcode.trim() || null,
         current_stock: parseFloat(addRawForm.current_stock) || 0,
         reorder_threshold: parseFloat(addRawForm.reorder_threshold) || 0,
       }])
@@ -253,6 +285,8 @@ export default function Products() {
       const { error } = await supabase.from('packaging').insert([{
         item_no: addPackForm.item_no.trim(), name: addPackForm.name.trim(), type: addPackForm.type,
         unit: addPackForm.unit, cost_cad: parseFloat(addPackForm.cost_cad) || 0,
+        price_whs_cad: addPackForm.price_whs_cad !== '' ? parseFloat(addPackForm.price_whs_cad) : null,
+        barcode: addPackForm.barcode.trim() || null,
         current_stock: parseInt(addPackForm.current_stock) || 0,
         reorder_threshold: parseInt(addPackForm.reorder_threshold) || 0,
         size_oz: 0,
@@ -267,11 +301,12 @@ export default function Products() {
 
   function handleExport() {
     const rows = filteredItems.map(item => {
+      const cost = getDisplayCost(item)
       if (item.itemType === 'Raw Material') {
-        return { type: 'Raw Material', item_no: item.item_no, name: item.name, unit: item.unit, cost_cad: item.avg_cost_cad ?? item.cost_per_unit_cad, current_stock: item.current_stock, reorder_at: item.reorder_threshold }
+        return { type: 'Raw Material', item_no: item.item_no, name: item.name, unit: item.unit, barcode: item.barcode || '', cost_cad: cost, whs_price_cad: item.price_whs_cad || '', current_stock: item.current_stock, reorder_at: item.reorder_threshold }
       } else {
         const p = item as Packaging & { itemType: 'Packaging' }
-        return { type: 'Packaging', item_no: p.item_no, name: p.name, unit: p.unit || 'ea', cost_cad: p.avg_cost_cad ?? p.cost_cad, current_stock: p.current_stock, reorder_at: p.reorder_threshold }
+        return { type: 'Packaging', item_no: p.item_no, name: p.name, unit: p.unit || 'ea', barcode: p.barcode || '', cost_cad: cost, whs_price_cad: p.price_whs_cad || '', current_stock: p.current_stock, reorder_at: p.reorder_threshold }
       }
     })
     const wb = XLSX.utils.book_new()
@@ -386,25 +421,29 @@ export default function Products() {
       {/* ── Table ── */}
       <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '860px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '1100px' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                {['ITEM NO', 'ITEM DESCRIPTION', 'UNIT', 'COST (CAD)', 'STOCK', 'REORDER AT', 'TYPE', 'STATUS'].map(h => (
+                {['ITEM NO', 'ITEM DESCRIPTION', 'UNIT', 'TYPE', 'BARCODE', 'COST (CAD)', 'WHS PRICE', 'MARGIN RATE', 'STOCK', 'REORDER AT', 'STATUS'].map(h => (
                   <th key={h} style={{ padding: '13px 16px', textAlign: 'left', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} style={{ padding: '56px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>Loading...</td></tr>
+                <tr><td colSpan={11} style={{ padding: '56px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>Loading...</td></tr>
               ) : filteredItems.length === 0 ? (
-                <tr><td colSpan={8} style={{ padding: '56px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>No items found</td></tr>
+                <tr><td colSpan={11} style={{ padding: '56px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>No items found</td></tr>
               ) : filteredItems.map(item => {
                 const isLow = item.current_stock <= item.reorder_threshold && item.reorder_threshold > 0
                 const isOut = item.current_stock === 0
                 const displayUnit = item.itemType === 'Packaging'
                   ? ((item as Packaging).type === 'shrink_band' ? 'roll' : ((item as Packaging).unit || 'ea'))
                   : item.unit
+                const cost = getDisplayCost(item)
+                const whs = item.price_whs_cad ?? null
+                const marginStr = getMargin(cost, whs)
+                const marginNum = marginStr != null ? parseFloat(marginStr) : null
 
                 return (
                   <tr key={`${item.itemType}-${item.id}`} className="prod-row"
@@ -416,7 +455,7 @@ export default function Products() {
                       <span style={{ fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{item.item_no}</span>
                     </td>
 
-                    {/* DESCRIPTION */}
+                    {/* ITEM DESCRIPTION */}
                     <td style={{ padding: '14px 16px', fontSize: '13px', color: '#1e293b', fontWeight: '500', maxWidth: '260px' }}>
                       {item.name}
                     </td>
@@ -426,9 +465,37 @@ export default function Products() {
                       {displayUnit}
                     </td>
 
+                    {/* TYPE */}
+                    <td style={{ padding: '14px 16px' }}>
+                      {item.itemType === 'Raw Material' ? (
+                        <span style={{ background: '#eff6ff', color: '#2563eb', borderRadius: '20px', padding: '3px 10px', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' }}>Raw Material</span>
+                      ) : (
+                        <span style={{ background: '#f5f3ff', color: '#7c3aed', borderRadius: '20px', padding: '3px 10px', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' }}>Packaging</span>
+                      )}
+                    </td>
+
+                    {/* BARCODE */}
+                    <td style={{ padding: '14px 16px', fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace' }}>
+                      {item.barcode || '—'}
+                    </td>
+
                     {/* COST (CAD) */}
                     <td style={{ padding: '14px 16px', fontSize: '13px', color: '#1e293b', fontWeight: '500' }}>
-                      {getDisplayCost(item)}
+                      {fmtCost(item)}
+                    </td>
+
+                    {/* WHS PRICE */}
+                    <td style={{ padding: '14px 16px', fontSize: '13px', color: '#1e293b', fontWeight: '500' }}>
+                      {whs != null ? `$${whs.toFixed(2)}` : '—'}
+                    </td>
+
+                    {/* MARGIN RATE */}
+                    <td style={{ padding: '14px 16px' }}>
+                      {marginStr != null ? (
+                        <span style={{ fontSize: '13px', fontWeight: '600', color: marginNum! >= 0 ? '#16a34a' : '#dc2626' }}>
+                          {marginStr}%
+                        </span>
+                      ) : <span style={{ fontSize: '13px', color: '#94a3b8' }}>—</span>}
                     </td>
 
                     {/* STOCK */}
@@ -441,15 +508,6 @@ export default function Products() {
                     {/* REORDER AT */}
                     <td style={{ padding: '14px 16px', fontSize: '13px', color: '#64748b' }}>
                       {item.reorder_threshold?.toLocaleString()}
-                    </td>
-
-                    {/* TYPE */}
-                    <td style={{ padding: '14px 16px' }}>
-                      {item.itemType === 'Raw Material' ? (
-                        <span style={{ background: '#eff6ff', color: '#2563eb', borderRadius: '20px', padding: '3px 10px', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' }}>Raw Material</span>
-                      ) : (
-                        <span style={{ background: '#f5f3ff', color: '#7c3aed', borderRadius: '20px', padding: '3px 10px', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' }}>Packaging</span>
-                      )}
                     </td>
 
                     {/* STATUS */}
@@ -482,7 +540,7 @@ export default function Products() {
         <div className="modal-overlay" onClick={() => setShowAddModal(false)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '20px' }}>
           <div className="modal-box" onClick={e => e.stopPropagation()}
-            style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '500px', maxHeight: '90vh', overflowY: 'auto', margin: '0 auto' }}>
+            style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '520px', maxHeight: '90vh', overflowY: 'auto', margin: '0 auto' }}>
 
             <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#1e293b', marginBottom: '20px' }}>Add Item</h2>
 
@@ -520,10 +578,18 @@ export default function Products() {
                   <input type='number' min='0' step='0.0001' value={addRawForm.cost_per_unit_cad} onChange={e => setAddRawForm({ ...addRawForm, cost_per_unit_cad: e.target.value })} placeholder='0.0000' style={inp} />
                 </div>
                 <div>
+                  <label style={lbl}>WHS Price (CAD)</label>
+                  <input type='number' min='0' step='0.01' value={addRawForm.price_whs_cad} onChange={e => setAddRawForm({ ...addRawForm, price_whs_cad: e.target.value })} placeholder='0.00' style={inp} />
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={lbl}>Barcode</label>
+                  <input value={addRawForm.barcode} onChange={e => setAddRawForm({ ...addRawForm, barcode: e.target.value })} placeholder='e.g. 628176712130' style={inp} />
+                </div>
+                <div>
                   <label style={lbl}>Current Stock</label>
                   <input type='number' min='0' value={addRawForm.current_stock} onChange={e => setAddRawForm({ ...addRawForm, current_stock: e.target.value })} placeholder='0' style={inp} />
                 </div>
-                <div style={{ gridColumn: '1 / -1' }}>
+                <div>
                   <label style={lbl}>Reorder At</label>
                   <input type='number' min='0' value={addRawForm.reorder_threshold} onChange={e => setAddRawForm({ ...addRawForm, reorder_threshold: e.target.value })} placeholder='0' style={inp} />
                 </div>
@@ -556,10 +622,18 @@ export default function Products() {
                   <input type='number' min='0' step='0.00001' value={addPackForm.cost_cad} onChange={e => setAddPackForm({ ...addPackForm, cost_cad: e.target.value })} placeholder='0.00000' style={inp} />
                 </div>
                 <div>
+                  <label style={lbl}>WHS Price (CAD)</label>
+                  <input type='number' min='0' step='0.01' value={addPackForm.price_whs_cad} onChange={e => setAddPackForm({ ...addPackForm, price_whs_cad: e.target.value })} placeholder='0.00' style={inp} />
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={lbl}>Barcode</label>
+                  <input value={addPackForm.barcode} onChange={e => setAddPackForm({ ...addPackForm, barcode: e.target.value })} placeholder='e.g. 628176712130' style={inp} />
+                </div>
+                <div>
                   <label style={lbl}>Current Stock</label>
                   <input type='number' min='0' value={addPackForm.current_stock} onChange={e => setAddPackForm({ ...addPackForm, current_stock: e.target.value })} placeholder='0' style={inp} />
                 </div>
-                <div style={{ gridColumn: '1 / -1' }}>
+                <div>
                   <label style={lbl}>Reorder At</label>
                   <input type='number' min='0' value={addPackForm.reorder_threshold} onChange={e => setAddPackForm({ ...addPackForm, reorder_threshold: e.target.value })} placeholder='0' style={inp} />
                 </div>
@@ -608,6 +682,14 @@ export default function Products() {
               <div>
                 <label style={lbl}>USD Price/kg</label>
                 <input type='number' min='0' step='0.01' value={editRawForm.cost_per_unit_usd} onChange={e => setEditRawForm({ ...editRawForm, cost_per_unit_usd: e.target.value })} placeholder='—' style={inp} />
+              </div>
+              <div>
+                <label style={lbl}>WHS Price (CAD)</label>
+                <input type='number' min='0' step='0.01' value={editRawForm.price_whs_cad} onChange={e => setEditRawForm({ ...editRawForm, price_whs_cad: e.target.value })} placeholder='—' style={inp} />
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={lbl}>Barcode</label>
+                <input value={editRawForm.barcode} onChange={e => setEditRawForm({ ...editRawForm, barcode: e.target.value })} placeholder='—' style={inp} />
               </div>
               <div>
                 <label style={lbl}>Current Stock</label>
@@ -691,12 +773,20 @@ export default function Products() {
                 <label style={lbl}>Cost (CAD)</label>
                 <input type='number' min='0' step='0.00001' value={editPackForm.cost_cad} onChange={e => setEditPackForm({ ...editPackForm, cost_cad: e.target.value })} style={inp} />
               </div>
+              <div>
+                <label style={lbl}>WHS Price (CAD)</label>
+                <input type='number' min='0' step='0.01' value={editPackForm.price_whs_cad} onChange={e => setEditPackForm({ ...editPackForm, price_whs_cad: e.target.value })} placeholder='—' style={inp} />
+              </div>
               {['bottle', 'dropper', 'cap'].includes(editPackForm.type) && (
                 <div>
                   <label style={lbl}>Size (oz)</label>
                   <input type='number' min='0' step='any' value={editPackForm.size_oz} onChange={e => setEditPackForm({ ...editPackForm, size_oz: e.target.value })} placeholder='0' style={inp} />
                 </div>
               )}
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={lbl}>Barcode</label>
+                <input value={editPackForm.barcode} onChange={e => setEditPackForm({ ...editPackForm, barcode: e.target.value })} placeholder='—' style={inp} />
+              </div>
               <div>
                 <label style={lbl}>Reorder At</label>
                 <input type='number' min='0' value={editPackForm.reorder_threshold} onChange={e => setEditPackForm({ ...editPackForm, reorder_threshold: e.target.value })} style={inp} />
