@@ -256,7 +256,7 @@ export default function InventoryHistory() {
                 <thead>
                   <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
                     <th style={thBase}>SKU</th>
-                    <th style={thBase}>Product</th>
+                    <th style={thBase}>Item Description</th>
                     <th style={{ ...thBase, textAlign: 'right' }}>Stock ({selectedDate})</th>
                     <th style={{ ...thBase, textAlign: 'right' }}>Stock ({compareDate})</th>
                     <th style={{ ...thBase, textAlign: 'right' }}>Δ Stock</th>
@@ -309,7 +309,7 @@ export default function InventoryHistory() {
                 <thead>
                   <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
                     <th style={thBase}>SKU</th>
-                    <th style={thBase}>Product</th>
+                    <th style={thBase}>Item Description</th>
                     <th style={{ ...thBase, textAlign: 'right' }}>Stock</th>
                     <th style={{ ...thBase, textAlign: 'right' }}>MFG Cost</th>
                     <th style={{ ...thBase, textAlign: 'right' }}>WHS Price</th>

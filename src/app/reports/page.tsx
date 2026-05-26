@@ -453,7 +453,7 @@ export default function Reports() {
     s5.addText(`Top Products — ${selectedYear}`, { x: 0.4, y: 0.18, w: 12.3, fontSize: 24, fontFace: 'Arial', bold: true, color: WHITE })
     const top10 = topProducts.slice(0, 10)
     const topProdRows = [
-      [{ text: '#', options: hdrOpts }, { text: 'SKU', options: hdrOpts }, { text: 'Product', options: hdrOpts }, { text: 'Units Sold', options: hdrOpts }, { text: 'Revenue (CAD)', options: hdrOpts }],
+      [{ text: '#', options: hdrOpts }, { text: 'SKU', options: hdrOpts }, { text: 'Item Description', options: hdrOpts }, { text: 'Units Sold', options: hdrOpts }, { text: 'Revenue (CAD)', options: hdrOpts }],
       ...top10.map((p, i) => {
         const bg = { color: i % 2 === 0 ? WHITE : LGRAY }
         return [
@@ -946,7 +946,7 @@ export default function Reports() {
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                     <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>#</th>
                     <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>SKU</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Product</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Item Description</th>
                     <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Units</th>
                     <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>Revenue</th>
                   </tr>

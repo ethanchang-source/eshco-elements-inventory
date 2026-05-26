@@ -1978,7 +1978,7 @@ function InvoicesContent() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                      {['Item #', 'Description', 'Unit', 'Unit Cost', 'Qty', 'Total'].map(h => (
+                      {['Item #', 'Item Description', 'Unit', 'Unit Cost', 'Qty', 'Total'].map(h => (
                         <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
                       ))}
                     </tr>
@@ -2100,7 +2100,7 @@ function InvoicesContent() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                      {['Item #', 'Description', 'Unit', 'Unit Cost', 'Qty', 'Total'].map(h => (
+                      {['Item #', 'Item Description', 'Unit', 'Unit Cost', 'Qty', 'Total'].map(h => (
                         <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
                       ))}
                     </tr>

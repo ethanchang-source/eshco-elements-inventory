@@ -389,7 +389,7 @@ export default function Products() {
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '860px' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                {['ITEM NO', 'DESCRIPTION', 'UNIT', 'COST (CAD)', 'STOCK', 'REORDER AT', 'TYPE', 'STATUS'].map(h => (
+                {['ITEM NO', 'ITEM DESCRIPTION', 'UNIT', 'COST (CAD)', 'STOCK', 'REORDER AT', 'TYPE', 'STATUS'].map(h => (
                   <th key={h} style={{ padding: '13px 16px', textAlign: 'left', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>

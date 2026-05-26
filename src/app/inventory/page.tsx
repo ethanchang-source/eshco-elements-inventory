@@ -478,10 +478,10 @@ function InventoryContent() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {tab === 'raw' && ['Item #', 'Name', 'Unit', 'Cost (CAD)', 'Cost (Avg)', 'USD Price/kg', 'Purchase Unit', 'Current Stock', 'Replenish At', 'Status'].map(h => (
+              {tab === 'raw' && ['Item #', 'Item Description', 'Unit', 'Cost (CAD)', 'Cost (Avg)', 'USD Price/kg', 'Purchase Unit', 'Current Stock', 'Replenish At', 'Status'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
-              {tab === 'packaging' && ['Item #', 'Name', 'Type', 'Unit', 'Cost (CAD)', 'Cost (Avg)', 'Current Stock', 'Replenish At', 'Status'].map(h => (
+              {tab === 'packaging' && ['Item #', 'Item Description', 'Type', 'Unit', 'Cost (CAD)', 'Cost (Avg)', 'Current Stock', 'Replenish At', 'Status'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
