@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { formatTorontoDate } from '@/lib/utils'
-import { Plus, Search, TableIcon, AlertTriangle } from 'lucide-react'
+import { Plus, Search, Download } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { logActivity } from '@/lib/activityLog'
 import UndoToast from '@/components/UndoToast'
@@ -69,6 +69,17 @@ type UnifiedItem =
 const emptyAddRawForm = { item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', current_stock: '', reorder_threshold: '' }
 const emptyAddPackForm = { item_no: '', name: '', type: 'bottle', unit: 'ea', cost_cad: '', current_stock: '', reorder_threshold: '' }
 
+function getDisplayCost(item: UnifiedItem): string {
+  if (item.itemType === 'Raw Material') {
+    const cost = item.avg_cost_cad != null ? item.avg_cost_cad : item.cost_per_unit_cad
+    return cost != null ? `$${cost.toFixed(4)}` : '—'
+  } else {
+    const p = item as Packaging & { itemType: 'Packaging' }
+    const cost = p.avg_cost_cad != null ? p.avg_cost_cad : p.cost_cad
+    return cost != null ? `$${cost.toFixed(5)}` : '—'
+  }
+}
+
 export default function Products() {
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([])
   const [packaging, setPackaging] = useState<Packaging[]>([])
@@ -85,8 +96,9 @@ export default function Products() {
   const [itemPurchaseHistory, setItemPurchaseHistory] = useState<PurchaseHistoryEntry[]>([])
   const [loadingItemHistory, setLoadingItemHistory] = useState(false)
 
-  const [showAddRawModal, setShowAddRawModal] = useState(false)
-  const [showAddPackModal, setShowAddPackModal] = useState(false)
+  // Unified add modal
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [addType, setAddType] = useState<'raw_material' | 'packaging'>('raw_material')
   const [addRawForm, setAddRawForm] = useState({ ...emptyAddRawForm })
   const [addPackForm, setAddPackForm] = useState({ ...emptyAddPackForm })
 
@@ -228,38 +240,38 @@ export default function Products() {
     })
   }
 
-  async function handleAddRaw() {
-    const { error } = await supabase.from('raw_materials').insert([{
-      item_no: addRawForm.item_no.trim(), name: addRawForm.name.trim(), unit: addRawForm.unit,
-      cost_per_unit_cad: parseFloat(addRawForm.cost_per_unit_cad) || 0,
-      current_stock: parseFloat(addRawForm.current_stock) || 0,
-      reorder_threshold: parseFloat(addRawForm.reorder_threshold) || 0,
-    }])
-    if (error) console.error('raw_material insert error:', error)
-    setShowAddRawModal(false); setAddRawForm({ ...emptyAddRawForm })
-    fetchAll()
-  }
-
-  async function handleAddPack() {
-    const { error } = await supabase.from('packaging').insert([{
-      item_no: addPackForm.item_no.trim(), name: addPackForm.name.trim(), type: addPackForm.type,
-      unit: addPackForm.unit, cost_cad: parseFloat(addPackForm.cost_cad) || 0,
-      current_stock: parseInt(addPackForm.current_stock) || 0,
-      reorder_threshold: parseInt(addPackForm.reorder_threshold) || 0,
-      size_oz: 0,
-    }])
-    if (error) console.error('packaging insert error:', error)
-    setShowAddPackModal(false); setAddPackForm({ ...emptyAddPackForm })
+  async function handleAddItem() {
+    if (addType === 'raw_material') {
+      const { error } = await supabase.from('raw_materials').insert([{
+        item_no: addRawForm.item_no.trim(), name: addRawForm.name.trim(), unit: addRawForm.unit,
+        cost_per_unit_cad: parseFloat(addRawForm.cost_per_unit_cad) || 0,
+        current_stock: parseFloat(addRawForm.current_stock) || 0,
+        reorder_threshold: parseFloat(addRawForm.reorder_threshold) || 0,
+      }])
+      if (error) { alert(`Failed to add: ${error.message}`); return }
+    } else {
+      const { error } = await supabase.from('packaging').insert([{
+        item_no: addPackForm.item_no.trim(), name: addPackForm.name.trim(), type: addPackForm.type,
+        unit: addPackForm.unit, cost_cad: parseFloat(addPackForm.cost_cad) || 0,
+        current_stock: parseInt(addPackForm.current_stock) || 0,
+        reorder_threshold: parseInt(addPackForm.reorder_threshold) || 0,
+        size_oz: 0,
+      }])
+      if (error) { alert(`Failed to add: ${error.message}`); return }
+    }
+    setShowAddModal(false)
+    setAddRawForm({ ...emptyAddRawForm })
+    setAddPackForm({ ...emptyAddPackForm })
     fetchAll()
   }
 
   function handleExport() {
     const rows = filteredItems.map(item => {
       if (item.itemType === 'Raw Material') {
-        return { type: 'Raw Material', item_no: item.item_no, name: item.name, unit: item.unit, cost_cad: item.cost_per_unit_cad, current_stock: item.current_stock, reorder_at: item.reorder_threshold }
+        return { type: 'Raw Material', item_no: item.item_no, name: item.name, unit: item.unit, cost_cad: item.avg_cost_cad ?? item.cost_per_unit_cad, current_stock: item.current_stock, reorder_at: item.reorder_threshold }
       } else {
         const p = item as Packaging & { itemType: 'Packaging' }
-        return { type: 'Packaging', item_no: p.item_no, name: p.name, unit: p.unit || 'ea', cost_cad: p.cost_cad, current_stock: p.current_stock, reorder_at: p.reorder_threshold }
+        return { type: 'Packaging', item_no: p.item_no, name: p.name, unit: p.unit || 'ea', cost_cad: p.avg_cost_cad ?? p.cost_cad, current_stock: p.current_stock, reorder_at: p.reorder_threshold }
       }
     })
     const wb = XLSX.utils.book_new()
@@ -279,7 +291,7 @@ export default function Products() {
     return matchesSearch && matchesType
   })
 
-  const inp: React.CSSProperties = { width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none' }
+  const inp: React.CSSProperties = { width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }
   const lbl: React.CSSProperties = { display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px' }
 
   function PurchaseHistorySection() {
@@ -342,197 +354,238 @@ export default function Products() {
           .modal-box { border-radius: 0 !important; margin: 0 !important; width: 100% !important; max-width: 100% !important; min-height: 100svh; }
           .modal-grid-2 { grid-template-columns: 1fr !important; }
         }
+        .prod-row:hover td { background: #f8fafc; }
       `}</style>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', width: '300px' }}>
-          <Search size={16} color='#94a3b8' />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search items...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%' }} />
-        </div>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value as typeof typeFilter)} style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none', background: '#fff', color: '#374151', cursor: 'pointer' }}>
+      {/* ── Top Bar ── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 14px', minWidth: '240px' }}>
+            <Search size={15} color='#94a3b8' />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder='Search items...' style={{ border: 'none', outline: 'none', fontSize: '14px', width: '100%', color: '#1e293b' }} />
+          </div>
+          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value as typeof typeFilter)}
+            style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none', background: '#fff', color: '#374151', cursor: 'pointer', height: '38px' }}>
             <option value='all'>All Types</option>
             <option value='Raw Material'>Raw Material</option>
             <option value='Packaging'>Packaging</option>
           </select>
-          <button onClick={handleExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', cursor: 'pointer' }}>
-            <TableIcon size={14} /> Export Excel
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={handleExport}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer', height: '38px' }}>
+            <Download size={14} /> Export Excel
           </button>
-          <button onClick={() => setShowAddRawModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
-            <Plus size={14} /> Raw Material
-          </button>
-          <button onClick={() => setShowAddPackModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
-            <Plus size={14} /> Packaging
+          <button onClick={() => { setShowAddModal(true); setAddType('raw_material'); setAddRawForm({ ...emptyAddRawForm }); setAddPackForm({ ...emptyAddPackForm }) }}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 18px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', height: '38px' }}>
+            <Plus size={15} /> Add Item
           </button>
         </div>
       </div>
 
-      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {['Item No', 'Name', 'Type', 'Unit', 'Cost (CAD)', 'Current Stock', 'Reorder At', 'Status'].map(h => (
-                <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+      {/* ── Table ── */}
+      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '860px' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                {['ITEM NO', 'DESCRIPTION', 'UNIT', 'COST (CAD)', 'STOCK', 'REORDER AT', 'TYPE', 'STATUS'].map(h => (
+                  <th key={h} style={{ padding: '13px 16px', textAlign: 'left', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={8} style={{ padding: '56px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>Loading...</td></tr>
+              ) : filteredItems.length === 0 ? (
+                <tr><td colSpan={8} style={{ padding: '56px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>No items found</td></tr>
+              ) : filteredItems.map(item => {
+                const isLow = item.current_stock <= item.reorder_threshold && item.reorder_threshold > 0
+                const isOut = item.current_stock === 0
+                const displayUnit = item.itemType === 'Packaging'
+                  ? ((item as Packaging).type === 'shrink_band' ? 'roll' : ((item as Packaging).unit || 'ea'))
+                  : item.unit
+
+                return (
+                  <tr key={`${item.itemType}-${item.id}`} className="prod-row"
+                    onClick={() => item.itemType === 'Raw Material' ? openEditRaw(item as RawMaterial & { itemType: 'Raw Material' }) : openEditPack(item as Packaging & { itemType: 'Packaging' })}
+                    style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}>
+
+                    {/* ITEM NO */}
+                    <td style={{ padding: '14px 16px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{item.item_no}</span>
+                    </td>
+
+                    {/* DESCRIPTION */}
+                    <td style={{ padding: '14px 16px', fontSize: '13px', color: '#1e293b', fontWeight: '500', maxWidth: '260px' }}>
+                      {item.name}
+                    </td>
+
+                    {/* UNIT */}
+                    <td style={{ padding: '14px 16px', fontSize: '13px', color: '#64748b' }}>
+                      {displayUnit}
+                    </td>
+
+                    {/* COST (CAD) */}
+                    <td style={{ padding: '14px 16px', fontSize: '13px', color: '#1e293b', fontWeight: '500' }}>
+                      {getDisplayCost(item)}
+                    </td>
+
+                    {/* STOCK */}
+                    <td style={{ padding: '14px 16px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: '600', color: isOut ? '#dc2626' : isLow ? '#d97706' : '#1e293b' }}>
+                        {item.current_stock?.toLocaleString()}
+                      </span>
+                    </td>
+
+                    {/* REORDER AT */}
+                    <td style={{ padding: '14px 16px', fontSize: '13px', color: '#64748b' }}>
+                      {item.reorder_threshold?.toLocaleString()}
+                    </td>
+
+                    {/* TYPE */}
+                    <td style={{ padding: '14px 16px' }}>
+                      {item.itemType === 'Raw Material' ? (
+                        <span style={{ background: '#eff6ff', color: '#2563eb', borderRadius: '20px', padding: '3px 10px', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' }}>Raw Material</span>
+                      ) : (
+                        <span style={{ background: '#f5f3ff', color: '#7c3aed', borderRadius: '20px', padding: '3px 10px', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' }}>Packaging</span>
+                      )}
+                    </td>
+
+                    {/* STATUS */}
+                    <td style={{ padding: '14px 16px' }}>
+                      {isOut ? (
+                        <span style={{ background: '#fef2f2', color: '#dc2626', borderRadius: '20px', padding: '3px 10px', fontSize: '11px', fontWeight: '600' }}>Out of Stock</span>
+                      ) : isLow ? (
+                        <span style={{ background: '#fef3c7', color: '#d97706', borderRadius: '20px', padding: '3px 10px', fontSize: '11px', fontWeight: '600' }}>Low Stock</span>
+                      ) : (
+                        <span style={{ background: '#f0fdf4', color: '#16a34a', borderRadius: '20px', padding: '3px 10px', fontSize: '11px', fontWeight: '600' }}>OK</span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Row count footer */}
+        {!loading && (
+          <div style={{ padding: '12px 16px', borderTop: '1px solid #f1f5f9', fontSize: '12px', color: '#94a3b8' }}>
+            {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
+          </div>
+        )}
+      </div>
+
+      {/* ── Add Item Modal ── */}
+      {showAddModal && (
+        <div className="modal-overlay" onClick={() => setShowAddModal(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '20px' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '500px', maxHeight: '90vh', overflowY: 'auto', margin: '0 auto' }}>
+
+            <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#1e293b', marginBottom: '20px' }}>Add Item</h2>
+
+            {/* Type toggle */}
+            <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: '8px', padding: '4px', marginBottom: '22px', gap: '4px' }}>
+              {(['raw_material', 'packaging'] as const).map(t => (
+                <button key={t} onClick={() => setAddType(t)}
+                  style={{ flex: 1, padding: '7px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: '600', transition: 'all 0.15s',
+                    background: addType === t ? '#fff' : 'transparent',
+                    color: addType === t ? (t === 'raw_material' ? '#2563eb' : '#7c3aed') : '#64748b',
+                    boxShadow: addType === t ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}>
+                  {t === 'raw_material' ? 'Raw Material' : 'Packaging'}
+                </button>
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={8} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>Loading...</td></tr>
-            ) : filteredItems.length === 0 ? (
-              <tr><td colSpan={8} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>No items found</td></tr>
-            ) : filteredItems.map(item => {
-              const isLow = item.current_stock <= item.reorder_threshold && item.reorder_threshold > 0
-              const isOut = item.current_stock === 0
-              if (item.itemType === 'Raw Material') {
-                const r = item as RawMaterial & { itemType: 'Raw Material' }
-                return (
-                  <tr key={`r-${r.id}`} onClick={() => openEditRaw(r)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                    onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{r.item_no}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{r.name}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px' }}>
-                      <span style={{ background: '#eff6ff', color: '#2563eb', borderRadius: '10px', padding: '2px 8px', fontSize: '11px', fontWeight: '600' }}>Raw Material</span>
-                    </td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.unit}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${r.cost_per_unit_cad?.toFixed(4)}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: isOut ? '#dc2626' : isLow ? '#d97706' : '#1e293b' }}>{r.current_stock?.toLocaleString()} {r.unit}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{r.reorder_threshold?.toLocaleString()} {r.unit}</td>
-                    <td style={{ padding: '12px 16px' }}>
-                      {isOut ? (
-                        <span style={{ background: '#fef2f2', color: '#dc2626', borderRadius: '20px', padding: '2px 10px', fontSize: '12px', fontWeight: '500' }}>Out of Stock</span>
-                      ) : isLow ? (
-                        <span style={{ background: '#fef3c7', color: '#d97706', borderRadius: '20px', padding: '2px 10px', fontSize: '12px', fontWeight: '500' }}>Low Stock</span>
-                      ) : null}
-                    </td>
-                  </tr>
-                )
-              } else {
-                const p = item as Packaging & { itemType: 'Packaging' }
-                const displayUnit = p.type === 'shrink_band' ? 'roll' : (p.unit && p.unit !== '') ? p.unit : 'ea'
-                return (
-                  <tr key={`p-${p.id}`} onClick={() => openEditPack(p)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                    onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: '#2563eb' }}>{p.item_no}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{p.name}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px' }}>
-                      <span style={{ background: '#f5f3ff', color: '#7c3aed', borderRadius: '10px', padding: '2px 8px', fontSize: '11px', fontWeight: '600' }}>Packaging</span>
-                    </td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{displayUnit}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>${p.cost_cad?.toFixed(5)}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', color: isOut ? '#dc2626' : isLow ? '#d97706' : '#1e293b' }}>{p.current_stock?.toLocaleString()}</td>
-                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{p.reorder_threshold?.toLocaleString()}</td>
-                    <td style={{ padding: '12px 16px' }}>
-                      {isOut ? (
-                        <span style={{ background: '#fef2f2', color: '#dc2626', borderRadius: '20px', padding: '2px 10px', fontSize: '12px', fontWeight: '500' }}>Out of Stock</span>
-                      ) : isLow ? (
-                        <span style={{ background: '#fef3c7', color: '#d97706', borderRadius: '20px', padding: '2px 10px', fontSize: '12px', fontWeight: '500' }}>Low Stock</span>
-                      ) : null}
-                    </td>
-                  </tr>
-                )
-              }
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Add Raw Material Modal */}
-      {showAddRawModal && (
-        <div className="modal-overlay" onClick={() => { setShowAddRawModal(false); setAddRawForm({ ...emptyAddRawForm }) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
-            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Add Raw Material</h2>
-            <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={lbl}>Name</label>
-                <input value={addRawForm.name} onChange={e => setAddRawForm({ ...addRawForm, name: e.target.value })} placeholder='e.g. Jojoba Oil' style={inp} />
-              </div>
-              <div>
-                <label style={lbl}>Item No</label>
-                <input value={addRawForm.item_no} onChange={e => setAddRawForm({ ...addRawForm, item_no: e.target.value })} placeholder='e.g. RM-001' style={inp} />
-              </div>
-              <div>
-                <label style={lbl}>Unit</label>
-                <select value={addRawForm.unit} onChange={e => setAddRawForm({ ...addRawForm, unit: e.target.value })} style={inp}>
-                  <option value='ml'>ml</option><option value='g'>g</option><option value='kg'>kg</option><option value='L'>L</option>
-                </select>
-              </div>
-              <div>
-                <label style={lbl}>Cost (CAD)</label>
-                <input type='number' min='0' step='0.0001' value={addRawForm.cost_per_unit_cad} onChange={e => setAddRawForm({ ...addRawForm, cost_per_unit_cad: e.target.value })} placeholder='0.0000' style={inp} />
-              </div>
-              <div>
-                <label style={lbl}>Current Stock</label>
-                <input type='number' min='0' value={addRawForm.current_stock} onChange={e => setAddRawForm({ ...addRawForm, current_stock: e.target.value })} placeholder='0' style={inp} />
-              </div>
-              <div>
-                <label style={lbl}>Reorder At</label>
-                <input type='number' min='0' value={addRawForm.reorder_threshold} onChange={e => setAddRawForm({ ...addRawForm, reorder_threshold: e.target.value })} placeholder='0' style={inp} />
-              </div>
             </div>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '20px' }}>
-              <button onClick={() => { setShowAddRawModal(false); setAddRawForm({ ...emptyAddRawForm }) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-              <button onClick={handleAddRaw} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Save</button>
+
+            {addType === 'raw_material' ? (
+              <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={lbl}>Name</label>
+                  <input value={addRawForm.name} onChange={e => setAddRawForm({ ...addRawForm, name: e.target.value })} placeholder='e.g. Jojoba Oil' style={inp} />
+                </div>
+                <div>
+                  <label style={lbl}>Item No</label>
+                  <input value={addRawForm.item_no} onChange={e => setAddRawForm({ ...addRawForm, item_no: e.target.value })} placeholder='e.g. RM-001' style={inp} />
+                </div>
+                <div>
+                  <label style={lbl}>Unit</label>
+                  <select value={addRawForm.unit} onChange={e => setAddRawForm({ ...addRawForm, unit: e.target.value })} style={inp}>
+                    <option value='ml'>ml</option><option value='g'>g</option><option value='kg'>kg</option><option value='L'>L</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={lbl}>Cost (CAD)</label>
+                  <input type='number' min='0' step='0.0001' value={addRawForm.cost_per_unit_cad} onChange={e => setAddRawForm({ ...addRawForm, cost_per_unit_cad: e.target.value })} placeholder='0.0000' style={inp} />
+                </div>
+                <div>
+                  <label style={lbl}>Current Stock</label>
+                  <input type='number' min='0' value={addRawForm.current_stock} onChange={e => setAddRawForm({ ...addRawForm, current_stock: e.target.value })} placeholder='0' style={inp} />
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={lbl}>Reorder At</label>
+                  <input type='number' min='0' value={addRawForm.reorder_threshold} onChange={e => setAddRawForm({ ...addRawForm, reorder_threshold: e.target.value })} placeholder='0' style={inp} />
+                </div>
+              </div>
+            ) : (
+              <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={lbl}>Name</label>
+                  <input value={addPackForm.name} onChange={e => setAddPackForm({ ...addPackForm, name: e.target.value })} placeholder='e.g. 2oz Bottle' style={inp} />
+                </div>
+                <div>
+                  <label style={lbl}>Item No</label>
+                  <input value={addPackForm.item_no} onChange={e => setAddPackForm({ ...addPackForm, item_no: e.target.value })} placeholder='e.g. PK-001' style={inp} />
+                </div>
+                <div>
+                  <label style={lbl}>Type</label>
+                  <select value={addPackForm.type} onChange={e => setAddPackForm({ ...addPackForm, type: e.target.value })} style={inp}>
+                    <option value='bottle'>Bottle</option><option value='dropper'>Dropper</option><option value='cap'>Cap</option>
+                    <option value='box'>Box</option><option value='shrink_band'>Shrink Band</option><option value='label'>Label</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={lbl}>Unit</label>
+                  <select value={addPackForm.unit} onChange={e => setAddPackForm({ ...addPackForm, unit: e.target.value })} style={inp}>
+                    <option value='ea'>ea</option><option value='roll'>roll</option><option value='box'>box</option><option value='pack'>pack</option><option value='bottle'>bottle</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={lbl}>Cost (CAD)</label>
+                  <input type='number' min='0' step='0.00001' value={addPackForm.cost_cad} onChange={e => setAddPackForm({ ...addPackForm, cost_cad: e.target.value })} placeholder='0.00000' style={inp} />
+                </div>
+                <div>
+                  <label style={lbl}>Current Stock</label>
+                  <input type='number' min='0' value={addPackForm.current_stock} onChange={e => setAddPackForm({ ...addPackForm, current_stock: e.target.value })} placeholder='0' style={inp} />
+                </div>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={lbl}>Reorder At</label>
+                  <input type='number' min='0' value={addPackForm.reorder_threshold} onChange={e => setAddPackForm({ ...addPackForm, reorder_threshold: e.target.value })} placeholder='0' style={inp} />
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '24px' }}>
+              <button onClick={() => setShowAddModal(false)}
+                style={{ padding: '9px 20px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '14px', color: '#374151' }}>Cancel</button>
+              <button onClick={handleAddItem}
+                style={{ padding: '9px 22px', background: addType === 'raw_material' ? '#2563eb' : '#7c3aed', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}>Save</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add Packaging Modal */}
-      {showAddPackModal && (
-        <div className="modal-overlay" onClick={() => { setShowAddPackModal(false); setAddPackForm({ ...emptyAddPackForm }) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
-            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Add Packaging</h2>
-            <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={lbl}>Name</label>
-                <input value={addPackForm.name} onChange={e => setAddPackForm({ ...addPackForm, name: e.target.value })} placeholder='e.g. 2oz Bottle' style={inp} />
-              </div>
-              <div>
-                <label style={lbl}>Item No</label>
-                <input value={addPackForm.item_no} onChange={e => setAddPackForm({ ...addPackForm, item_no: e.target.value })} placeholder='e.g. PK-001' style={inp} />
-              </div>
-              <div>
-                <label style={lbl}>Type</label>
-                <select value={addPackForm.type} onChange={e => setAddPackForm({ ...addPackForm, type: e.target.value })} style={inp}>
-                  <option value='bottle'>Bottle</option><option value='dropper'>Dropper</option><option value='cap'>Cap</option>
-                  <option value='box'>Box</option><option value='shrink_band'>Shrink Band</option><option value='label'>Label</option>
-                </select>
-              </div>
-              <div>
-                <label style={lbl}>Unit</label>
-                <select value={addPackForm.unit} onChange={e => setAddPackForm({ ...addPackForm, unit: e.target.value })} style={inp}>
-                  <option value='ea'>ea</option><option value='roll'>roll</option><option value='box'>box</option><option value='pack'>pack</option><option value='bottle'>bottle</option>
-                </select>
-              </div>
-              <div>
-                <label style={lbl}>Cost (CAD)</label>
-                <input type='number' min='0' step='0.00001' value={addPackForm.cost_cad} onChange={e => setAddPackForm({ ...addPackForm, cost_cad: e.target.value })} placeholder='0.00000' style={inp} />
-              </div>
-              <div>
-                <label style={lbl}>Current Stock</label>
-                <input type='number' min='0' value={addPackForm.current_stock} onChange={e => setAddPackForm({ ...addPackForm, current_stock: e.target.value })} placeholder='0' style={inp} />
-              </div>
-              <div>
-                <label style={lbl}>Reorder At</label>
-                <input type='number' min='0' value={addPackForm.reorder_threshold} onChange={e => setAddPackForm({ ...addPackForm, reorder_threshold: e.target.value })} placeholder='0' style={inp} />
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '20px' }}>
-              <button onClick={() => { setShowAddPackModal(false); setAddPackForm({ ...emptyAddPackForm }) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-              <button onClick={handleAddPack} style={{ padding: '8px 20px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Save</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Raw Material Modal */}
+      {/* ── Edit Raw Material Modal ── */}
       {editRaw && (
-        <div className="modal-overlay" onClick={() => { setEditRaw(null); setItemPurchaseHistory([]) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '720px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
-            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Edit Raw Material</h2>
+        <div className="modal-overlay" onClick={() => { setEditRaw(null); setItemPurchaseHistory([]) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '20px' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '720px', maxHeight: '90vh', overflowY: 'auto', margin: '0 auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '22px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Edit Raw Material</h2>
+              <span style={{ background: '#eff6ff', color: '#2563eb', borderRadius: '20px', padding: '2px 10px', fontSize: '11px', fontWeight: '600' }}>{editRaw.item_no}</span>
+            </div>
             <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '4px' }}>
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={lbl}>Name</label>
@@ -579,7 +632,7 @@ export default function Products() {
                 <input type='number' min='0' step='0.1' value={editRawForm.purchase_unit_kg} onChange={e => setEditRawForm({ ...editRawForm, purchase_unit_kg: e.target.value })} placeholder='e.g. 200' style={inp} />
               </div>
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={lbl}>Cost Avg (CAD) <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '400' }}>(auto-calculated from purchases)</span></label>
+                <label style={lbl}>Avg Cost (CAD) <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '400' }}>auto-calculated from purchases</span></label>
                 <input readOnly value={editRaw?.avg_cost_cad != null ? editRaw.avg_cost_cad.toFixed(4) : ''} placeholder='—' style={{ ...inp, background: '#f8fafc', color: '#64748b', cursor: 'default' }} />
               </div>
               <div style={{ gridColumn: '1 / -1' }}>
@@ -592,21 +645,26 @@ export default function Products() {
             </div>
             <PurchaseHistorySection />
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
-              <button onClick={handleDeleteRaw} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>Delete</button>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <button onClick={() => { setEditRaw(null); setItemPurchaseHistory([]) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-                <button onClick={handleUpdateRaw} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Save Changes</button>
+              <button onClick={handleDeleteRaw} style={{ padding: '9px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>Delete</button>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button onClick={() => { setEditRaw(null); setItemPurchaseHistory([]) }} style={{ padding: '9px 20px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                <button onClick={handleUpdateRaw} style={{ padding: '9px 22px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}>Save Changes</button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Edit Packaging Modal */}
+      {/* ── Edit Packaging Modal ── */}
       {editPack && (
-        <div className="modal-overlay" onClick={() => { setEditPack(null); setItemPurchaseHistory([]) }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto' }}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '720px', maxHeight: '90vh', overflowY: 'auto', margin: '20px auto' }}>
-            <h2 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '20px' }}>Edit Packaging</h2>
+        <div className="modal-overlay" onClick={() => { setEditPack(null); setItemPurchaseHistory([]) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, overflowY: 'auto', padding: '20px' }}>
+          <div className="modal-box" onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '720px', maxHeight: '90vh', overflowY: 'auto', margin: '0 auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '22px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Edit Packaging</h2>
+              <span style={{ background: '#f5f3ff', color: '#7c3aed', borderRadius: '20px', padding: '2px 10px', fontSize: '11px', fontWeight: '600' }}>{editPack.item_no}</span>
+            </div>
             <div className="modal-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '4px' }}>
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={lbl}>Name</label>
@@ -683,7 +741,7 @@ export default function Products() {
                 </div>
               )}
               <div style={{ gridColumn: '1 / -1' }}>
-                <label style={lbl}>Cost Avg (CAD) <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '400' }}>(auto-calculated from purchases)</span></label>
+                <label style={lbl}>Avg Cost (CAD) <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '400' }}>auto-calculated from purchases</span></label>
                 <input readOnly value={editPack?.avg_cost_cad != null ? editPack.avg_cost_cad.toFixed(5) : ''} placeholder='—' style={{ ...inp, background: '#f8fafc', color: '#64748b', cursor: 'default' }} />
               </div>
               <div style={{ gridColumn: '1 / -1' }}>
@@ -699,10 +757,10 @@ export default function Products() {
             )}
             <PurchaseHistorySection />
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
-              <button onClick={handleDeletePack} style={{ padding: '8px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>Delete</button>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <button onClick={() => { setEditPack(null); setEditPackError(''); setItemPurchaseHistory([]) }} style={{ padding: '8px 20px', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
-                <button onClick={handleUpdatePack} style={{ padding: '8px 20px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>Save Changes</button>
+              <button onClick={handleDeletePack} style={{ padding: '9px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>Delete</button>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button onClick={() => { setEditPack(null); setEditPackError(''); setItemPurchaseHistory([]) }} style={{ padding: '9px 20px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                <button onClick={handleUpdatePack} style={{ padding: '9px 22px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}>Save Changes</button>
               </div>
             </div>
           </div>
