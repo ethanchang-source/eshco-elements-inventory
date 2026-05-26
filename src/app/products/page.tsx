@@ -299,6 +299,28 @@ export default function Products() {
     fetchAll()
   }
 
+  async function handleSyncWhsFromCost() {
+    const rawToUpdate = rawMaterials
+      .filter(r => r.price_whs_cad == null)
+      .map(r => ({ id: r.id, price_whs_cad: r.avg_cost_cad ?? r.cost_per_unit_cad }))
+    const packToUpdate = packaging
+      .filter(p => p.price_whs_cad == null)
+      .map(p => ({ id: p.id, price_whs_cad: p.avg_cost_cad ?? p.cost_cad }))
+
+    if (rawToUpdate.length === 0 && packToUpdate.length === 0) {
+      alert('모든 아이템에 WHS Price가 이미 설정되어 있습니다.')
+      return
+    }
+
+    if (!confirm(`WHS Price가 없는 ${rawToUpdate.length + packToUpdate.length}개 아이템에 현재 Cost 값을 WHS Price로 설정합니다. 계속하시겠습니까?`)) return
+
+    await Promise.all([
+      ...rawToUpdate.map(r => supabase.from('raw_materials').update({ price_whs_cad: r.price_whs_cad }).eq('id', r.id)),
+      ...packToUpdate.map(p => supabase.from('packaging').update({ price_whs_cad: p.price_whs_cad }).eq('id', p.id)),
+    ])
+    fetchAll()
+  }
+
   function handleExport() {
     const rows = filteredItems.map(item => {
       const cost = getDisplayCost(item)
@@ -407,6 +429,12 @@ export default function Products() {
           </select>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
+          {allItems.some(i => i.price_whs_cad == null) && (
+            <button onClick={handleSyncWhsFromCost}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#d97706', border: '1px solid #fcd34d', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer', height: '38px' }}>
+              Cost → WHS Price
+            </button>
+          )}
           <button onClick={handleExport}
             style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fff', color: '#374151', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', fontSize: '13px', fontWeight: '500', cursor: 'pointer', height: '38px' }}>
             <Download size={14} /> Export Excel
