@@ -129,6 +129,8 @@ export default function Expenses() {
   const [inlineUploadingId, setInlineUploadingId] = useState<string | null>(null)
   const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null)
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [exportYear, setExportYear] = useState(currentYear)
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => { fetchExpenses(activeYear) }, [activeYear])
 
@@ -172,6 +174,44 @@ export default function Expenses() {
       }
     }
     setLoading(false)
+  }
+
+  async function handleExportExcel() {
+    setExporting(true)
+    const { data } = await supabase
+      .from('expenses')
+      .select('expense_date, type, payee, category, description, amount_before_tax, sales_tax, freight_tip, total_amount, reference, payment_method')
+      .gte('expense_date', `${exportYear}-01-01`)
+      .lte('expense_date', `${exportYear}-12-31`)
+      .is('deleted_at', null)
+      .order('expense_date', { ascending: true })
+    const rows = data || []
+    const wb = XLSX.utils.book_new()
+    const monthlyData: any[][] = Array.from({ length: 12 }, () => [])
+    rows.forEach(e => {
+      const mo = parseInt((e.expense_date || '').slice(5, 7)) - 1
+      if (mo >= 0 && mo < 12) monthlyData[mo].push(e)
+    })
+    // Summary sheet
+    const summaryRows: any[][] = [['Month', 'Total']]
+    MONTHS.forEach((m, i) => {
+      summaryRows.push([m, monthlyData[i].reduce((s: number, e: any) => s + (e.total_amount || 0), 0)])
+    })
+    summaryRows.push(['Grand Total', rows.reduce((s, e) => s + (e.total_amount || 0), 0)])
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryRows), 'Summary')
+    // Monthly sheets
+    const exportCols = ['Date', 'Type', 'Payee', 'Category', 'Description', 'Amount Before Tax', 'Sales Tax', 'Freight/Tip', 'Total', 'Reference', 'Payment Method']
+    MONTHS.forEach((m, i) => {
+      const mRows = monthlyData[i]
+      const sheetData: any[][] = [exportCols]
+      mRows.forEach((e: any) => {
+        sheetData.push([e.expense_date || '', e.type || '', e.payee || '', e.category || '', e.description || '', e.amount_before_tax || 0, e.sales_tax || 0, e.freight_tip || 0, e.total_amount || 0, e.reference || '', e.payment_method || ''])
+      })
+      sheetData.push(['', '', '', '', 'Total', mRows.reduce((s: number, e: any) => s + (e.amount_before_tax || 0), 0), mRows.reduce((s: number, e: any) => s + (e.sales_tax || 0), 0), mRows.reduce((s: number, e: any) => s + (e.freight_tip || 0), 0), mRows.reduce((s: number, e: any) => s + (e.total_amount || 0), 0), '', ''])
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheetData), m)
+    })
+    XLSX.writeFile(wb, `${exportYear}_Expenses-ESHCO_Elements.xlsx`)
+    setExporting(false)
   }
 
   const monthExpenses = expenses.filter(e => {
@@ -550,7 +590,15 @@ export default function Expenses() {
             )
           })}
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <select value={exportYear} onChange={e => setExportYear(Number(e.target.value))} style={{ height: '36px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0 12px', fontSize: '14px', fontWeight: '500', color: '#1e293b', cursor: 'pointer', outline: 'none' }}>
+            {Array.from({ length: currentYear - 2020 + 1 }, (_, i) => 2020 + i).map(yr => (
+              <option key={yr} value={yr}>{yr}</option>
+            ))}
+          </select>
+          <button onClick={handleExportExcel} disabled={exporting} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', fontWeight: '500', cursor: exporting ? 'not-allowed' : 'pointer', opacity: exporting ? 0.7 : 1 }}>
+            {exporting ? 'Exporting...' : 'Export Excel'}
+          </button>
           <label style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 14px', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}>
             <Upload size={14} /> {importing ? 'Importing...' : 'Import Excel'}
             <input ref={importRef} type='file' accept='.xlsx,.xls' onChange={handleImportSelect} style={{ display: 'none' }} />

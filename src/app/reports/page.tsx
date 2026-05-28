@@ -122,6 +122,10 @@ export default function Reports() {
   const [expenseCatLoading, setExpenseCatLoading] = useState(false)
   const [expenseCatData, setExpenseCatData] = useState<{ category: string; months: number[]; total: number }[]>([])
 
+  const [allExpenses, setAllExpenses] = useState<{ expense_date: string; total_amount: number }[]>([])
+  const [allExpensesLoading, setAllExpensesLoading] = useState(true)
+  const [expenseChartYear, setExpenseChartYear] = useState(new Date().getFullYear())
+
   const fetchReports = useCallback(async () => {
     setLoading(true)
     const { data: invoices } = await supabase
@@ -353,8 +357,45 @@ export default function Reports() {
 
   useEffect(() => { fetchExpensesByCategory() }, [fetchExpensesByCategory])
 
+  const fetchAllExpensesForReport = useCallback(async () => {
+    setAllExpensesLoading(true)
+    let allData: { expense_date: string; total_amount: number }[] = []
+    let from = 0
+    const pageSize = 1000
+    while (true) {
+      const { data } = await supabase
+        .from('expenses')
+        .select('expense_date, total_amount')
+        .is('deleted_at', null)
+        .order('expense_date', { ascending: true })
+        .range(from, from + pageSize - 1)
+      if (!data || data.length === 0) break
+      allData = [...allData, ...data]
+      if (data.length < pageSize) break
+      from += pageSize
+    }
+    setAllExpenses(allData)
+    setAllExpensesLoading(false)
+  }, [])
+
+  useEffect(() => { fetchAllExpensesForReport() }, [fetchAllExpensesForReport])
+
   const maxRevenue  = Math.max(...monthlySales.map(m => m.revenue), 1)
   const maxQRevenue = Math.max(...quarterlySales.map(q => q.revenue), 1)
+
+  const expenseReportCurrentYear = new Date().getFullYear()
+  const expenseReportYears = Array.from({ length: expenseReportCurrentYear - 2020 + 1 }, (_, i) => 2020 + i)
+  const expenseByYearMonth: Record<number, number[]> = {}
+  expenseReportYears.forEach(y => { expenseByYearMonth[y] = Array(12).fill(0) })
+  allExpenses.forEach(e => {
+    const year = parseInt((e.expense_date || '').slice(0, 4))
+    const month = parseInt((e.expense_date || '').slice(5, 7)) - 1
+    if (expenseByYearMonth[year] !== undefined && month >= 0 && month < 12) {
+      expenseByYearMonth[year][month] += e.total_amount || 0
+    }
+  })
+  const expenseChartData = expenseByYearMonth[expenseChartYear] || Array(12).fill(0)
+  const maxExpenseBar = Math.max(...expenseChartData, 1)
 
   async function handleAnnualReport() {
     const PptxGenJS = (await import('pptxgenjs')).default
@@ -916,6 +957,89 @@ export default function Reports() {
             )}
           </table>
         </div>
+      </div>
+
+      {/* Expense Report */}
+      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '24px' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
+          <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Expense Report</h3>
+          <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>Year × month totals (all years)</div>
+        </div>
+        {allExpensesLoading ? (
+          <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
+        ) : (() => {
+          const mnms = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+          const colTotals = Array(12).fill(0) as number[]
+          expenseReportYears.forEach(y => {
+            const months = expenseByYearMonth[y] || Array(12).fill(0)
+            months.forEach((v, i) => { colTotals[i] += v })
+          })
+          const grandTotal = colTotals.reduce((s, v) => s + v, 0)
+          return (
+            <>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '900px' }}>
+                  <thead>
+                    <tr style={{ background: '#1e293b', color: '#fff' }}>
+                      <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: '600', whiteSpace: 'nowrap' }}>Year</th>
+                      {mnms.map(m => (
+                        <th key={m} style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>{m}</th>
+                      ))}
+                      <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {expenseReportYears.map((y, idx) => {
+                      const months = expenseByYearMonth[y] || Array(12).fill(0)
+                      const yearTotal = months.reduce((s, v) => s + v, 0)
+                      return (
+                        <tr key={y} style={{ background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                          <td style={{ padding: '8px 14px', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{y}</td>
+                          {months.map((v, i) => (
+                            <td key={i} style={{ padding: '8px', textAlign: 'right', color: '#475569', whiteSpace: 'nowrap' }}>{v > 0 ? `$${formatCurrency(v)}` : ''}</td>
+                          ))}
+                          <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{yearTotal > 0 ? `$${formatCurrency(yearTotal)}` : ''}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: '#dbeafe', color: '#1e40af', fontWeight: '700' }}>
+                      <td style={{ padding: '10px 14px', fontWeight: '700' }}>TOTAL</td>
+                      {colTotals.map((v, i) => (
+                        <td key={i} style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>{v > 0 ? `$${formatCurrency(v)}` : ''}</td>
+                      ))}
+                      <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>${formatCurrency(grandTotal)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              <div style={{ padding: '20px', borderTop: '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Monthly Expenses:</span>
+                  {expenseReportYears.map(y => (
+                    <button
+                      key={y}
+                      onClick={() => setExpenseChartYear(y)}
+                      style={{ padding: '4px 12px', borderRadius: '6px', border: expenseChartYear === y ? 'none' : '1px solid #e2e8f0', background: expenseChartYear === y ? '#dc2626' : '#fff', color: expenseChartYear === y ? '#fff' : '#374151', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}
+                    >
+                      {y}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '160px' }}>
+                  {expenseChartData.map((v, i) => (
+                    <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                      <div style={{ fontSize: '9px', color: '#64748b', fontWeight: '500' }}>{v > 0 ? `$${(v/1000).toFixed(1)}k` : ''}</div>
+                      <div style={{ width: '100%', height: `${Math.max((v/maxExpenseBar)*120, v>0?4:0)}px`, background: v>0?'#dc2626':'#e2e8f0', borderRadius: '4px 4px 0 0', minHeight: '2px' }} />
+                      <div style={{ fontSize: '9px', color: '#94a3b8' }}>{mnms[i]}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )
+        })()}
       </div>
 
       {/* Customer drill-down modal */}
