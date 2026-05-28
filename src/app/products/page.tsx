@@ -75,10 +75,10 @@ const emptyAddPackForm = { item_no: '', name: '', type: 'bottle', unit: 'ea', co
 
 function getDisplayCost(item: UnifiedItem): number | null {
   if (item.itemType === 'Raw Material') {
-    return item.avg_cost_cad != null ? item.avg_cost_cad : item.cost_per_unit_cad
+    return item.cost_per_unit_cad ?? null
   } else {
     const p = item as Packaging & { itemType: 'Packaging' }
-    return p.avg_cost_cad != null ? p.avg_cost_cad : p.cost_cad
+    return p.cost_cad ?? null
   }
 }
 
@@ -302,10 +302,10 @@ export default function Products() {
   async function handleSyncWhsFromCost() {
     const rawToUpdate = rawMaterials
       .filter(r => r.price_whs_cad == null)
-      .map(r => ({ id: r.id, price_whs_cad: r.avg_cost_cad ?? r.cost_per_unit_cad }))
+      .map(r => ({ id: r.id, price_whs_cad: r.cost_per_unit_cad }))
     const packToUpdate = packaging
       .filter(p => p.price_whs_cad == null)
-      .map(p => ({ id: p.id, price_whs_cad: p.avg_cost_cad ?? p.cost_cad }))
+      .map(p => ({ id: p.id, price_whs_cad: p.cost_cad }))
 
     if (rawToUpdate.length === 0 && packToUpdate.length === 0) {
       alert('모든 아이템에 WHS Price가 이미 설정되어 있습니다.')
