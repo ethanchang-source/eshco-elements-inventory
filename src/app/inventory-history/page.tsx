@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
 import { getTodayToronto, torontoDateOnly } from '@/lib/dateUtils'
-import { Archive, Camera, Calendar } from 'lucide-react'
+import { Archive, Camera, Calendar, Trash2 } from 'lucide-react'
 
 interface Snapshot {
   id: string
@@ -164,6 +164,14 @@ export default function InventoryHistory() {
     }
     setTimeout(() => setTakeMsg(''), 4000)
     setTaking(false)
+  }
+
+  async function handleDeleteSnapshot(date: string) {
+    if (!confirm(`Are you sure you want to delete the snapshot for ${date}?`)) return
+    await supabase.from('inventory_snapshots').delete().eq('snapshot_date', date)
+    if (selectedDate === date) setSnapshots([])
+    if (compareDate === date) setCompareSnaps([])
+    fetchDates()
   }
 
   const compareMap = new Map(compareSnaps.map(s => [s.item_no, s]))
@@ -346,19 +354,34 @@ export default function InventoryHistory() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
               {snapshotDates.map(date => (
-                <button
-                  key={date}
-                  onClick={() => setSelectedDate(date)}
-                  style={{
-                    padding: '6px 10px', borderRadius: '6px', border: 'none',
-                    cursor: 'pointer', fontSize: '12px', textAlign: 'left',
-                    fontWeight: selectedDate === date ? '600' : '400',
-                    background: selectedDate === date ? '#eff6ff' : 'transparent',
-                    color: selectedDate === date ? '#2563eb' : '#374151',
-                  }}
-                >
-                  {torontoDateOnly(date + 'T12:00:00')}
-                </button>
+                <div key={date} style={{ display: 'flex', alignItems: 'center', gap: '4px', borderRadius: '6px', background: selectedDate === date ? '#eff6ff' : 'transparent' }}>
+                  <button
+                    onClick={() => setSelectedDate(date)}
+                    style={{
+                      flex: 1, padding: '6px 10px', borderRadius: '6px', border: 'none',
+                      cursor: 'pointer', fontSize: '12px', textAlign: 'left',
+                      fontWeight: selectedDate === date ? '600' : '400',
+                      background: 'transparent',
+                      color: selectedDate === date ? '#2563eb' : '#374151',
+                    }}
+                  >
+                    {torontoDateOnly(date + 'T12:00:00')}
+                  </button>
+                  <button
+                    onClick={() => handleDeleteSnapshot(date)}
+                    title={`Delete snapshot for ${date}`}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      padding: '4px', marginRight: '4px', border: 'none', borderRadius: '4px',
+                      background: 'transparent', color: '#fca5a5', cursor: 'pointer',
+                      flexShrink: 0, lineHeight: 1,
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#fef2f2'; (e.currentTarget as HTMLButtonElement).style.color = '#dc2626' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = '#fca5a5' }}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
               ))}
             </div>
           )}
