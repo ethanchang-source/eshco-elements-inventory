@@ -181,7 +181,7 @@ export default function Expenses() {
     console.log('export year:', exportYear)
     const { data, error } = await supabase
       .from('expenses')
-      .select('expense_date, type, payee, category, description, amount_before_tax, sales_tax, freight_tip, total_amount, reference, payment_method')
+      .select('expense_date, type, payee, category, description, amount_before_tax, sales_tax, total_amount, payment_method, currency')
       .gte('expense_date', `${exportYear}-01-01`)
       .lte('expense_date', `${exportYear}-12-31`)
       .is('deleted_at', null)
@@ -202,14 +202,14 @@ export default function Expenses() {
     })
     summaryRows.push(['Grand Total', rows.reduce((s, e) => s + (e.total_amount || 0), 0)])
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryRows), 'Summary')
-    const exportCols = ['Date', 'Type', 'Payee', 'Category', 'Description', 'Amount Before Tax', 'Sales Tax', 'Freight/Tip', 'Total', 'Reference', 'Payment Method']
+    const exportCols = ['Date', 'Type', 'Payee', 'Category', 'Description', 'Amount Before Tax', 'Sales Tax', 'Total', 'Payment Method', 'Currency']
     MONTHS.forEach((m, i) => {
       const mRows = monthlyData[i]
       const sheetData: any[][] = [exportCols]
       mRows.forEach((e: any) => {
-        sheetData.push([e.expense_date || '', e.type || '', e.payee || '', e.category || '', e.description || '', e.amount_before_tax || 0, e.sales_tax || 0, e.freight_tip || 0, e.total_amount || 0, e.reference || '', e.payment_method || ''])
+        sheetData.push([e.expense_date || '', e.type || '', e.payee || '', e.category || '', e.description || '', e.amount_before_tax || 0, e.sales_tax || 0, e.total_amount || 0, e.payment_method || '', e.currency || ''])
       })
-      sheetData.push(['', '', '', '', 'Total', mRows.reduce((s: number, e: any) => s + (e.amount_before_tax || 0), 0), mRows.reduce((s: number, e: any) => s + (e.sales_tax || 0), 0), mRows.reduce((s: number, e: any) => s + (e.freight_tip || 0), 0), mRows.reduce((s: number, e: any) => s + (e.total_amount || 0), 0), '', ''])
+      sheetData.push(['', '', '', '', 'Total', mRows.reduce((s: number, e: any) => s + (e.amount_before_tax || 0), 0), mRows.reduce((s: number, e: any) => s + (e.sales_tax || 0), 0), mRows.reduce((s: number, e: any) => s + (e.total_amount || 0), 0), '', ''])
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheetData), m)
     })
     XLSX.writeFile(wb, `${exportYear}_Expenses-ESHCO_Elements.xlsx`)
