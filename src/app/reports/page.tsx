@@ -364,18 +364,20 @@ export default function Reports() {
     let from = 0
     const pageSize = 1000
     while (true) {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('expenses')
         .select('expense_date, total_amount')
         .is('deleted_at', null)
         .order('expense_date', { ascending: true })
         .range(from, from + pageSize - 1)
+      if (error) { console.log('expense fetch error:', error); break }
       if (!data || data.length === 0) break
       allData = [...allData, ...data]
       if (data.length < pageSize) break
       from += pageSize
     }
     setAllExpenses(allData)
+    console.log('expense data count:', allData.length)
     setAllExpensesLoading(false)
   }, [])
 
