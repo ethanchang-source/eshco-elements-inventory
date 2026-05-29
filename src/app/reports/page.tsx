@@ -125,6 +125,7 @@ export default function Reports() {
   const [allExpenses, setAllExpenses] = useState<{ expense_date: string; total_amount: number }[]>([])
   const [allExpensesLoading, setAllExpensesLoading] = useState(true)
   const [expenseChartYear, setExpenseChartYear] = useState(new Date().getFullYear())
+  const [expenseChartMode, setExpenseChartMode] = useState<'bar' | 'line'>('bar')
 
   const fetchReports = useCallback(async () => {
     setLoading(true)
@@ -379,6 +380,17 @@ export default function Reports() {
   }, [])
 
   useEffect(() => { fetchAllExpensesForReport() }, [fetchAllExpensesForReport])
+
+  useEffect(() => {
+    if (allExpenses.length === 0) return
+    const yearTotals: Record<number, number> = {}
+    allExpenses.forEach(e => {
+      const y = parseInt((e.expense_date || '').slice(0, 4))
+      if (y >= 2020) yearTotals[y] = (yearTotals[y] || 0) + (e.total_amount || 0)
+    })
+    const yearsWithData = Object.keys(yearTotals).map(Number).filter(y => yearTotals[y] > 0).sort((a, b) => b - a)
+    if (yearsWithData.length > 0) setExpenseChartYear(yearsWithData[0])
+  }, [allExpenses])
 
   const maxRevenue  = Math.max(...monthlySales.map(m => m.revenue), 1)
   const maxQRevenue = Math.max(...quarterlySales.map(q => q.revenue), 1)
@@ -1014,29 +1026,83 @@ export default function Reports() {
                   </tfoot>
                 </table>
               </div>
-              <div style={{ padding: '20px', borderTop: '1px solid #e2e8f0' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Monthly Expenses:</span>
-                  {expenseReportYears.map(y => (
-                    <button
-                      key={y}
-                      onClick={() => setExpenseChartYear(y)}
-                      style={{ padding: '4px 12px', borderRadius: '6px', border: expenseChartYear === y ? 'none' : '1px solid #e2e8f0', background: expenseChartYear === y ? '#dc2626' : '#fff', color: expenseChartYear === y ? '#fff' : '#374151', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}
-                    >
-                      {y}
-                    </button>
-                  ))}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '160px' }}>
-                  {expenseChartData.map((v, i) => (
-                    <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                      <div style={{ fontSize: '9px', color: '#64748b', fontWeight: '500' }}>{v > 0 ? `$${(v/1000).toFixed(1)}k` : ''}</div>
-                      <div style={{ width: '100%', height: `${Math.max((v/maxExpenseBar)*120, v>0?4:0)}px`, background: v>0?'#dc2626':'#e2e8f0', borderRadius: '4px 4px 0 0', minHeight: '2px' }} />
-                      <div style={{ fontSize: '9px', color: '#94a3b8' }}>{mnms[i]}</div>
+              {(() => {
+                const lineColors = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777']
+                const yearsWithData = expenseReportYears.filter(y => (expenseByYearMonth[y] || Array(12).fill(0)).reduce((s: number, v: number) => s + v, 0) > 0)
+                const barData = expenseByYearMonth[expenseChartYear] || Array(12).fill(0)
+                const maxBar = Math.max(...barData, 1)
+                return (
+                  <div style={{ padding: '20px', borderTop: '1px solid #e2e8f0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Monthly Expenses:</span>
+                        {expenseChartMode === 'bar' && yearsWithData.map(y => (
+                          <button key={y} onClick={() => setExpenseChartYear(y)}
+                            style={{ padding: '4px 12px', borderRadius: '6px', border: expenseChartYear === y ? 'none' : '1px solid #e2e8f0', background: expenseChartYear === y ? '#dc2626' : '#fff', color: expenseChartYear === y ? '#fff' : '#374151', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
+                            {y}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        {(['bar', 'line'] as const).map(mode => (
+                          <button key={mode} onClick={() => setExpenseChartMode(mode)}
+                            style={{ padding: '4px 12px', borderRadius: '6px', border: expenseChartMode === mode ? 'none' : '1px solid #e2e8f0', background: expenseChartMode === mode ? '#1e293b' : '#fff', color: expenseChartMode === mode ? '#fff' : '#374151', fontSize: '12px', fontWeight: '500', cursor: 'pointer', textTransform: 'capitalize' }}>
+                            {mode === 'bar' ? 'Bar' : 'Line'}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </div>
+                    {expenseChartMode === 'bar' ? (
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '160px' }}>
+                        {barData.map((v: number, i: number) => (
+                          <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                            <div style={{ fontSize: '9px', color: '#64748b', fontWeight: '500' }}>{v > 0 ? `$${(v/1000).toFixed(1)}k` : ''}</div>
+                            <div style={{ width: '100%', height: `${Math.max((v/maxBar)*120, v>0?4:0)}px`, background: v>0?'#dc2626':'#e2e8f0', borderRadius: '4px 4px 0 0' }} />
+                            <div style={{ fontSize: '9px', color: '#94a3b8' }}>{mnms[i]}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (() => {
+                      const allVals = yearsWithData.flatMap(y => expenseByYearMonth[y] || Array(12).fill(0))
+                      const maxVal = Math.max(...allVals, 1)
+                      const W = 520, H = 140, padL = 8, padR = 8, padT = 10, padB = 24
+                      const xStep = (W - padL - padR) / 11
+                      const toX = (i: number) => padL + i * xStep
+                      const toY = (v: number) => padT + (H - padT - padB) * (1 - v / maxVal)
+                      return (
+                        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+                          <svg viewBox={`0 0 ${W} ${H}`} style={{ flex: 1, overflow: 'visible' }}>
+                            {yearsWithData.map((y, yi) => {
+                              const vals = expenseByYearMonth[y] || Array(12).fill(0)
+                              const color = lineColors[yi % lineColors.length]
+                              const points = vals.map((v: number, i: number) => `${toX(i)},${toY(v)}`).join(' ')
+                              return (
+                                <g key={y}>
+                                  <polyline points={points} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+                                  {vals.map((v: number, i: number) => v > 0 && (
+                                    <circle key={i} cx={toX(i)} cy={toY(v)} r="3" fill={color} />
+                                  ))}
+                                </g>
+                              )
+                            })}
+                            {mnms.map((m, i) => (
+                              <text key={m} x={toX(i)} y={H - 4} textAnchor="middle" fontSize="9" fill="#94a3b8">{m}</text>
+                            ))}
+                          </svg>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingTop: '10px', minWidth: '52px' }}>
+                            {yearsWithData.map((y, yi) => (
+                              <div key={y} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                <div style={{ width: '14px', height: '3px', background: lineColors[yi % lineColors.length], borderRadius: '2px', flexShrink: 0 }} />
+                                <span style={{ fontSize: '11px', color: '#374151', fontWeight: '500' }}>{y}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                )
+              })()}
             </>
           )
         })()}
