@@ -367,7 +367,6 @@ export default function Reports() {
       const { data, error } = await supabase
         .from('expenses')
         .select('expense_date, total_amount')
-        .is('deleted_at', null)
         .order('expense_date', { ascending: true })
         .range(from, from + pageSize - 1)
       if (error) { console.log('expense fetch error:', error); break }

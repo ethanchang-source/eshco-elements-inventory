@@ -184,7 +184,6 @@ export default function Expenses() {
       .select('expense_date, type, payee, category, description, amount_before_tax, sales_tax, total_amount, payment_method, currency')
       .gte('expense_date', `${exportYear}-01-01`)
       .lte('expense_date', `${exportYear}-12-31`)
-      .is('deleted_at', null)
       .order('expense_date', { ascending: true })
     console.log('export error:', error)
     console.log('export data count:', data?.length)
