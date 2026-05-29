@@ -178,13 +178,17 @@ export default function Expenses() {
 
   async function handleExportExcel() {
     setExporting(true)
-    const { data } = await supabase
+    console.log('export year:', exportYear)
+    const { data, error } = await supabase
       .from('expenses')
       .select('expense_date, type, payee, category, description, amount_before_tax, sales_tax, freight_tip, total_amount, reference, payment_method')
       .gte('expense_date', `${exportYear}-01-01`)
       .lte('expense_date', `${exportYear}-12-31`)
       .is('deleted_at', null)
       .order('expense_date', { ascending: true })
+    console.log('export error:', error)
+    console.log('export data count:', data?.length)
+    console.log('export sample:', data?.slice(0, 3))
     const rows = data || []
     const wb = XLSX.utils.book_new()
     const monthlyData: any[][] = Array.from({ length: 12 }, () => [])
