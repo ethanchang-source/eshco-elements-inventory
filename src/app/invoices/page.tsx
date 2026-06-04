@@ -1984,7 +1984,7 @@ function InvoicesContent() {
                           <input type='number' value={item.unit_price} onChange={e => cmUpdateUnitPrice(index, parseFloat(e.target.value) || 0)} style={{ width: '70px', padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '12px', outline: 'none' }} />
                         </td>
                         <td style={{ padding: '8px 12px' }}>
-                          <input type='number' value={item.qty || ''} onChange={e => cmUpdateQty(index, parseInt(e.target.value) || 0)} placeholder='0' style={{ width: '60px', padding: '4px 8px', border: item.qty > 0 ? '1px solid #7c3aed' : '1px solid #e2e8f0', borderRadius: '4px', fontSize: '12px', outline: 'none', background: item.qty > 0 ? '#faf5ff' : '#fff' }} />
+                          <input type='number' value={item.qty || ''} onChange={e => cmUpdateQty(index, parseInt(e.target.value) || 0)} placeholder='0' style={{ width: '100px', padding: '4px 8px', border: item.qty > 0 ? '1px solid #7c3aed' : '1px solid #e2e8f0', borderRadius: '4px', fontSize: '12px', outline: 'none', background: item.qty > 0 ? '#faf5ff' : '#fff' }} />
                         </td>
                         <td style={{ padding: '8px 12px', fontSize: '12px', fontWeight: '600', color: item.qty > 0 ? '#7c3aed' : '#94a3b8' }}>
                           {item.qty > 0 ? `$${formatCurrency(item.total)}` : '-'}
@@ -2106,7 +2106,7 @@ function InvoicesContent() {
                           <input type='number' value={item.unit_price} onChange={e => updateUnitPrice(index, parseFloat(e.target.value) || 0)} style={{ width: '70px', padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '12px', outline: 'none' }} />
                         </td>
                         <td style={{ padding: '8px 12px' }}>
-                          <input type='number' value={item.qty || ''} onChange={e => updateQty(index, parseInt(e.target.value) || 0)} placeholder='0' style={{ width: '60px', padding: '4px 8px', border: item.qty > 0 ? '1px solid #16a34a' : '1px solid #e2e8f0', borderRadius: '4px', fontSize: '12px', outline: 'none', background: item.qty > 0 ? '#f0fdf4' : '#fff' }} />
+                          <input type='number' value={item.qty || ''} onChange={e => updateQty(index, parseInt(e.target.value) || 0)} placeholder='0' style={{ width: '100px', padding: '4px 8px', border: item.qty > 0 ? '1px solid #16a34a' : '1px solid #e2e8f0', borderRadius: '4px', fontSize: '12px', outline: 'none', background: item.qty > 0 ? '#f0fdf4' : '#fff' }} />
                         </td>
                         <td style={{ padding: '8px 12px', fontSize: '12px', fontWeight: '600', color: item.qty > 0 ? '#16a34a' : '#94a3b8' }}>
                           {item.qty > 0 ? `$${formatCurrency(item.total)}` : '-'}
