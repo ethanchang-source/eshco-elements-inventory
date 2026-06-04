@@ -98,7 +98,7 @@ function qoqChange(curr: number, prev: number): { text: string; up: boolean } | 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
 export default function Reports() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'monthly' | 'alltime' | 'customers' | 'expenses' | 'tax'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'revenue' | 'alltime' | 'customers' | 'expenses' | 'tax'>('overview')
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
 
   const [loading, setLoading] = useState(true)
@@ -680,7 +680,7 @@ export default function Reports() {
       <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '0', marginBottom: '24px', borderRadius: '12px 12px 0 0', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
         {([
           { key: 'overview',   label: 'Overview' },
-          { key: 'monthly',    label: 'Monthly' },
+          { key: 'revenue',    label: 'Revenue' },
           { key: 'alltime',    label: 'All-Time Summary' },
           { key: 'customers',  label: 'By Customer' },
           { key: 'expenses',   label: 'Expenses' },
@@ -915,7 +915,7 @@ export default function Reports() {
       )}
 
       {/* ── MONTHLY TAB ── */}
-      {activeTab === 'monthly' && (
+      {activeTab === 'revenue' && (
         <>
           {allMonthlyLoading ? (
             <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading multi-year data...</div>
