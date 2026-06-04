@@ -95,16 +95,35 @@ function qoqChange(curr: number, prev: number): { text: string; up: boolean } | 
   return { text: (pct >= 0 ? '▲ ' : '▼ ') + Math.abs(pct).toFixed(1) + '%', up: pct >= 0 }
 }
 
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
 export default function Reports() {
+  const [activeTab, setActiveTab] = useState<'overview' | 'monthly' | 'alltime' | 'customers' | 'expenses' | 'tax'>('overview')
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
+
   const [loading, setLoading] = useState(true)
-  const [stats, setStats] = useState({
-    total_revenue: 0, total_invoices: 0, total_units_sold: 0,
-    avg_order_value: 0, paid_revenue: 0, unpaid_revenue: 0,
-  })
+  const [stats, setStats] = useState({ total_revenue: 0, total_invoices: 0, total_units_sold: 0, avg_order_value: 0, paid_revenue: 0, unpaid_revenue: 0 })
   const [monthlySales, setMonthlySales]     = useState<MonthlySales[]>([])
   const [quarterlySales, setQuarterlySales] = useState<QuarterlySales[]>([])
   const [topProducts, setTopProducts]       = useState<TopProduct[]>([])
+
+  const [allTimeLoading, setAllTimeLoading] = useState(true)
+  const [allTimeStats, setAllTimeStats]     = useState({ total_revenue: 0, total_qty: 0 })
+
+  const [allMonthlyLoading, setAllMonthlyLoading]       = useState(true)
+  const [allMonthlyCad, setAllMonthlyCad]               = useState<Record<number, number[]>>({})
+  const [allMonthlyTotal, setAllMonthlyTotal]           = useState<Record<number, number[]>>({})
+  const [allMonthlyChartMode, setAllMonthlyChartMode]   = useState<'bar' | 'line'>('line')
+  const [allMonthlyChartYear, setAllMonthlyChartYear]   = useState(new Date().getFullYear())
+
+  const [allMonthlyUnits, setAllMonthlyUnits]           = useState<Record<number, number[]>>({})
+  const [allMonthlyUnitsLoading, setAllMonthlyUnitsLoading] = useState(true)
+  const [atRevChartMode, setAtRevChartMode]             = useState<'bar' | 'line'>('bar')
+  const [atRevChartYear, setAtRevChartYear]             = useState(new Date().getFullYear())
+  const [atUnitsChartMode, setAtUnitsChartMode]         = useState<'bar' | 'line'>('bar')
+  const [atUnitsChartYear, setAtUnitsChartYear]         = useState(new Date().getFullYear())
+  const [atInvLoading, setAtInvLoading]                 = useState(true)
+  const [atInvValue, setAtInvValue]                     = useState(0)
 
   const [csStatus, setCsStatus]   = useState<'all' | 'paid' | 'sent'>('all')
   const [customerSales, setCustomerSales] = useState<GroupedCustomerRow[]>([])
@@ -147,9 +166,8 @@ export default function Reports() {
         paid_revenue: paidRevenue, unpaid_revenue: unpaidRevenue,
       })
 
-      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
       const mmap: Record<string, MonthlySales> = {}
-      monthNames.forEach((m, i) => { mmap[String(i+1).padStart(2,'0')] = { month: m, revenue: 0, invoice_count: 0, total_qty: 0 } })
+      MONTH_NAMES.forEach((m, i) => { mmap[String(i+1).padStart(2,'0')] = { month: m, revenue: 0, invoice_count: 0, total_qty: 0 } })
       invoices.forEach(inv => {
         const mo = inv.issued_at.substring(5, 7)
         if (mmap[mo]) {
@@ -158,7 +176,7 @@ export default function Reports() {
           mmap[mo].total_qty    += (inv.invoice_items || []).reduce((s: number, it: any) => s + (it.qty || 0), 0)
         }
       })
-      const monthly = monthNames.map((m, i) => mmap[String(i+1).padStart(2,'0')])
+      const monthly = MONTH_NAMES.map((m, i) => mmap[String(i+1).padStart(2,'0')])
       setMonthlySales(monthly)
 
       setQuarterlySales(QUARTERS.map(q => ({
@@ -183,6 +201,64 @@ export default function Reports() {
   }, [selectedYear])
 
   useEffect(() => { fetchReports() }, [fetchReports])
+
+  const fetchAllTime = useCallback(async () => {
+    setAllTimeLoading(true)
+    let totalRevenue = 0, totalQty = 0, from = 0
+    const pageSize = 1000
+    while (true) {
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('subtotal_cad, invoice_items(qty)')
+        .neq('status', 'draft')
+        .range(from, from + pageSize - 1)
+      if (error || !data || data.length === 0) break
+      for (const inv of data) {
+        totalRevenue += inv.subtotal_cad || 0
+        for (const it of (inv.invoice_items || []) as any[]) totalQty += it.qty || 0
+      }
+      if (data.length < pageSize) break
+      from += pageSize
+    }
+    setAllTimeStats({ total_revenue: totalRevenue, total_qty: totalQty })
+    setAllTimeLoading(false)
+  }, [])
+
+  useEffect(() => { fetchAllTime() }, [fetchAllTime])
+
+  const fetchAllMonthly = useCallback(async () => {
+    setAllMonthlyLoading(true)
+    const cadByYear: Record<number, number[]> = {}
+    const totalByYear: Record<number, number[]> = {}
+    let from = 0
+    const pageSize = 1000
+    while (true) {
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('issued_at, subtotal_cad, total_cad')
+        .neq('status', 'draft')
+        .range(from, from + pageSize - 1)
+      if (error || !data || data.length === 0) break
+      for (const inv of data) {
+        if (!inv.issued_at) continue
+        const y = parseInt(inv.issued_at.slice(0, 4))
+        const m = parseInt(inv.issued_at.slice(5, 7)) - 1
+        if (!cadByYear[y])   cadByYear[y]   = Array(12).fill(0)
+        if (!totalByYear[y]) totalByYear[y] = Array(12).fill(0)
+        cadByYear[y][m]   += inv.subtotal_cad || 0
+        totalByYear[y][m] += inv.total_cad    || 0
+      }
+      if (data.length < pageSize) break
+      from += pageSize
+    }
+    setAllMonthlyCad(cadByYear)
+    setAllMonthlyTotal(totalByYear)
+    const yearsWithData = Object.keys(cadByYear).map(Number).sort((a, b) => b - a)
+    if (yearsWithData.length > 0) setAllMonthlyChartYear(yearsWithData[0])
+    setAllMonthlyLoading(false)
+  }, [])
+
+  useEffect(() => { fetchAllMonthly() }, [fetchAllMonthly])
 
   const fetchCustomerSales = useCallback(async () => {
     setCsLoading(true)
@@ -289,47 +365,33 @@ export default function Reports() {
     ])
 
     const itemMapM = await resolveItems((items || []).filter((it: any) => it.item_id))
-
     const pmap: Record<string, ProductMarginRow> = {}
     for (const it of (items || []) as any[]) {
       if (!it.item_id) continue
       const info = itemMapM.get(it.item_id)
       if (!pmap[it.item_id]) {
-        pmap[it.item_id] = {
-          product_id: it.item_id,
-          sku: info?.item_no || '',
-          name: info?.name || '',
-          total_qty: 0,
-          total_revenue: 0,
-          avg_selling_price: 0,
-          unit_cost: info?.unit_cost || 0,
-          total_cost: 0,
-          gross_profit: 0,
-          margin_pct: 0,
-        }
+        pmap[it.item_id] = { product_id: it.item_id, sku: info?.item_no || '', name: info?.name || '', total_qty: 0, total_revenue: 0, avg_selling_price: 0, unit_cost: info?.unit_cost || 0, total_cost: 0, gross_profit: 0, margin_pct: 0 }
       }
-      pmap[it.item_id].total_qty += it.qty || 0
+      pmap[it.item_id].total_qty     += it.qty || 0
       pmap[it.item_id].total_revenue += it.line_total_cad || 0
     }
 
-    const rows: ProductMarginRow[] = Object.values(pmap).map(r => {
+    const marginRows: ProductMarginRow[] = Object.values(pmap).map(r => {
       const avgSelling = r.total_qty > 0 ? r.total_revenue / r.total_qty : 0
-      const totalCost = r.unit_cost * r.total_qty
+      const totalCost  = r.unit_cost * r.total_qty
       const grossProfit = r.total_revenue - totalCost
-      const marginPct = r.total_revenue > 0 ? (grossProfit / r.total_revenue) * 100 : 0
+      const marginPct  = r.total_revenue > 0 ? (grossProfit / r.total_revenue) * 100 : 0
       return { ...r, avg_selling_price: avgSelling, total_cost: totalCost, gross_profit: grossProfit, margin_pct: marginPct }
     }).sort((a, b) => a.sku.localeCompare(b.sku))
 
-    setProductMargins(rows)
+    setProductMargins(marginRows)
 
-    const totalRevenue = rows.reduce((s, r) => s + r.total_revenue, 0)
-    const totalCogs = rows.reduce((s, r) => s + r.total_cost, 0)
-    const grossProfit = totalRevenue - totalCogs
+    const totalRevenue  = marginRows.reduce((s, r) => s + r.total_revenue, 0)
+    const totalCogs     = marginRows.reduce((s, r) => s + r.total_cost, 0)
+    const grossProfit   = totalRevenue - totalCogs
     const grossMarginPct = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0
     const totalExpenses = (expData || []).reduce((s: number, r: any) => s + (r.total_amount || 0), 0)
-    const netProfit = grossProfit - totalExpenses
-    setGrossSummary({ total_revenue: totalRevenue, total_cogs: totalCogs, gross_profit: grossProfit, gross_margin_pct: grossMarginPct, total_expenses: totalExpenses, net_profit: netProfit })
-
+    setGrossSummary({ total_revenue: totalRevenue, total_cogs: totalCogs, gross_profit: grossProfit, gross_margin_pct: grossMarginPct, total_expenses: totalExpenses, net_profit: grossProfit - totalExpenses })
     setMarginLoading(false)
   }, [selectedYear])
 
@@ -345,14 +407,15 @@ export default function Reports() {
     const map: Record<string, number[]> = {}
     for (const row of data || []) {
       const cat = row.category || '(No Category)'
-      const mo = parseInt((row.expense_date || '').slice(5, 7)) - 1
+      const mo  = parseInt((row.expense_date || '').slice(5, 7)) - 1
       if (!map[cat]) map[cat] = Array(12).fill(0)
       map[cat][mo] += row.total_amount || 0
     }
-    const rows = Object.entries(map)
-      .map(([category, months]) => ({ category, months, total: months.reduce((s, v) => s + v, 0) }))
-      .sort((a, b) => a.category.localeCompare(b.category))
-    setExpenseCatData(rows)
+    setExpenseCatData(
+      Object.entries(map)
+        .map(([category, months]) => ({ category, months, total: months.reduce((s, v) => s + v, 0) }))
+        .sort((a, b) => a.category.localeCompare(b.category))
+    )
     setExpenseCatLoading(false)
   }, [selectedYear])
 
@@ -376,11 +439,54 @@ export default function Reports() {
       from += pageSize
     }
     setAllExpenses(allData)
-    console.log('expense data count:', allData.length)
     setAllExpensesLoading(false)
   }, [])
 
   useEffect(() => { fetchAllExpensesForReport() }, [fetchAllExpensesForReport])
+
+  const fetchAllMonthlyUnits = useCallback(async () => {
+    setAllMonthlyUnitsLoading(true)
+    const unitsByYear: Record<number, number[]> = {}
+    let from = 0
+    const pageSize = 1000
+    while (true) {
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('issued_at, invoice_items(qty)')
+        .neq('status', 'draft')
+        .range(from, from + pageSize - 1)
+      if (error || !data || data.length === 0) break
+      for (const inv of data) {
+        if (!inv.issued_at) continue
+        const y = parseInt(inv.issued_at.slice(0, 4))
+        const m = parseInt(inv.issued_at.slice(5, 7)) - 1
+        if (!unitsByYear[y]) unitsByYear[y] = Array(12).fill(0)
+        for (const it of (inv.invoice_items || []) as any[]) unitsByYear[y][m] += it.qty || 0
+      }
+      if (data.length < pageSize) break
+      from += pageSize
+    }
+    setAllMonthlyUnits(unitsByYear)
+    const yearsWithData = Object.keys(unitsByYear).map(Number).sort((a, b) => b - a)
+    if (yearsWithData.length > 0) setAtUnitsChartYear(yearsWithData[0])
+    setAllMonthlyUnitsLoading(false)
+  }, [])
+
+  useEffect(() => { fetchAllMonthlyUnits() }, [fetchAllMonthlyUnits])
+
+  const fetchInventoryValue = useCallback(async () => {
+    setAtInvLoading(true)
+    const [{ data: rawData }, { data: packData }] = await Promise.all([
+      supabase.from('raw_materials').select('current_stock, cost_per_unit_cad'),
+      supabase.from('packaging').select('current_stock, cost_cad'),
+    ])
+    const rawVal  = (rawData  || []).reduce((s: number, r: any) => s + (r.current_stock || 0) * (r.cost_per_unit_cad || 0), 0)
+    const packVal = (packData || []).reduce((s: number, p: any) => s + (p.current_stock || 0) * (p.cost_cad || 0), 0)
+    setAtInvValue(rawVal + packVal)
+    setAtInvLoading(false)
+  }, [])
+
+  useEffect(() => { fetchInventoryValue() }, [fetchInventoryValue])
 
   useEffect(() => {
     if (allExpenses.length === 0) return
@@ -401,7 +507,7 @@ export default function Reports() {
   const expenseByYearMonth: Record<number, number[]> = {}
   expenseReportYears.forEach(y => { expenseByYearMonth[y] = Array(12).fill(0) })
   allExpenses.forEach(e => {
-    const year = parseInt((e.expense_date || '').slice(0, 4))
+    const year  = parseInt((e.expense_date || '').slice(0, 4))
     const month = parseInt((e.expense_date || '').slice(5, 7)) - 1
     if (expenseByYearMonth[year] !== undefined && month >= 0 && month < 12) {
       expenseByYearMonth[year][month] += e.total_amount || 0
@@ -409,6 +515,15 @@ export default function Reports() {
   })
   const expenseChartData = expenseByYearMonth[expenseChartYear] || Array(12).fill(0)
   const maxExpenseBar = Math.max(...expenseChartData, 1)
+
+  useEffect(() => {
+    const years = Object.keys(allMonthlyCad).map(Number).sort((a, b) => b - a)
+    if (years.length > 0) setAtRevChartYear(years[0])
+  }, [allMonthlyCad])
+
+  const allMonthlyYears = Object.keys(allMonthlyCad).map(Number).sort((a, b) => b - a)
+  const allMonthlyChartData = allMonthlyCad[allMonthlyChartYear] || Array(12).fill(0)
+  const maxAllMonthlyBar = Math.max(...allMonthlyChartData, 1)
 
   async function handleAnnualReport() {
     const PptxGenJS = (await import('pptxgenjs')).default
@@ -421,7 +536,6 @@ export default function Reports() {
     const GRAY  = '64748b'
     const LGRAY = 'f1f5f9'
 
-    // Load logo as base64
     let logoData = ''
     try {
       const res = await fetch('/logo.png')
@@ -433,7 +547,6 @@ export default function Reports() {
       })
     } catch { /* skip logo if unavailable */ }
 
-    // ─── Slide 1: Cover ───
     const s1 = pptx.addSlide()
     s1.addText('', { x: 0, y: 0, w: '100%', h: 2.4, fill: { color: GREEN } })
     if (logoData) s1.addImage({ data: logoData, x: 0.5, y: 0.35, h: 1.6, w: 1.6 })
@@ -441,7 +554,6 @@ export default function Reports() {
     s1.addText(`Annual Report ${selectedYear}`, { x: 0.5, y: 3.5, w: 12.3, fontSize: 44, fontFace: 'Arial', bold: true, color: GREEN })
     s1.addText('Confidential — Internal Use Only', { x: 0.5, y: 6.6, w: 12.3, fontSize: 11, fontFace: 'Arial', color: GRAY, italic: true })
 
-    // ─── Slide 2: Revenue Summary ───
     const s2 = pptx.addSlide()
     s2.addText('', { x: 0, y: 0, w: '100%', h: 1.0, fill: { color: GREEN } })
     s2.addText(`Revenue Summary — ${selectedYear}`, { x: 0.4, y: 0.18, w: 12.3, fontSize: 24, fontFace: 'Arial', bold: true, color: WHITE })
@@ -454,20 +566,18 @@ export default function Reports() {
       { label: 'Units Sold',     value: stats.total_units_sold.toLocaleString() },
     ]
     kpis.forEach((kpi, i) => {
-      const col = i % 3
-      const row = Math.floor(i / 3)
-      const x = 0.4 + col * 4.2
-      const y = 1.3 + row * 2.3
+      const col = i % 3, row = Math.floor(i / 3)
+      const x = 0.4 + col * 4.2, y = 1.3 + row * 2.3
       s2.addText('', { x, y, w: 3.9, h: 1.9, fill: { color: LGRAY }, line: { color: 'e2e8f0', pt: 1 } })
       s2.addText(kpi.value, { x, y: y + 0.3, w: 3.9, fontSize: 22, fontFace: 'Arial', bold: true, color: GREEN, align: 'center' })
       s2.addText(kpi.label, { x, y: y + 1.2, w: 3.9, fontSize: 13, fontFace: 'Arial', color: GRAY, align: 'center' })
     })
 
-    // ─── Slide 3: Monthly Revenue ───
+    const hdrOpts = { bold: true, color: WHITE, fill: { color: GREEN }, fontSize: 12, fontFace: 'Arial' }
+
     const s3 = pptx.addSlide()
     s3.addText('', { x: 0, y: 0, w: '100%', h: 1.0, fill: { color: GREEN } })
     s3.addText(`Monthly Revenue — ${selectedYear}`, { x: 0.4, y: 0.18, w: 12.3, fontSize: 24, fontFace: 'Arial', bold: true, color: WHITE })
-    const hdrOpts = { bold: true, color: WHITE, fill: { color: GREEN }, fontSize: 12, fontFace: 'Arial' }
     const monthRows = [
       [{ text: 'Month', options: hdrOpts }, { text: 'Revenue (CAD)', options: hdrOpts }, { text: 'Invoices', options: hdrOpts }, { text: 'Units', options: hdrOpts }],
       ...monthlySales.map((m, i) => {
@@ -482,7 +592,6 @@ export default function Reports() {
     ]
     s3.addTable(monthRows as any, { x: 0.4, y: 1.2, w: 12.4, rowH: 0.38, border: { color: 'e2e8f0', pt: 1 } })
 
-    // ─── Slide 4: Quarterly Revenue ───
     const s4 = pptx.addSlide()
     s4.addText('', { x: 0, y: 0, w: '100%', h: 1.0, fill: { color: GREEN } })
     s4.addText(`Quarterly Revenue — ${selectedYear}`, { x: 0.4, y: 0.18, w: 12.3, fontSize: 24, fontFace: 'Arial', bold: true, color: WHITE })
@@ -501,14 +610,12 @@ export default function Reports() {
     ]
     s4.addTable(qRows as any, { x: 0.4, y: 1.8, w: 12.4, rowH: 0.9, border: { color: 'e2e8f0', pt: 1 } })
 
-    // ─── Slide 5: Top Products ───
     const s5 = pptx.addSlide()
     s5.addText('', { x: 0, y: 0, w: '100%', h: 1.0, fill: { color: GREEN } })
     s5.addText(`Top Products — ${selectedYear}`, { x: 0.4, y: 0.18, w: 12.3, fontSize: 24, fontFace: 'Arial', bold: true, color: WHITE })
-    const top10 = topProducts.slice(0, 10)
     const topProdRows = [
       [{ text: '#', options: hdrOpts }, { text: 'SKU', options: hdrOpts }, { text: 'Item Description', options: hdrOpts }, { text: 'Units Sold', options: hdrOpts }, { text: 'Revenue (CAD)', options: hdrOpts }],
-      ...top10.map((p, i) => {
+      ...topProducts.slice(0, 10).map((p, i) => {
         const bg = { color: i % 2 === 0 ? WHITE : LGRAY }
         return [
           { text: (i + 1).toString(), options: { fontSize: 12, fontFace: 'Arial', color: GRAY, fill: bg } },
@@ -521,14 +628,12 @@ export default function Reports() {
     ]
     s5.addTable(topProdRows as any, { x: 0.4, y: 1.2, w: 12.4, rowH: 0.38, border: { color: 'e2e8f0', pt: 1 } })
 
-    // ─── Slide 6: Customer Overview ───
     const s7 = pptx.addSlide()
     s7.addText('', { x: 0, y: 0, w: '100%', h: 1.0, fill: { color: GREEN } })
     s7.addText(`Customer Overview — ${selectedYear}`, { x: 0.4, y: 0.18, w: 12.3, fontSize: 24, fontFace: 'Arial', bold: true, color: WHITE })
-    const topCusts = customerSales.filter(c => c.total > 0).slice(0, 12)
     const custRows = [
       [{ text: 'Customer', options: hdrOpts }, { text: 'Invoices', options: hdrOpts }, { text: 'Units', options: hdrOpts }, { text: 'Revenue (CAD)', options: hdrOpts }],
-      ...topCusts.map((c, i) => {
+      ...customerSales.filter(c => c.total > 0).slice(0, 12).map((c, i) => {
         const bg = { color: i % 2 === 0 ? WHITE : LGRAY }
         return [
           { text: c.display_name, options: { fontSize: 12, fontFace: 'Arial', color: DARK, fill: bg } },
@@ -551,8 +656,9 @@ export default function Reports() {
           .reports-quarter-grid { grid-template-columns: 1fr 1fr !important; }
         }
       `}</style>
-      {/* Year selector + Export */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+
+      {/* Header: year selector + export */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <label style={{ fontSize: '13px', fontWeight: '500', color: '#374151' }}>Year</label>
           <select
@@ -570,501 +676,604 @@ export default function Reports() {
         </button>
       </div>
 
-      {/* KPI cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-        {[
-          { label: 'Total Revenue', value: `$${formatCurrency(stats.total_revenue)}`, sub: 'CAD (excl. tax)', icon: DollarSign, color: '#2563eb', bg: '#eff6ff' },
-          { label: 'Paid',          value: `$${formatCurrency(stats.paid_revenue)}`,   sub: 'Collected',      icon: TrendingUp, color: '#16a34a', bg: '#f0fdf4' },
-          { label: 'Unpaid',        value: `$${formatCurrency(stats.unpaid_revenue)}`, sub: 'Outstanding',    icon: ShoppingCart, color: '#d97706', bg: '#fffbeb' },
-          { label: 'Invoices',      value: stats.total_invoices.toString(),            sub: `Avg $${formatCurrency(stats.avg_order_value)}`, icon: BarChart3, color: '#7c3aed', bg: '#f5f3ff' },
-          { label: 'Units Sold',    value: stats.total_units_sold.toLocaleString(),    sub: 'Total units',    icon: Package,    color: '#0891b2', bg: '#ecfeff' },
-        ].map(card => {
-          const Icon = card.icon
-          return (
-            <div key={card.label} style={{ background: '#fff', borderRadius: '12px', padding: '16px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: card.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Icon size={20} color={card.color} />
-              </div>
-              <div>
-                <div style={{ fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>{card.value}</div>
-                <div style={{ fontSize: '12px', color: '#64748b' }}>{card.label}</div>
-                <div style={{ fontSize: '11px', color: '#94a3b8' }}>{card.sub}</div>
-              </div>
-            </div>
-          )
-        })}
+      {/* Tab bar */}
+      <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: '0', marginBottom: '24px', borderRadius: '12px 12px 0 0', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+        {([
+          { key: 'overview',   label: 'Overview' },
+          { key: 'monthly',    label: 'Monthly' },
+          { key: 'alltime',    label: 'All-Time Summary' },
+          { key: 'customers',  label: 'By Customer' },
+          { key: 'expenses',   label: 'Expenses' },
+          { key: 'tax',        label: 'Tax Summary' },
+        ] as const).map(tab => (
+          <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+            style={{ padding: '14px 20px', fontSize: '14px', fontWeight: activeTab === tab.key ? '600' : '400', color: activeTab === tab.key ? '#1e293b' : '#64748b', background: 'none', border: 'none', borderBottom: activeTab === tab.key ? '2px solid #2d5a27' : '2px solid transparent', cursor: 'pointer', whiteSpace: 'nowrap', transition: 'color 0.15s' }}>
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      {/* Gross Profit Summary + Net Profit */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-        {marginLoading ? (
-          <div style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading profit summary...</div>
-        ) : (
-          <>
+      {/* ── OVERVIEW TAB ── */}
+      {activeTab === 'overview' && (
+        <>
+          {/* All-time KPI dark cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+            <div style={{ background: '#1e293b', borderRadius: '12px', padding: '20px', color: '#fff' }}>
+              {allTimeLoading ? (
+                <div style={{ fontSize: '13px', color: '#94a3b8' }}>Loading...</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: '24px', fontWeight: '700', marginBottom: '4px' }}>${formatCurrency(allTimeStats.total_revenue)}</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#94a3b8' }}>All-Time Revenue</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>CAD, all non-draft invoices</div>
+                </>
+              )}
+            </div>
+            <div style={{ background: '#1e293b', borderRadius: '12px', padding: '20px', color: '#fff' }}>
+              {allTimeLoading ? (
+                <div style={{ fontSize: '13px', color: '#94a3b8' }}>Loading...</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: '24px', fontWeight: '700', marginBottom: '4px' }}>{allTimeStats.total_qty.toLocaleString()}</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#94a3b8' }}>All-Time Units</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Total units across all invoices</div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Year KPI cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
             {[
-              { label: 'Total Revenue', value: `$${formatCurrency(grossSummary.total_revenue)}`, sub: `${selectedYear} invoiced`, bg: '#f0fdf4', border: '#bbf7d0', color: '#16a34a' },
-              { label: 'Total COGS', value: `$${formatCurrency(grossSummary.total_cogs)}`, sub: 'Cost of goods sold', bg: '#f0fdf4', border: '#bbf7d0', color: '#15803d' },
-              { label: 'Gross Profit', value: `$${formatCurrency(grossSummary.gross_profit)}`, sub: 'Revenue − COGS', bg: '#f0fdf4', border: '#bbf7d0', color: '#166534' },
-              { label: 'Gross Margin %', value: `${grossSummary.gross_margin_pct.toFixed(1)}%`, sub: 'Gross profit / Revenue', bg: '#f0fdf4', border: '#bbf7d0', color: '#166534' },
-            ].map(card => (
-              <div key={card.label} style={{ background: card.bg, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${card.border}` }}>
-                <div style={{ fontSize: '20px', fontWeight: '700', color: card.color, marginBottom: '4px' }}>{card.value}</div>
-                <div style={{ fontSize: '13px', fontWeight: '600', color: card.color }}>{card.label}</div>
-                <div style={{ fontSize: '11px', color: '#4ade80', marginTop: '2px' }}>{card.sub}</div>
-              </div>
-            ))}
-            <div style={{ background: grossSummary.net_profit >= 0 ? '#eff6ff' : '#fef2f2', borderRadius: '12px', padding: '16px 20px', border: `1px solid ${grossSummary.net_profit >= 0 ? '#bfdbfe' : '#fecaca'}` }}>
-              <div style={{ fontSize: '20px', fontWeight: '700', color: grossSummary.net_profit >= 0 ? '#1d4ed8' : '#dc2626', marginBottom: '4px' }}>${formatCurrency(grossSummary.net_profit)}</div>
-              <div style={{ fontSize: '13px', fontWeight: '600', color: grossSummary.net_profit >= 0 ? '#1e40af' : '#b91c1c' }}>Est. Net Profit</div>
-              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>Gross Profit − Expenses (${formatCurrency(grossSummary.total_expenses)})</div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Expenses by Category */}
-      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', marginBottom: '24px' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Expenses by Category</h3>
-          <span style={{ fontSize: '12px', color: '#94a3b8' }}>({selectedYear})</span>
-        </div>
-        {expenseCatLoading ? (
-          <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
-        ) : expenseCatData.length === 0 ? (
-          <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>No expense data for {selectedYear}</div>
-        ) : (() => {
-          const monthlyTotals = Array(12).fill(0) as number[]
-          expenseCatData.forEach(r => r.months.forEach((v, i) => { monthlyTotals[i] += v }))
-          const grandTotal = monthlyTotals.reduce((s, v) => s + v, 0)
-          const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-          return (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '900px' }}>
-                <thead>
-                  <tr style={{ background: '#1e293b', color: '#fff' }}>
-                    <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: '600', position: 'sticky', left: 0, background: '#1e293b', zIndex: 2, whiteSpace: 'nowrap' }}>Category</th>
-                    {monthNames.map(m => (
-                      <th key={m} style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>{m}</th>
-                    ))}
-                    <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {expenseCatData.map((row, idx) => (
-                    <tr key={row.category} style={{ background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
-                      <td style={{ padding: '8px 14px', fontWeight: '600', color: '#1e293b', position: 'sticky', left: 0, background: idx % 2 === 0 ? '#fff' : '#f8fafc', zIndex: 1, whiteSpace: 'nowrap', borderRight: '1px solid #e2e8f0' }}>{row.category}</td>
-                      {row.months.map((v, i) => (
-                        <td key={i} style={{ padding: '8px', textAlign: 'right', color: '#475569', whiteSpace: 'nowrap' }}>{v > 0 ? `$${formatCurrency(v)}` : ''}</td>
-                      ))}
-                      <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{row.total > 0 ? `$${formatCurrency(row.total)}` : ''}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr style={{ background: '#dbeafe', color: '#1e40af', fontWeight: '700' }}>
-                    <td style={{ padding: '10px 14px', fontWeight: '700', position: 'sticky', left: 0, background: '#dbeafe', zIndex: 1, borderRight: '1px solid #bfdbfe' }}>TOTAL</td>
-                    {monthlyTotals.map((v, i) => (
-                      <td key={i} style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>{v > 0 ? `$${formatCurrency(v)}` : ''}</td>
-                    ))}
-                    <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>${formatCurrency(grandTotal)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )
-        })()}
-      </div>
-
-      {/* Tax Summary */}
-      <div style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Tax Summary</h3>
-          <span style={{ fontSize: '12px', color: '#94a3b8' }}>{selectedYear}</span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-          {taxLoading ? (
-            <div style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
-          ) : (
-            <>
-              <div style={{ background: '#f0fdf4', borderRadius: '12px', padding: '18px 20px', border: '1px solid #bbf7d0' }}>
-                <div style={{ fontSize: '22px', fontWeight: '700', color: '#16a34a', marginBottom: '4px' }}>${formatCurrency(taxStats.collected)}</div>
-                <div style={{ fontSize: '13px', fontWeight: '600', color: '#15803d' }}>Tax Collected (Net)</div>
-                <div style={{ fontSize: '11px', color: '#4ade80', marginTop: '2px' }}>Invoices - Credit Memos</div>
-              </div>
-              <div style={{ background: '#fff7ed', borderRadius: '12px', padding: '18px 20px', border: '1px solid #fed7aa' }}>
-                <div style={{ fontSize: '22px', fontWeight: '700', color: '#c2410c', marginBottom: '4px' }}>${formatCurrency(taxStats.paid)}</div>
-                <div style={{ fontSize: '13px', fontWeight: '600', color: '#ea580c' }}>Tax Paid (Expenses)</div>
-                <div style={{ fontSize: '11px', color: '#fb923c', marginTop: '2px' }}>From expense records</div>
-              </div>
-              <div style={{ background: '#eff6ff', borderRadius: '12px', padding: '18px 20px', border: '1px solid #bfdbfe' }}>
-                <div style={{ fontSize: '22px', fontWeight: '700', color: '#1d4ed8', marginBottom: '4px' }}>${formatCurrency(taxStats.collected - taxStats.paid)}</div>
-                <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e40af' }}>Estimated Tax Owing</div>
-                <div style={{ fontSize: '11px', color: '#60a5fa', marginTop: '2px' }}>Collected - Paid</div>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Monthly chart + Top Products */}
-      <div className="reports-half-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
-        <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Monthly Revenue {selectedYear}</h3>
-          {loading ? <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>Loading...</div> : (
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '160px' }}>
-              {monthlySales.map(m => (
-                <div key={m.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                  <div style={{ fontSize: '9px', color: '#64748b', fontWeight: '500' }}>{m.revenue > 0 ? `$${(m.revenue/1000).toFixed(1)}k` : ''}</div>
-                  <div style={{ width: '100%', height: `${Math.max((m.revenue/maxRevenue)*120, m.revenue>0?4:0)}px`, background: m.revenue>0?'#2563eb':'#e2e8f0', borderRadius: '4px 4px 0 0', minHeight: '2px' }} />
-                  <div style={{ fontSize: '9px', color: '#94a3b8' }}>{m.month}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Top Products by Revenue</h3>
-          {loading ? <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>Loading...</div>
-          : topProducts.length === 0 ? <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8', fontSize: '13px' }}>No sales data yet</div>
-          : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {topProducts.map((p, i) => (
-                <div key={p.sku} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: i<3?'#eff6ff':'#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: '600', color: i<3?'#2563eb':'#94a3b8', flexShrink: 0 }}>{i+1}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '12px', fontWeight: '500', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.sku}{p.name ? ` - ${p.name.replace(/^ESHCO ELEMENTS /i, '')}` : ''}</div>
-                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.total_qty} units</div>
-                  </div>
-                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b', flexShrink: 0 }}>${formatCurrency(p.total_revenue)}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Quarterly Revenue Breakdown */}
-      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', marginBottom: '24px' }}>
-        <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Quarterly Revenue {selectedYear}</h3>
-        {loading ? <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8' }}>Loading...</div> : (
-          <div className="reports-quarter-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
-            {quarterlySales.map((q, qi) => {
-              const prev   = qi > 0 ? quarterlySales[qi - 1] : null
-              const change = prev ? qoqChange(q.revenue, prev.revenue) : null
+              { label: 'Total Revenue', value: `$${formatCurrency(stats.total_revenue)}`, sub: 'CAD (excl. tax)', icon: DollarSign, color: '#2563eb', bg: '#eff6ff' },
+              { label: 'Paid',          value: `$${formatCurrency(stats.paid_revenue)}`,   sub: 'Collected',      icon: TrendingUp, color: '#16a34a', bg: '#f0fdf4' },
+              { label: 'Unpaid',        value: `$${formatCurrency(stats.unpaid_revenue)}`, sub: 'Outstanding',    icon: ShoppingCart, color: '#d97706', bg: '#fffbeb' },
+              { label: 'Invoices',      value: stats.total_invoices.toString(),            sub: `Avg $${formatCurrency(stats.avg_order_value)}`, icon: BarChart3, color: '#7c3aed', bg: '#f5f3ff' },
+              { label: 'Units Sold',    value: stats.total_units_sold.toLocaleString(),    sub: 'Total units',    icon: Package,    color: '#0891b2', bg: '#ecfeff' },
+            ].map(card => {
+              const Icon = card.icon
               return (
-                <div key={q.label} style={{ border: '1px solid #e2e8f0', borderRadius: '10px', padding: '16px', background: '#fafafa' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-                    <div>
-                      <div style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>{q.label}</div>
-                      <div style={{ fontSize: '11px', color: '#94a3b8' }}>{q.months}</div>
-                    </div>
-                    {change && (
-                      <span style={{ fontSize: '11px', fontWeight: '600', color: change.up ? '#16a34a' : '#dc2626', background: change.up ? '#f0fdf4' : '#fef2f2', padding: '2px 7px', borderRadius: '20px' }}>
-                        {change.text}
-                      </span>
-                    )}
+                <div key={card.label} style={{ background: '#fff', borderRadius: '12px', padding: '16px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: card.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Icon size={20} color={card.color} />
                   </div>
-                  <div style={{ height: '4px', background: '#e2e8f0', borderRadius: '2px', marginBottom: '12px' }}>
-                    <div style={{ height: '100%', width: `${maxQRevenue > 0 ? (q.revenue / maxQRevenue) * 100 : 0}%`, background: q.revenue > 0 ? '#2563eb' : 'transparent', borderRadius: '2px', transition: 'width 0.3s' }} />
+                  <div>
+                    <div style={{ fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>{card.value}</div>
+                    <div style={{ fontSize: '12px', color: '#64748b' }}>{card.label}</div>
+                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>{card.sub}</div>
                   </div>
-                  <div style={{ fontSize: '20px', fontWeight: '700', color: q.revenue > 0 ? '#1e293b' : '#cbd5e1', marginBottom: '6px' }}>
-                    {q.revenue > 0 ? `$${formatCurrency(q.revenue)}` : '—'}
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#64748b' }}>{q.invoice_count} invoices</div>
-                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>{q.total_qty.toLocaleString()} units</div>
                 </div>
               )
             })}
           </div>
-        )}
-      </div>
 
-      {/* Monthly Breakdown Table */}
-      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '24px' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b' }}>Monthly Breakdown {selectedYear}</h3>
-        </div>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              {['Month', 'Invoices', 'Units', 'Revenue (CAD)', 'Avg Order Value'].map(h => (
-                <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {monthlySales.map(m => (
-              <tr key={m.month} style={{ borderBottom: '1px solid #f1f5f9', background: m.revenue > 0 ? '#fff' : '#fafafa' }}>
-                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '500', color: '#1e293b' }}>{m.month} {selectedYear}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{m.invoice_count || '-'}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{m.total_qty > 0 ? m.total_qty.toLocaleString() : '-'}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: m.revenue > 0 ? '600' : '400', color: m.revenue > 0 ? '#1e293b' : '#94a3b8' }}>{m.revenue > 0 ? `$${formatCurrency(m.revenue)}` : '-'}</td>
-                <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{m.invoice_count > 0 ? `$${formatCurrency(m.revenue / m.invoice_count)}` : '-'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          {/* Gross Profit Summary */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+            {marginLoading ? (
+              <div style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading profit summary...</div>
+            ) : (
+              <>
+                {[
+                  { label: 'Total Revenue', value: `$${formatCurrency(grossSummary.total_revenue)}`, sub: `${selectedYear} invoiced`, bg: '#f0fdf4', border: '#bbf7d0', color: '#16a34a' },
+                  { label: 'Total COGS', value: `$${formatCurrency(grossSummary.total_cogs)}`, sub: 'Cost of goods sold', bg: '#f0fdf4', border: '#bbf7d0', color: '#15803d' },
+                  { label: 'Gross Profit', value: `$${formatCurrency(grossSummary.gross_profit)}`, sub: 'Revenue − COGS', bg: '#f0fdf4', border: '#bbf7d0', color: '#166534' },
+                  { label: 'Gross Margin %', value: `${grossSummary.gross_margin_pct.toFixed(1)}%`, sub: 'Gross profit / Revenue', bg: '#f0fdf4', border: '#bbf7d0', color: '#166534' },
+                ].map(card => (
+                  <div key={card.label} style={{ background: card.bg, borderRadius: '12px', padding: '16px 20px', border: `1px solid ${card.border}` }}>
+                    <div style={{ fontSize: '20px', fontWeight: '700', color: card.color, marginBottom: '4px' }}>{card.value}</div>
+                    <div style={{ fontSize: '13px', fontWeight: '600', color: card.color }}>{card.label}</div>
+                    <div style={{ fontSize: '11px', color: '#4ade80', marginTop: '2px' }}>{card.sub}</div>
+                  </div>
+                ))}
+                <div style={{ background: grossSummary.net_profit >= 0 ? '#eff6ff' : '#fef2f2', borderRadius: '12px', padding: '16px 20px', border: `1px solid ${grossSummary.net_profit >= 0 ? '#bfdbfe' : '#fecaca'}` }}>
+                  <div style={{ fontSize: '20px', fontWeight: '700', color: grossSummary.net_profit >= 0 ? '#1d4ed8' : '#dc2626', marginBottom: '4px' }}>${formatCurrency(grossSummary.net_profit)}</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: grossSummary.net_profit >= 0 ? '#1e40af' : '#b91c1c' }}>Est. Net Profit</div>
+                  <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>Gross Profit − Expenses (${formatCurrency(grossSummary.total_expenses)})</div>
+                </div>
+              </>
+            )}
+          </div>
 
-      {/* Product Margin Analysis */}
-      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '24px' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', margin: 0 }}>Product Margin Analysis {selectedYear}</h3>
-          <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>Based on unit_cost_cad × units sold vs. actual revenue</div>
-        </div>
-        {marginLoading ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
-        ) : productMargins.length === 0 ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>No sales data for {selectedYear}</div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
+          {/* Monthly chart + Top Products */}
+          <div className="reports-half-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+            <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Monthly Revenue {selectedYear}</h3>
+              {loading ? <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>Loading...</div> : (
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '160px' }}>
+                  {monthlySales.map(m => (
+                    <div key={m.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                      <div style={{ fontSize: '9px', color: '#64748b', fontWeight: '500' }}>{m.revenue > 0 ? `$${(m.revenue/1000).toFixed(1)}k` : ''}</div>
+                      <div style={{ width: '100%', height: `${Math.max((m.revenue/maxRevenue)*120, m.revenue>0?4:0)}px`, background: m.revenue>0?'#2563eb':'#e2e8f0', borderRadius: '4px 4px 0 0', minHeight: '2px' }} />
+                      <div style={{ fontSize: '9px', color: '#94a3b8' }}>{m.month}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ background: '#fff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Top Products by Revenue</h3>
+              {loading ? <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>Loading...</div>
+              : topProducts.length === 0 ? <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8', fontSize: '13px' }}>No sales data yet</div>
+              : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {topProducts.map((p, i) => (
+                    <div key={p.sku} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: i<3?'#eff6ff':'#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: '600', color: i<3?'#2563eb':'#94a3b8', flexShrink: 0 }}>{i+1}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '12px', fontWeight: '500', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.sku}{p.name ? ` - ${p.name.replace(/^ESHCO ELEMENTS /i, '')}` : ''}</div>
+                        <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.total_qty} units</div>
+                      </div>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b', flexShrink: 0 }}>${formatCurrency(p.total_revenue)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Quarterly Revenue */}
+          <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', marginBottom: '24px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Quarterly Revenue {selectedYear}</h3>
+            {loading ? <div style={{ textAlign: 'center', padding: '24px', color: '#94a3b8' }}>Loading...</div> : (
+              <div className="reports-quarter-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                {quarterlySales.map((q, qi) => {
+                  const prev   = qi > 0 ? quarterlySales[qi - 1] : null
+                  const change = prev ? qoqChange(q.revenue, prev.revenue) : null
+                  return (
+                    <div key={q.label} style={{ border: '1px solid #e2e8f0', borderRadius: '10px', padding: '16px', background: '#fafafa' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                        <div>
+                          <div style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>{q.label}</div>
+                          <div style={{ fontSize: '11px', color: '#94a3b8' }}>{q.months}</div>
+                        </div>
+                        {change && (
+                          <span style={{ fontSize: '11px', fontWeight: '600', color: change.up ? '#16a34a' : '#dc2626', background: change.up ? '#f0fdf4' : '#fef2f2', padding: '2px 7px', borderRadius: '20px' }}>
+                            {change.text}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ height: '4px', background: '#e2e8f0', borderRadius: '2px', marginBottom: '12px' }}>
+                        <div style={{ height: '100%', width: `${maxQRevenue > 0 ? (q.revenue / maxQRevenue) * 100 : 0}%`, background: q.revenue > 0 ? '#2563eb' : 'transparent', borderRadius: '2px', transition: 'width 0.3s' }} />
+                      </div>
+                      <div style={{ fontSize: '20px', fontWeight: '700', color: q.revenue > 0 ? '#1e293b' : '#cbd5e1', marginBottom: '6px' }}>
+                        {q.revenue > 0 ? `$${formatCurrency(q.revenue)}` : '—'}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#64748b' }}>{q.invoice_count} invoices</div>
+                      <div style={{ fontSize: '12px', color: '#94a3b8' }}>{q.total_qty.toLocaleString()} units</div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Monthly Breakdown Table */}
+          <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '24px' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b' }}>Monthly Breakdown {selectedYear}</h3>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                  {['SKU', 'Product Name', 'Units Sold', 'Avg Selling Price', 'Unit Cost', 'Total Revenue', 'Total Cost', 'Gross Profit', 'Margin %'].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: h === 'SKU' || h === 'Product Name' ? 'left' : 'right', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                  {['Month', 'Invoices', 'Units', 'Revenue (CAD)', 'Avg Order Value'].map(h => (
+                    <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {productMargins.map((r, i) => {
-                  const marginColor = r.margin_pct >= 50 ? '#16a34a' : r.margin_pct >= 30 ? '#2563eb' : '#d97706'
-                  const marginBg   = r.margin_pct >= 50 ? '#f0fdf4' : r.margin_pct >= 30 ? '#eff6ff' : '#fffbeb'
-                  return (
-                    <tr key={r.product_id} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                      <td style={{ padding: '10px 14px', fontWeight: '600', color: '#374151', fontFamily: 'monospace', fontSize: '12px', whiteSpace: 'nowrap' }}>{r.sku || '—'}</td>
-                      <td style={{ padding: '10px 14px', fontSize: '13px', color: '#1e293b', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || '—'}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', color: '#64748b' }}>{r.total_qty.toLocaleString()}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', color: '#64748b', fontFamily: 'monospace' }}>${formatCurrency(r.avg_selling_price)}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', color: '#64748b', fontFamily: 'monospace' }}>${formatCurrency(r.unit_cost)}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: '#1e293b', fontFamily: 'monospace' }}>${formatCurrency(r.total_revenue)}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', color: '#64748b', fontFamily: 'monospace' }}>${formatCurrency(r.total_cost)}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: r.gross_profit >= 0 ? '#1e293b' : '#dc2626', fontFamily: 'monospace' }}>${formatCurrency(r.gross_profit)}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                        <span style={{ background: marginBg, color: marginColor, padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', fontFamily: 'monospace' }}>
-                          {r.margin_pct.toFixed(1)}%
-                        </span>
-                      </td>
-                    </tr>
-                  )
-                })}
+                {monthlySales.map(m => (
+                  <tr key={m.month} style={{ borderBottom: '1px solid #f1f5f9', background: m.revenue > 0 ? '#fff' : '#fafafa' }}>
+                    <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '500', color: '#1e293b' }}>{m.month} {selectedYear}</td>
+                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{m.invoice_count || '-'}</td>
+                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{m.total_qty > 0 ? m.total_qty.toLocaleString() : '-'}</td>
+                    <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: m.revenue > 0 ? '600' : '400', color: m.revenue > 0 ? '#1e293b' : '#94a3b8' }}>{m.revenue > 0 ? `$${formatCurrency(m.revenue)}` : '-'}</td>
+                    <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{m.invoice_count > 0 ? `$${formatCurrency(m.revenue / m.invoice_count)}` : '-'}</td>
+                  </tr>
+                ))}
               </tbody>
-              <tfoot>
-                <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
-                  <td colSpan={2} style={{ padding: '10px 14px', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>Total ({productMargins.length} products)</td>
-                  <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>{productMargins.reduce((s, r) => s + r.total_qty, 0).toLocaleString()}</td>
-                  <td colSpan={2} />
-                  <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: '#1e293b', fontFamily: 'monospace' }}>${formatCurrency(grossSummary.total_revenue)}</td>
-                  <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: '#374151', fontFamily: 'monospace' }}>${formatCurrency(grossSummary.total_cogs)}</td>
-                  <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: '#1e293b', fontFamily: 'monospace' }}>${formatCurrency(grossSummary.gross_profit)}</td>
-                  <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                    <span style={{ background: '#f0fdf4', color: '#16a34a', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', fontFamily: 'monospace' }}>
-                      {grossSummary.gross_margin_pct.toFixed(1)}%
-                    </span>
-                  </td>
-                </tr>
-              </tfoot>
             </table>
           </div>
-        )}
-      </div>
 
-      {/* Customer Sales */}
-      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '24px' }}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-          <div>
-            <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', margin: 0 }}>Customer Sales {selectedYear}</h3>
-            <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>Click a customer name to view product breakdown</div>
-          </div>
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            <select value={csStatus} onChange={e => setCsStatus(e.target.value as any)} style={{ height: '30px', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0 10px', fontSize: '12px', color: '#374151', background: '#fff', cursor: 'pointer', outline: 'none' }}>
-              <option value='all'>All Status</option>
-              <option value='paid'>Paid</option>
-              <option value='sent'>Sent</option>
-            </select>
-          </div>
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '700px' }}>
-            <thead>
-              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                {['Customer', 'Invoices', 'Units', 'Subtotal', 'HST', 'Total', '% of Total', ''].map(h => (
-                  <th key={h} style={{ padding: '10px 16px', textAlign: h === 'Customer' || h === 'Invoices' || h === '' ? 'left' : 'right', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {csLoading ? (
-                <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>Loading...</td></tr>
-              ) : customerSales.length === 0 ? (
-                <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>No sales data for {selectedYear}</td></tr>
-              ) : (() => {
-                const grandTotal = customerSales.reduce((s, r) => s + r.total, 0)
-                return customerSales.flatMap(row => {
-                  const pct        = grandTotal > 0 ? row.total / grandTotal * 100 : 0
-                  const isExpanded = expandedGroups.has(row.key)
-                  const mainRow = (
-                    <tr key={row.key}
-                      onClick={() => setDrillDown(row)}
-                      style={{ borderBottom: '1px solid #f1f5f9', background: row.is_group ? '#f8fafc' : '#fff', cursor: 'pointer' }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f0f7ff' }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = row.is_group ? '#f8fafc' : '#fff' }}
-                    >
-                      <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: row.is_group ? '600' : '400', color: '#2563eb', textDecoration: 'underline', textUnderlineOffset: '2px', textDecorationStyle: 'dotted' }}>
-                        {row.display_name}
-                      </td>
-                      <td style={{ padding: '10px 16px', fontSize: '13px', color: '#64748b' }}>{row.invoice_count}</td>
-                      <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', color: '#64748b' }}>{row.total_qty.toLocaleString()}</td>
-                      <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', color: '#374151' }}>${formatCurrency(row.subtotal)}</td>
-                      <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', color: '#64748b' }}>${formatCurrency(row.hst)}</td>
-                      <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(row.total)}</td>
-                      <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', color: '#64748b' }}>{pct.toFixed(1)}%</td>
-                      <td style={{ padding: '10px 8px', textAlign: 'center' }} onClick={e => { if (row.is_group) e.stopPropagation() }}>
-                        {row.is_group && (
-                          <button
-                            onClick={e => { e.stopPropagation(); setExpandedGroups(prev => { const n = new Set(prev); if (n.has(row.key)) n.delete(row.key); else n.add(row.key); return n }) }}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '2px', fontSize: '11px' }}
-                          >
-                            {isExpanded ? '▲' : '▼'}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                  if (!row.is_group || !isExpanded || !row.locations) return [mainRow]
-                  const subRows = row.locations.map(loc => (
-                    <tr key={loc.customer_id}
-                      onClick={() => setDrillDown({ key: loc.customer_id, display_name: loc.company_name, invoice_count: loc.invoice_count, subtotal: loc.subtotal, hst: loc.hst, total: loc.total, total_qty: loc.total_qty, is_group: false, top_products: loc.top_products })}
-                      style={{ borderBottom: '1px solid #f1f5f9', background: '#fafafa', cursor: 'pointer' }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f0f7ff' }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#fafafa' }}
-                    >
-                      <td style={{ padding: '8px 16px 8px 32px', fontSize: '12px', color: '#2563eb', textDecoration: 'underline', textUnderlineOffset: '2px', textDecorationStyle: 'dotted' }}>↳ {loc.company_name}</td>
-                      <td style={{ padding: '8px 16px', fontSize: '12px', color: '#94a3b8' }}>{loc.invoice_count}</td>
-                      <td style={{ padding: '8px 16px', fontSize: '12px', textAlign: 'right', color: '#94a3b8' }}>{loc.total_qty.toLocaleString()}</td>
-                      <td style={{ padding: '8px 16px', fontSize: '12px', textAlign: 'right', color: '#94a3b8' }}>${formatCurrency(loc.subtotal)}</td>
-                      <td style={{ padding: '8px 16px', fontSize: '12px', textAlign: 'right', color: '#94a3b8' }}>${formatCurrency(loc.hst)}</td>
-                      <td style={{ padding: '8px 16px', fontSize: '12px', textAlign: 'right', color: '#64748b' }}>${formatCurrency(loc.total)}</td>
-                      <td style={{ padding: '8px 16px', fontSize: '12px', textAlign: 'right', color: '#94a3b8' }}>{grandTotal > 0 ? (loc.total / grandTotal * 100).toFixed(1) : '0.0'}%</td>
-                      <td />
-                    </tr>
-                  ))
-                  return [mainRow, ...subRows]
-                })
-              })()}
-            </tbody>
-            {!csLoading && customerSales.length > 0 && (
-              <tfoot>
-                <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
-                  <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>Total ({customerSales.length} customers)</td>
-                  <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>{customerSales.reduce((s, r) => s + r.invoice_count, 0)}</td>
-                  <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#64748b', textAlign: 'right' }}>{customerSales.reduce((s, r) => s + r.total_qty, 0).toLocaleString()}</td>
-                  <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#374151', textAlign: 'right' }}>${formatCurrency(customerSales.reduce((s, r) => s + r.subtotal, 0))}</td>
-                  <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#374151', textAlign: 'right' }}>${formatCurrency(customerSales.reduce((s, r) => s + r.hst, 0))}</td>
-                  <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '700', color: '#1e293b', textAlign: 'right' }}>${formatCurrency(customerSales.reduce((s, r) => s + r.total, 0))}</td>
-                  <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#64748b', textAlign: 'right' }}>100%</td>
-                  <td />
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-      </div>
-
-      {/* Expense Report */}
-      <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '24px' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Expense Report</h3>
-          <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>Year × month totals (all years)</div>
-        </div>
-        {allExpensesLoading ? (
-          <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
-        ) : (() => {
-          const mnms = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-          const colTotals = Array(12).fill(0) as number[]
-          expenseReportYears.forEach(y => {
-            const months = expenseByYearMonth[y] || Array(12).fill(0)
-            months.forEach((v, i) => { colTotals[i] += v })
-          })
-          const grandTotal = colTotals.reduce((s, v) => s + v, 0)
-          return (
-            <>
+          {/* Product Margin Analysis */}
+          <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '24px' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', margin: 0 }}>Product Margin Analysis {selectedYear}</h3>
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>Based on unit_cost_cad × units sold vs. actual revenue</div>
+            </div>
+            {marginLoading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
+            ) : productMargins.length === 0 ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>No sales data for {selectedYear}</div>
+            ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '900px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
                   <thead>
-                    <tr style={{ background: '#1e293b', color: '#fff' }}>
-                      <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: '600', whiteSpace: 'nowrap' }}>Year</th>
-                      {mnms.map(m => (
-                        <th key={m} style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>{m}</th>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                      {['SKU', 'Product Name', 'Units Sold', 'Avg Selling Price', 'Unit Cost', 'Total Revenue', 'Total Cost', 'Gross Profit', 'Margin %'].map(h => (
+                        <th key={h} style={{ padding: '10px 14px', textAlign: h === 'SKU' || h === 'Product Name' ? 'left' : 'right', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
-                      <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>Total</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {expenseReportYears.map((y, idx) => {
-                      const months = expenseByYearMonth[y] || Array(12).fill(0)
-                      const yearTotal = months.reduce((s, v) => s + v, 0)
+                    {productMargins.map((r, i) => {
+                      const marginColor = r.margin_pct >= 50 ? '#16a34a' : r.margin_pct >= 30 ? '#2563eb' : '#d97706'
+                      const marginBg    = r.margin_pct >= 50 ? '#f0fdf4' : r.margin_pct >= 30 ? '#eff6ff' : '#fffbeb'
                       return (
-                        <tr key={y} style={{ background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
-                          <td style={{ padding: '8px 14px', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{y}</td>
-                          {months.map((v, i) => (
-                            <td key={i} style={{ padding: '8px', textAlign: 'right', color: '#475569', whiteSpace: 'nowrap' }}>{v > 0 ? `$${formatCurrency(v)}` : ''}</td>
-                          ))}
-                          <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{yearTotal > 0 ? `$${formatCurrency(yearTotal)}` : ''}</td>
+                        <tr key={r.product_id} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                          <td style={{ padding: '10px 14px', fontWeight: '600', color: '#374151', fontFamily: 'monospace', fontSize: '12px', whiteSpace: 'nowrap' }}>{r.sku || '—'}</td>
+                          <td style={{ padding: '10px 14px', fontSize: '13px', color: '#1e293b', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || '—'}</td>
+                          <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', color: '#64748b' }}>{r.total_qty.toLocaleString()}</td>
+                          <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', color: '#64748b', fontFamily: 'monospace' }}>${formatCurrency(r.avg_selling_price)}</td>
+                          <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', color: '#64748b', fontFamily: 'monospace' }}>${formatCurrency(r.unit_cost)}</td>
+                          <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: '#1e293b', fontFamily: 'monospace' }}>${formatCurrency(r.total_revenue)}</td>
+                          <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', color: '#64748b', fontFamily: 'monospace' }}>${formatCurrency(r.total_cost)}</td>
+                          <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: r.gross_profit >= 0 ? '#1e293b' : '#dc2626', fontFamily: 'monospace' }}>${formatCurrency(r.gross_profit)}</td>
+                          <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                            <span style={{ background: marginBg, color: marginColor, padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', fontFamily: 'monospace' }}>
+                              {r.margin_pct.toFixed(1)}%
+                            </span>
+                          </td>
                         </tr>
                       )
                     })}
                   </tbody>
                   <tfoot>
-                    <tr style={{ background: '#dbeafe', color: '#1e40af', fontWeight: '700' }}>
-                      <td style={{ padding: '10px 14px', fontWeight: '700' }}>TOTAL</td>
-                      {colTotals.map((v, i) => (
-                        <td key={i} style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>{v > 0 ? `$${formatCurrency(v)}` : ''}</td>
-                      ))}
-                      <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>${formatCurrency(grandTotal)}</td>
+                    <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
+                      <td colSpan={2} style={{ padding: '10px 14px', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>Total ({productMargins.length} products)</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>{productMargins.reduce((s, r) => s + r.total_qty, 0).toLocaleString()}</td>
+                      <td colSpan={2} />
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: '#1e293b', fontFamily: 'monospace' }}>${formatCurrency(grossSummary.total_revenue)}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: '#374151', fontFamily: 'monospace' }}>${formatCurrency(grossSummary.total_cogs)}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontSize: '13px', fontWeight: '700', color: '#1e293b', fontFamily: 'monospace' }}>${formatCurrency(grossSummary.gross_profit)}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                        <span style={{ background: '#f0fdf4', color: '#16a34a', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', fontFamily: 'monospace' }}>
+                          {grossSummary.gross_margin_pct.toFixed(1)}%
+                        </span>
+                      </td>
                     </tr>
                   </tfoot>
                 </table>
               </div>
-              {(() => {
-                const lineColors = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777']
-                const yearsWithData = expenseReportYears.filter(y => (expenseByYearMonth[y] || Array(12).fill(0)).reduce((s: number, v: number) => s + v, 0) > 0)
-                const barData = expenseByYearMonth[expenseChartYear] || Array(12).fill(0)
-                const maxBar = Math.max(...barData, 1)
-                return (
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── MONTHLY TAB ── */}
+      {activeTab === 'monthly' && (
+        <>
+          {allMonthlyLoading ? (
+            <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading multi-year data...</div>
+          ) : (
+            <>
+              {/* Subtotal (CAD excl. tax) table */}
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', marginBottom: '24px' }}>
+                <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
+                  <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Monthly Revenue — Subtotal CAD (excl. tax)</h3>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '900px' }}>
+                    <thead>
+                      <tr style={{ background: '#1e293b', color: '#fff' }}>
+                        <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: '600', whiteSpace: 'nowrap' }}>Year</th>
+                        {MONTH_NAMES.map(m => (
+                          <th key={m} style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>{m}</th>
+                        ))}
+                        <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allMonthlyYears.map((y, idx) => {
+                        const months = allMonthlyCad[y] || Array(12).fill(0)
+                        const yearTotal = months.reduce((s, v) => s + v, 0)
+                        return (
+                          <tr key={y} style={{ background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                            <td style={{ padding: '8px 14px', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{y}</td>
+                            {months.map((v, i) => (
+                              <td key={i} style={{ padding: '8px', textAlign: 'right', color: '#475569', whiteSpace: 'nowrap' }}>{v > 0 ? `$${formatCurrency(v)}` : ''}</td>
+                            ))}
+                            <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{yearTotal > 0 ? `$${formatCurrency(yearTotal)}` : ''}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#dbeafe', color: '#1e40af', fontWeight: '700' }}>
+                        <td style={{ padding: '10px 14px', fontWeight: '700' }}>TOTAL</td>
+                        {MONTH_NAMES.map((_, i) => {
+                          const colTotal = allMonthlyYears.reduce((s, y) => s + ((allMonthlyCad[y] || [])[i] || 0), 0)
+                          return <td key={i} style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>{colTotal > 0 ? `$${formatCurrency(colTotal)}` : ''}</td>
+                        })}
+                        <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          ${formatCurrency(allMonthlyYears.reduce((s, y) => s + (allMonthlyCad[y] || Array(12).fill(0)).reduce((a, v) => a + v, 0), 0))}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              {/* Total (CAD incl. tax) table */}
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', marginBottom: '24px' }}>
+                <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
+                  <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Monthly Revenue — Total CAD (incl. tax)</h3>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '900px' }}>
+                    <thead>
+                      <tr style={{ background: '#1e293b', color: '#fff' }}>
+                        <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: '600', whiteSpace: 'nowrap' }}>Year</th>
+                        {MONTH_NAMES.map(m => (
+                          <th key={m} style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>{m}</th>
+                        ))}
+                        <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allMonthlyYears.map((y, idx) => {
+                        const months = allMonthlyTotal[y] || Array(12).fill(0)
+                        const yearTotal = months.reduce((s, v) => s + v, 0)
+                        return (
+                          <tr key={y} style={{ background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                            <td style={{ padding: '8px 14px', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{y}</td>
+                            {months.map((v, i) => (
+                              <td key={i} style={{ padding: '8px', textAlign: 'right', color: '#475569', whiteSpace: 'nowrap' }}>{v > 0 ? `$${formatCurrency(v)}` : ''}</td>
+                            ))}
+                            <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{yearTotal > 0 ? `$${formatCurrency(yearTotal)}` : ''}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#dbeafe', color: '#1e40af', fontWeight: '700' }}>
+                        <td style={{ padding: '10px 14px', fontWeight: '700' }}>TOTAL</td>
+                        {MONTH_NAMES.map((_, i) => {
+                          const colTotal = allMonthlyYears.reduce((s, y) => s + ((allMonthlyTotal[y] || [])[i] || 0), 0)
+                          return <td key={i} style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>{colTotal > 0 ? `$${formatCurrency(colTotal)}` : ''}</td>
+                        })}
+                        <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          ${formatCurrency(allMonthlyYears.reduce((s, y) => s + (allMonthlyTotal[y] || Array(12).fill(0)).reduce((a, v) => a + v, 0), 0))}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              {/* Chart */}
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Monthly Revenue:</span>
+                    {allMonthlyChartMode === 'bar' && allMonthlyYears.map(y => (
+                      <button key={y} onClick={() => setAllMonthlyChartYear(y)}
+                        style={{ padding: '4px 12px', borderRadius: '6px', border: allMonthlyChartYear === y ? 'none' : '1px solid #e2e8f0', background: allMonthlyChartYear === y ? '#2d5a27' : '#fff', color: allMonthlyChartYear === y ? '#fff' : '#374151', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
+                        {y}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    {(['bar', 'line'] as const).map(mode => (
+                      <button key={mode} onClick={() => setAllMonthlyChartMode(mode)}
+                        style={{ padding: '4px 12px', borderRadius: '6px', border: allMonthlyChartMode === mode ? 'none' : '1px solid #e2e8f0', background: allMonthlyChartMode === mode ? '#1e293b' : '#fff', color: allMonthlyChartMode === mode ? '#fff' : '#374151', fontSize: '12px', fontWeight: '500', cursor: 'pointer' }}>
+                        {mode === 'bar' ? 'Bar' : 'Line'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {allMonthlyChartMode === 'bar' ? (
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '160px' }}>
+                    {allMonthlyChartData.map((v: number, i: number) => (
+                      <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                        <div style={{ fontSize: '9px', color: '#64748b', fontWeight: '500' }}>{v > 0 ? `$${(v/1000).toFixed(1)}k` : ''}</div>
+                        <div style={{ width: '100%', height: `${Math.max((v/maxAllMonthlyBar)*120, v>0?4:0)}px`, background: v>0?'#2d5a27':'#e2e8f0', borderRadius: '4px 4px 0 0' }} />
+                        <div style={{ fontSize: '9px', color: '#94a3b8' }}>{MONTH_NAMES[i]}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (() => {
+                  const lineColors = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777']
+                  const allVals = allMonthlyYears.flatMap(y => allMonthlyCad[y] || Array(12).fill(0))
+                  const maxVal  = Math.max(...allVals, 1)
+                  const W = 520, H = 140, padL = 8, padR = 8, padT = 10, padB = 24
+                  const xStep = (W - padL - padR) / 11
+                  const toX = (i: number) => padL + i * xStep
+                  const toY = (v: number) => padT + (H - padT - padB) * (1 - v / maxVal)
+                  return (
+                    <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+                      <svg viewBox={`0 0 ${W} ${H}`} style={{ flex: 1, overflow: 'visible' }}>
+                        {allMonthlyYears.map((y, yi) => {
+                          const vals  = allMonthlyCad[y] || Array(12).fill(0)
+                          const color = lineColors[yi % lineColors.length]
+                          const points = vals.map((v: number, i: number) => `${toX(i)},${toY(v)}`).join(' ')
+                          return (
+                            <g key={y}>
+                              <polyline points={points} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+                              {vals.map((v: number, i: number) => v > 0 && (
+                                <circle key={i} cx={toX(i)} cy={toY(v)} r="3" fill={color} />
+                              ))}
+                            </g>
+                          )
+                        })}
+                        {MONTH_NAMES.map((m, i) => (
+                          <text key={m} x={toX(i)} y={H - 4} textAnchor="middle" fontSize="9" fill="#94a3b8">{m}</text>
+                        ))}
+                      </svg>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingTop: '10px', minWidth: '52px' }}>
+                        {allMonthlyYears.map((y, yi) => (
+                          <div key={y} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <div style={{ width: '14px', height: '3px', background: lineColors[yi % lineColors.length], borderRadius: '2px', flexShrink: 0 }} />
+                            <span style={{ fontSize: '11px', color: '#374151', fontWeight: '500' }}>{y}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {/* ── ALL-TIME SUMMARY TAB ── */}
+      {activeTab === 'alltime' && (
+        <>
+          {/* 5 KPI cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+            <div style={{ background: '#1e293b', borderRadius: '12px', padding: '20px', color: '#fff' }}>
+              {allTimeLoading ? (
+                <div style={{ fontSize: '13px', color: '#94a3b8' }}>Loading...</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: '24px', fontWeight: '700', marginBottom: '4px' }}>${formatCurrency(allTimeStats.total_revenue)}</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#94a3b8' }}>All-Time Revenue (CAD)</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>All non-draft invoices</div>
+                </>
+              )}
+            </div>
+            <div style={{ background: '#1e293b', borderRadius: '12px', padding: '20px', color: '#fff' }}>
+              {allTimeLoading ? (
+                <div style={{ fontSize: '13px', color: '#94a3b8' }}>Loading...</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: '24px', fontWeight: '700', marginBottom: '4px' }}>{allTimeStats.total_qty.toLocaleString()}</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#94a3b8' }}>All-Time Units Sold</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Raw materials + packaging</div>
+                </>
+              )}
+            </div>
+            <div style={{ background: '#1e293b', borderRadius: '12px', padding: '20px', color: '#fff' }}>
+              {allExpensesLoading ? (
+                <div style={{ fontSize: '13px', color: '#94a3b8' }}>Loading...</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: '24px', fontWeight: '700', marginBottom: '4px' }}>${formatCurrency(allExpenses.reduce((s, e) => s + (e.total_amount || 0), 0))}</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#94a3b8' }}>All-Time Expenses (CAD)</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>All recorded expenses</div>
+                </>
+              )}
+            </div>
+            {(() => {
+              const totalExp = allExpenses.reduce((s, e) => s + (e.total_amount || 0), 0)
+              const margin = allTimeStats.total_revenue - totalExp
+              return (
+                <div style={{ background: '#1e293b', borderRadius: '12px', padding: '20px', color: '#fff' }}>
+                  {allTimeLoading || allExpensesLoading ? (
+                    <div style={{ fontSize: '13px', color: '#94a3b8' }}>Loading...</div>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: '24px', fontWeight: '700', marginBottom: '4px', color: margin >= 0 ? '#4ade80' : '#f87171' }}>${formatCurrency(margin)}</div>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#94a3b8' }}>Gross Margin (CAD)</div>
+                      <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Revenue − Expenses</div>
+                    </>
+                  )}
+                </div>
+              )
+            })()}
+            <div style={{ background: '#1e293b', borderRadius: '12px', padding: '20px', color: '#fff' }}>
+              {atInvLoading ? (
+                <div style={{ fontSize: '13px', color: '#94a3b8' }}>Loading...</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: '24px', fontWeight: '700', marginBottom: '4px' }}>${formatCurrency(atInvValue)}</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#94a3b8' }}>Current Inventory Value (CAD)</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Raw materials + packaging stock</div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Revenue by Year table + chart */}
+          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', marginBottom: '24px' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Revenue by Year (CAD excl. tax)</h3>
+            </div>
+            {allMonthlyLoading ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
+            ) : (() => {
+              const sortedYears = Object.keys(allMonthlyCad).map(Number).sort((a, b) => b - a)
+              const grandTotal = sortedYears.reduce((s, y) => s + (allMonthlyCad[y] || Array(12).fill(0)).reduce((a: number, v: number) => a + v, 0), 0)
+              const lineColors = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777']
+              return (
+                <>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '900px' }}>
+                      <thead>
+                        <tr style={{ background: '#1e293b', color: '#fff' }}>
+                          <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: '600', whiteSpace: 'nowrap' }}>Year</th>
+                          {MONTH_NAMES.map(m => (
+                            <th key={m} style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>{m}</th>
+                          ))}
+                          <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedYears.map((y, idx) => {
+                          const months = allMonthlyCad[y] || Array(12).fill(0)
+                          const yearTotal = months.reduce((s: number, v: number) => s + v, 0)
+                          return (
+                            <tr key={y} style={{ background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                              <td style={{ padding: '8px 14px', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{y}</td>
+                              {months.map((v: number, i: number) => (
+                                <td key={i} style={{ padding: '8px', textAlign: 'right', color: '#475569', whiteSpace: 'nowrap' }}>{v > 0 ? `$${formatCurrency(v)}` : ''}</td>
+                              ))}
+                              <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{yearTotal > 0 ? `$${formatCurrency(yearTotal)}` : ''}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ background: '#dbeafe', color: '#1e40af', fontWeight: '700' }}>
+                          <td style={{ padding: '10px 14px', fontWeight: '700' }}>TOTAL</td>
+                          {MONTH_NAMES.map((_, i) => {
+                            const colTotal = sortedYears.reduce((s, y) => s + ((allMonthlyCad[y] || [])[i] || 0), 0)
+                            return <td key={i} style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>{colTotal > 0 ? `$${formatCurrency(colTotal)}` : ''}</td>
+                          })}
+                          <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>${formatCurrency(grandTotal)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
                   <div style={{ padding: '20px', borderTop: '1px solid #e2e8f0' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Monthly Expenses:</span>
-                        {expenseChartMode === 'bar' && yearsWithData.map(y => (
-                          <button key={y} onClick={() => setExpenseChartYear(y)}
-                            style={{ padding: '4px 12px', borderRadius: '6px', border: expenseChartYear === y ? 'none' : '1px solid #e2e8f0', background: expenseChartYear === y ? '#dc2626' : '#fff', color: expenseChartYear === y ? '#fff' : '#374151', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
+                        <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Monthly Revenue:</span>
+                        {atRevChartMode === 'bar' && sortedYears.map(y => (
+                          <button key={y} onClick={() => setAtRevChartYear(y)}
+                            style={{ padding: '4px 12px', borderRadius: '6px', border: atRevChartYear === y ? 'none' : '1px solid #e2e8f0', background: atRevChartYear === y ? '#2d5a27' : '#fff', color: atRevChartYear === y ? '#fff' : '#374151', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
                             {y}
                           </button>
                         ))}
                       </div>
                       <div style={{ display: 'flex', gap: '4px' }}>
                         {(['bar', 'line'] as const).map(mode => (
-                          <button key={mode} onClick={() => setExpenseChartMode(mode)}
-                            style={{ padding: '4px 12px', borderRadius: '6px', border: expenseChartMode === mode ? 'none' : '1px solid #e2e8f0', background: expenseChartMode === mode ? '#1e293b' : '#fff', color: expenseChartMode === mode ? '#fff' : '#374151', fontSize: '12px', fontWeight: '500', cursor: 'pointer', textTransform: 'capitalize' }}>
+                          <button key={mode} onClick={() => setAtRevChartMode(mode)}
+                            style={{ padding: '4px 12px', borderRadius: '6px', border: atRevChartMode === mode ? 'none' : '1px solid #e2e8f0', background: atRevChartMode === mode ? '#1e293b' : '#fff', color: atRevChartMode === mode ? '#fff' : '#374151', fontSize: '12px', fontWeight: '500', cursor: 'pointer' }}>
                             {mode === 'bar' ? 'Bar' : 'Line'}
                           </button>
                         ))}
                       </div>
                     </div>
-                    {expenseChartMode === 'bar' ? (
-                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '160px' }}>
-                        {barData.map((v: number, i: number) => (
-                          <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                            <div style={{ fontSize: '9px', color: '#64748b', fontWeight: '500' }}>{v > 0 ? `$${(v/1000).toFixed(1)}k` : ''}</div>
-                            <div style={{ width: '100%', height: `${Math.max((v/maxBar)*120, v>0?4:0)}px`, background: v>0?'#dc2626':'#e2e8f0', borderRadius: '4px 4px 0 0' }} />
-                            <div style={{ fontSize: '9px', color: '#94a3b8' }}>{mnms[i]}</div>
+                    {atRevChartMode === 'bar' ? (
+                      (() => {
+                        const chartData = allMonthlyCad[atRevChartYear] || Array(12).fill(0)
+                        const maxBar = Math.max(...chartData, 1)
+                        return (
+                          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '160px' }}>
+                            {chartData.map((v: number, i: number) => (
+                              <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                <div style={{ fontSize: '9px', color: '#64748b', fontWeight: '500' }}>{v > 0 ? `$${(v/1000).toFixed(1)}k` : ''}</div>
+                                <div style={{ width: '100%', height: `${Math.max((v/maxBar)*120, v>0?4:0)}px`, background: v>0?'#2d5a27':'#e2e8f0', borderRadius: '4px 4px 0 0' }} />
+                                <div style={{ fontSize: '9px', color: '#94a3b8' }}>{MONTH_NAMES[i]}</div>
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
+                        )
+                      })()
                     ) : (() => {
-                      const allVals = yearsWithData.flatMap(y => expenseByYearMonth[y] || Array(12).fill(0))
+                      const allVals = sortedYears.flatMap(y => allMonthlyCad[y] || Array(12).fill(0))
                       const maxVal = Math.max(...allVals, 1)
                       const W = 520, H = 140, padL = 8, padR = 8, padT = 10, padB = 24
                       const xStep = (W - padL - padR) / 11
@@ -1073,8 +1282,8 @@ export default function Reports() {
                       return (
                         <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
                           <svg viewBox={`0 0 ${W} ${H}`} style={{ flex: 1, overflow: 'visible' }}>
-                            {yearsWithData.map((y, yi) => {
-                              const vals = expenseByYearMonth[y] || Array(12).fill(0)
+                            {sortedYears.map((y, yi) => {
+                              const vals = allMonthlyCad[y] || Array(12).fill(0)
                               const color = lineColors[yi % lineColors.length]
                               const points = vals.map((v: number, i: number) => `${toX(i)},${toY(v)}`).join(' ')
                               return (
@@ -1086,12 +1295,12 @@ export default function Reports() {
                                 </g>
                               )
                             })}
-                            {mnms.map((m, i) => (
+                            {MONTH_NAMES.map((m, i) => (
                               <text key={m} x={toX(i)} y={H - 4} textAnchor="middle" fontSize="9" fill="#94a3b8">{m}</text>
                             ))}
                           </svg>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingTop: '10px', minWidth: '52px' }}>
-                            {yearsWithData.map((y, yi) => (
+                            {sortedYears.map((y, yi) => (
                               <div key={y} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                                 <div style={{ width: '14px', height: '3px', background: lineColors[yi % lineColors.length], borderRadius: '2px', flexShrink: 0 }} />
                                 <span style={{ fontSize: '11px', color: '#374151', fontWeight: '500' }}>{y}</span>
@@ -1102,14 +1311,475 @@ export default function Reports() {
                       )
                     })()}
                   </div>
-                )
-              })()}
-            </>
-          )
-        })()}
-      </div>
+                </>
+              )
+            })()}
+          </div>
 
-      {/* Customer drill-down modal */}
+          {/* Units by Year table + chart */}
+          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', marginBottom: '24px' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Units Sold by Year</h3>
+            </div>
+            {allMonthlyUnitsLoading ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
+            ) : (() => {
+              const sortedUnitYears = Object.keys(allMonthlyUnits).map(Number).sort((a, b) => b - a)
+              const lineColors = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777']
+              return (
+                <>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '900px' }}>
+                      <thead>
+                        <tr style={{ background: '#1e293b', color: '#fff' }}>
+                          <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: '600', whiteSpace: 'nowrap' }}>Year</th>
+                          {MONTH_NAMES.map(m => (
+                            <th key={m} style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>{m}</th>
+                          ))}
+                          <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedUnitYears.map((y, idx) => {
+                          const months = allMonthlyUnits[y] || Array(12).fill(0)
+                          const yearTotal = months.reduce((s: number, v: number) => s + v, 0)
+                          return (
+                            <tr key={y} style={{ background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                              <td style={{ padding: '8px 14px', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{y}</td>
+                              {months.map((v: number, i: number) => (
+                                <td key={i} style={{ padding: '8px', textAlign: 'right', color: '#475569', whiteSpace: 'nowrap' }}>{v > 0 ? v.toLocaleString() : ''}</td>
+                              ))}
+                              <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{yearTotal > 0 ? yearTotal.toLocaleString() : ''}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ background: '#dbeafe', color: '#1e40af', fontWeight: '700' }}>
+                          <td style={{ padding: '10px 14px', fontWeight: '700' }}>TOTAL</td>
+                          {MONTH_NAMES.map((_, i) => {
+                            const colTotal = sortedUnitYears.reduce((s, y) => s + ((allMonthlyUnits[y] || [])[i] || 0), 0)
+                            return <td key={i} style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>{colTotal > 0 ? colTotal.toLocaleString() : ''}</td>
+                          })}
+                          <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            {sortedUnitYears.reduce((s, y) => s + (allMonthlyUnits[y] || Array(12).fill(0)).reduce((a: number, v: number) => a + v, 0), 0).toLocaleString()}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                  <div style={{ padding: '20px', borderTop: '1px solid #e2e8f0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Monthly Units:</span>
+                        {atUnitsChartMode === 'bar' && sortedUnitYears.map(y => (
+                          <button key={y} onClick={() => setAtUnitsChartYear(y)}
+                            style={{ padding: '4px 12px', borderRadius: '6px', border: atUnitsChartYear === y ? 'none' : '1px solid #e2e8f0', background: atUnitsChartYear === y ? '#2563eb' : '#fff', color: atUnitsChartYear === y ? '#fff' : '#374151', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
+                            {y}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        {(['bar', 'line'] as const).map(mode => (
+                          <button key={mode} onClick={() => setAtUnitsChartMode(mode)}
+                            style={{ padding: '4px 12px', borderRadius: '6px', border: atUnitsChartMode === mode ? 'none' : '1px solid #e2e8f0', background: atUnitsChartMode === mode ? '#1e293b' : '#fff', color: atUnitsChartMode === mode ? '#fff' : '#374151', fontSize: '12px', fontWeight: '500', cursor: 'pointer' }}>
+                            {mode === 'bar' ? 'Bar' : 'Line'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {atUnitsChartMode === 'bar' ? (
+                      (() => {
+                        const chartData = allMonthlyUnits[atUnitsChartYear] || Array(12).fill(0)
+                        const maxBar = Math.max(...chartData, 1)
+                        return (
+                          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '160px' }}>
+                            {chartData.map((v: number, i: number) => (
+                              <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                <div style={{ fontSize: '9px', color: '#64748b', fontWeight: '500' }}>{v > 0 ? v.toLocaleString() : ''}</div>
+                                <div style={{ width: '100%', height: `${Math.max((v/maxBar)*120, v>0?4:0)}px`, background: v>0?'#2563eb':'#e2e8f0', borderRadius: '4px 4px 0 0' }} />
+                                <div style={{ fontSize: '9px', color: '#94a3b8' }}>{MONTH_NAMES[i]}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      })()
+                    ) : (() => {
+                      const allVals = sortedUnitYears.flatMap(y => allMonthlyUnits[y] || Array(12).fill(0))
+                      const maxVal = Math.max(...allVals, 1)
+                      const W = 520, H = 140, padL = 8, padR = 8, padT = 10, padB = 24
+                      const xStep = (W - padL - padR) / 11
+                      const toX = (i: number) => padL + i * xStep
+                      const toY = (v: number) => padT + (H - padT - padB) * (1 - v / maxVal)
+                      return (
+                        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+                          <svg viewBox={`0 0 ${W} ${H}`} style={{ flex: 1, overflow: 'visible' }}>
+                            {sortedUnitYears.map((y, yi) => {
+                              const vals = allMonthlyUnits[y] || Array(12).fill(0)
+                              const color = lineColors[yi % lineColors.length]
+                              const points = vals.map((v: number, i: number) => `${toX(i)},${toY(v)}`).join(' ')
+                              return (
+                                <g key={y}>
+                                  <polyline points={points} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+                                  {vals.map((v: number, i: number) => v > 0 && (
+                                    <circle key={i} cx={toX(i)} cy={toY(v)} r="3" fill={color} />
+                                  ))}
+                                </g>
+                              )
+                            })}
+                            {MONTH_NAMES.map((m, i) => (
+                              <text key={m} x={toX(i)} y={H - 4} textAnchor="middle" fontSize="9" fill="#94a3b8">{m}</text>
+                            ))}
+                          </svg>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingTop: '10px', minWidth: '52px' }}>
+                            {sortedUnitYears.map((y, yi) => (
+                              <div key={y} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                <div style={{ width: '14px', height: '3px', background: lineColors[yi % lineColors.length], borderRadius: '2px', flexShrink: 0 }} />
+                                <span style={{ fontSize: '11px', color: '#374151', fontWeight: '500' }}>{y}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                </>
+              )
+            })()}
+          </div>
+        </>
+      )}
+
+      {/* ── BY CUSTOMER TAB ── */}
+      {activeTab === 'customers' && (
+        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '24px' }}>
+          <div style={{ padding: '14px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            <div>
+              <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', margin: 0 }}>Customer Sales {selectedYear}</h3>
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>Click a customer name to view product breakdown</div>
+            </div>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <select value={csStatus} onChange={e => setCsStatus(e.target.value as any)} style={{ height: '30px', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0 10px', fontSize: '12px', color: '#374151', background: '#fff', cursor: 'pointer', outline: 'none' }}>
+                <option value='all'>All Status</option>
+                <option value='paid'>Paid</option>
+                <option value='sent'>Sent</option>
+              </select>
+            </div>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '700px' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                  {['Customer', 'Invoices', 'Units', 'Subtotal', 'HST', 'Total', '% of Total', ''].map(h => (
+                    <th key={h} style={{ padding: '10px 16px', textAlign: h === 'Customer' || h === 'Invoices' || h === '' ? 'left' : 'right', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {csLoading ? (
+                  <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>Loading...</td></tr>
+                ) : customerSales.length === 0 ? (
+                  <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>No sales data for {selectedYear}</td></tr>
+                ) : (() => {
+                  const grandTotal = customerSales.reduce((s, r) => s + r.total, 0)
+                  return customerSales.flatMap(row => {
+                    const pct        = grandTotal > 0 ? row.total / grandTotal * 100 : 0
+                    const isExpanded = expandedGroups.has(row.key)
+                    const mainRow = (
+                      <tr key={row.key}
+                        onClick={() => setDrillDown(row)}
+                        style={{ borderBottom: '1px solid #f1f5f9', background: row.is_group ? '#f8fafc' : '#fff', cursor: 'pointer' }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f0f7ff' }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = row.is_group ? '#f8fafc' : '#fff' }}
+                      >
+                        <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: row.is_group ? '600' : '400', color: '#2563eb', textDecoration: 'underline', textUnderlineOffset: '2px', textDecorationStyle: 'dotted' }}>
+                          {row.display_name}
+                        </td>
+                        <td style={{ padding: '10px 16px', fontSize: '13px', color: '#64748b' }}>{row.invoice_count}</td>
+                        <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', color: '#64748b' }}>{row.total_qty.toLocaleString()}</td>
+                        <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', color: '#374151' }}>${formatCurrency(row.subtotal)}</td>
+                        <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', color: '#64748b' }}>${formatCurrency(row.hst)}</td>
+                        <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(row.total)}</td>
+                        <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', color: '#64748b' }}>{pct.toFixed(1)}%</td>
+                        <td style={{ padding: '10px 8px', textAlign: 'center' }} onClick={e => { if (row.is_group) e.stopPropagation() }}>
+                          {row.is_group && (
+                            <button
+                              onClick={e => { e.stopPropagation(); setExpandedGroups(prev => { const n = new Set(prev); if (n.has(row.key)) n.delete(row.key); else n.add(row.key); return n }) }}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '2px', fontSize: '11px' }}
+                            >
+                              {isExpanded ? '▲' : '▼'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                    if (!row.is_group || !isExpanded || !row.locations) return [mainRow]
+                    const subRows = row.locations.map(loc => (
+                      <tr key={loc.customer_id}
+                        onClick={() => setDrillDown({ key: loc.customer_id, display_name: loc.company_name, invoice_count: loc.invoice_count, subtotal: loc.subtotal, hst: loc.hst, total: loc.total, total_qty: loc.total_qty, is_group: false, top_products: loc.top_products })}
+                        style={{ borderBottom: '1px solid #f1f5f9', background: '#fafafa', cursor: 'pointer' }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f0f7ff' }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#fafafa' }}
+                      >
+                        <td style={{ padding: '8px 16px 8px 32px', fontSize: '12px', color: '#2563eb', textDecoration: 'underline', textUnderlineOffset: '2px', textDecorationStyle: 'dotted' }}>↳ {loc.company_name}</td>
+                        <td style={{ padding: '8px 16px', fontSize: '12px', color: '#94a3b8' }}>{loc.invoice_count}</td>
+                        <td style={{ padding: '8px 16px', fontSize: '12px', textAlign: 'right', color: '#94a3b8' }}>{loc.total_qty.toLocaleString()}</td>
+                        <td style={{ padding: '8px 16px', fontSize: '12px', textAlign: 'right', color: '#94a3b8' }}>${formatCurrency(loc.subtotal)}</td>
+                        <td style={{ padding: '8px 16px', fontSize: '12px', textAlign: 'right', color: '#94a3b8' }}>${formatCurrency(loc.hst)}</td>
+                        <td style={{ padding: '8px 16px', fontSize: '12px', textAlign: 'right', color: '#64748b' }}>${formatCurrency(loc.total)}</td>
+                        <td style={{ padding: '8px 16px', fontSize: '12px', textAlign: 'right', color: '#94a3b8' }}>{grandTotal > 0 ? (loc.total / grandTotal * 100).toFixed(1) : '0.0'}%</td>
+                        <td />
+                      </tr>
+                    ))
+                    return [mainRow, ...subRows]
+                  })
+                })()}
+              </tbody>
+              {!csLoading && customerSales.length > 0 && (
+                <tfoot>
+                  <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
+                    <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>Total ({customerSales.length} customers)</td>
+                    <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#64748b' }}>{customerSales.reduce((s, r) => s + r.invoice_count, 0)}</td>
+                    <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#64748b', textAlign: 'right' }}>{customerSales.reduce((s, r) => s + r.total_qty, 0).toLocaleString()}</td>
+                    <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#374151', textAlign: 'right' }}>${formatCurrency(customerSales.reduce((s, r) => s + r.subtotal, 0))}</td>
+                    <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#374151', textAlign: 'right' }}>${formatCurrency(customerSales.reduce((s, r) => s + r.hst, 0))}</td>
+                    <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '700', color: '#1e293b', textAlign: 'right' }}>${formatCurrency(customerSales.reduce((s, r) => s + r.total, 0))}</td>
+                    <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: '#64748b', textAlign: 'right' }}>100%</td>
+                    <td />
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── EXPENSES TAB ── */}
+      {activeTab === 'expenses' && (
+        <>
+          {/* Expenses by Category */}
+          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', marginBottom: '24px' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Expenses by Category</h3>
+              <span style={{ fontSize: '12px', color: '#94a3b8' }}>({selectedYear})</span>
+            </div>
+            {expenseCatLoading ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
+            ) : expenseCatData.length === 0 ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>No expense data for {selectedYear}</div>
+            ) : (() => {
+              const monthlyTotals = Array(12).fill(0) as number[]
+              expenseCatData.forEach(r => r.months.forEach((v, i) => { monthlyTotals[i] += v }))
+              const grandTotal = monthlyTotals.reduce((s, v) => s + v, 0)
+              return (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '900px' }}>
+                    <thead>
+                      <tr style={{ background: '#1e293b', color: '#fff' }}>
+                        <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: '600', position: 'sticky', left: 0, background: '#1e293b', zIndex: 2, whiteSpace: 'nowrap' }}>Category</th>
+                        {MONTH_NAMES.map(m => (
+                          <th key={m} style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>{m}</th>
+                        ))}
+                        <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {expenseCatData.map((row, idx) => (
+                        <tr key={row.category} style={{ background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                          <td style={{ padding: '8px 14px', fontWeight: '600', color: '#1e293b', position: 'sticky', left: 0, background: idx % 2 === 0 ? '#fff' : '#f8fafc', zIndex: 1, whiteSpace: 'nowrap', borderRight: '1px solid #e2e8f0' }}>{row.category}</td>
+                          {row.months.map((v, i) => (
+                            <td key={i} style={{ padding: '8px', textAlign: 'right', color: '#475569', whiteSpace: 'nowrap' }}>{v > 0 ? `$${formatCurrency(v)}` : ''}</td>
+                          ))}
+                          <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{row.total > 0 ? `$${formatCurrency(row.total)}` : ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#dbeafe', color: '#1e40af', fontWeight: '700' }}>
+                        <td style={{ padding: '10px 14px', fontWeight: '700', position: 'sticky', left: 0, background: '#dbeafe', zIndex: 1, borderRight: '1px solid #bfdbfe' }}>TOTAL</td>
+                        {monthlyTotals.map((v, i) => (
+                          <td key={i} style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>{v > 0 ? `$${formatCurrency(v)}` : ''}</td>
+                        ))}
+                        <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>${formatCurrency(grandTotal)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )
+            })()}
+          </div>
+
+          {/* All-years Expense Report */}
+          <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '24px' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Expense Report</h3>
+              <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>Year × month totals (all years)</div>
+            </div>
+            {allExpensesLoading ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
+            ) : (() => {
+              const colTotals = Array(12).fill(0) as number[]
+              expenseReportYears.forEach(y => {
+                const months = expenseByYearMonth[y] || Array(12).fill(0)
+                months.forEach((v, i) => { colTotals[i] += v })
+              })
+              const grandTotal = colTotals.reduce((s, v) => s + v, 0)
+              return (
+                <>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '900px' }}>
+                      <thead>
+                        <tr style={{ background: '#1e293b', color: '#fff' }}>
+                          <th style={{ padding: '10px 14px', textAlign: 'left', fontWeight: '600', whiteSpace: 'nowrap' }}>Year</th>
+                          {MONTH_NAMES.map(m => (
+                            <th key={m} style={{ padding: '10px 8px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>{m}</th>
+                          ))}
+                          <th style={{ padding: '10px 14px', textAlign: 'right', fontWeight: '600', whiteSpace: 'nowrap' }}>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {expenseReportYears.map((y, idx) => {
+                          const months = expenseByYearMonth[y] || Array(12).fill(0)
+                          const yearTotal = months.reduce((s, v) => s + v, 0)
+                          return (
+                            <tr key={y} style={{ background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                              <td style={{ padding: '8px 14px', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{y}</td>
+                              {months.map((v, i) => (
+                                <td key={i} style={{ padding: '8px', textAlign: 'right', color: '#475569', whiteSpace: 'nowrap' }}>{v > 0 ? `$${formatCurrency(v)}` : ''}</td>
+                              ))}
+                              <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: '600', color: '#1e293b', whiteSpace: 'nowrap' }}>{yearTotal > 0 ? `$${formatCurrency(yearTotal)}` : ''}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ background: '#dbeafe', color: '#1e40af', fontWeight: '700' }}>
+                          <td style={{ padding: '10px 14px', fontWeight: '700' }}>TOTAL</td>
+                          {colTotals.map((v, i) => (
+                            <td key={i} style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>{v > 0 ? `$${formatCurrency(v)}` : ''}</td>
+                          ))}
+                          <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>${formatCurrency(grandTotal)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                  {/* Expense chart */}
+                  {(() => {
+                    const lineColors = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777']
+                    const yearsWithData = expenseReportYears.filter(y => (expenseByYearMonth[y] || Array(12).fill(0)).reduce((s: number, v: number) => s + v, 0) > 0)
+                    return (
+                      <div style={{ padding: '20px', borderTop: '1px solid #e2e8f0' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>Monthly Expenses:</span>
+                            {expenseChartMode === 'bar' && yearsWithData.map(y => (
+                              <button key={y} onClick={() => setExpenseChartYear(y)}
+                                style={{ padding: '4px 12px', borderRadius: '6px', border: expenseChartYear === y ? 'none' : '1px solid #e2e8f0', background: expenseChartYear === y ? '#dc2626' : '#fff', color: expenseChartYear === y ? '#fff' : '#374151', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>
+                                {y}
+                              </button>
+                            ))}
+                          </div>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            {(['bar', 'line'] as const).map(mode => (
+                              <button key={mode} onClick={() => setExpenseChartMode(mode)}
+                                style={{ padding: '4px 12px', borderRadius: '6px', border: expenseChartMode === mode ? 'none' : '1px solid #e2e8f0', background: expenseChartMode === mode ? '#1e293b' : '#fff', color: expenseChartMode === mode ? '#fff' : '#374151', fontSize: '12px', fontWeight: '500', cursor: 'pointer', textTransform: 'capitalize' }}>
+                                {mode === 'bar' ? 'Bar' : 'Line'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        {expenseChartMode === 'bar' ? (
+                          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '160px' }}>
+                            {expenseChartData.map((v: number, i: number) => (
+                              <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                <div style={{ fontSize: '9px', color: '#64748b', fontWeight: '500' }}>{v > 0 ? `$${(v/1000).toFixed(1)}k` : ''}</div>
+                                <div style={{ width: '100%', height: `${Math.max((v/maxExpenseBar)*120, v>0?4:0)}px`, background: v>0?'#dc2626':'#e2e8f0', borderRadius: '4px 4px 0 0' }} />
+                                <div style={{ fontSize: '9px', color: '#94a3b8' }}>{MONTH_NAMES[i]}</div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (() => {
+                          const allVals = yearsWithData.flatMap(y => expenseByYearMonth[y] || Array(12).fill(0))
+                          const maxVal  = Math.max(...allVals, 1)
+                          const W = 520, H = 140, padL = 8, padR = 8, padT = 10, padB = 24
+                          const xStep = (W - padL - padR) / 11
+                          const toX = (i: number) => padL + i * xStep
+                          const toY = (v: number) => padT + (H - padT - padB) * (1 - v / maxVal)
+                          return (
+                            <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+                              <svg viewBox={`0 0 ${W} ${H}`} style={{ flex: 1, overflow: 'visible' }}>
+                                {yearsWithData.map((y, yi) => {
+                                  const vals  = expenseByYearMonth[y] || Array(12).fill(0)
+                                  const color = lineColors[yi % lineColors.length]
+                                  const points = vals.map((v: number, i: number) => `${toX(i)},${toY(v)}`).join(' ')
+                                  return (
+                                    <g key={y}>
+                                      <polyline points={points} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+                                      {vals.map((v: number, i: number) => v > 0 && (
+                                        <circle key={i} cx={toX(i)} cy={toY(v)} r="3" fill={color} />
+                                      ))}
+                                    </g>
+                                  )
+                                })}
+                                {MONTH_NAMES.map((m, i) => (
+                                  <text key={m} x={toX(i)} y={H - 4} textAnchor="middle" fontSize="9" fill="#94a3b8">{m}</text>
+                                ))}
+                              </svg>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingTop: '10px', minWidth: '52px' }}>
+                                {yearsWithData.map((y, yi) => (
+                                  <div key={y} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                    <div style={{ width: '14px', height: '3px', background: lineColors[yi % lineColors.length], borderRadius: '2px', flexShrink: 0 }} />
+                                    <span style={{ fontSize: '11px', color: '#374151', fontWeight: '500' }}>{y}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        })()}
+                      </div>
+                    )
+                  })()}
+                </>
+              )
+            })()}
+          </div>
+        </>
+      )}
+
+      {/* ── TAX SUMMARY TAB ── */}
+      {activeTab === 'tax' && (
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+            <h3 style={{ fontSize: '15px', fontWeight: '700', color: '#1e293b', margin: 0 }}>Tax Summary</h3>
+            <span style={{ fontSize: '12px', color: '#94a3b8' }}>{selectedYear}</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+            {taxLoading ? (
+              <div style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
+            ) : (
+              <>
+                <div style={{ background: '#f0fdf4', borderRadius: '12px', padding: '18px 20px', border: '1px solid #bbf7d0' }}>
+                  <div style={{ fontSize: '22px', fontWeight: '700', color: '#16a34a', marginBottom: '4px' }}>${formatCurrency(taxStats.collected)}</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#15803d' }}>Tax Collected (Net)</div>
+                  <div style={{ fontSize: '11px', color: '#4ade80', marginTop: '2px' }}>Invoices - Credit Memos</div>
+                </div>
+                <div style={{ background: '#fff7ed', borderRadius: '12px', padding: '18px 20px', border: '1px solid #fed7aa' }}>
+                  <div style={{ fontSize: '22px', fontWeight: '700', color: '#c2410c', marginBottom: '4px' }}>${formatCurrency(taxStats.paid)}</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#ea580c' }}>Tax Paid (Expenses)</div>
+                  <div style={{ fontSize: '11px', color: '#fb923c', marginTop: '2px' }}>From expense records</div>
+                </div>
+                <div style={{ background: '#eff6ff', borderRadius: '12px', padding: '18px 20px', border: '1px solid #bfdbfe' }}>
+                  <div style={{ fontSize: '22px', fontWeight: '700', color: '#1d4ed8', marginBottom: '4px' }}>${formatCurrency(taxStats.collected - taxStats.paid)}</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e40af' }}>Estimated Tax Owing</div>
+                  <div style={{ fontSize: '11px', color: '#60a5fa', marginTop: '2px' }}>Collected - Paid</div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Customer drill-down modal (shared across tabs) */}
       {drillDown && (
         <div onClick={() => setDrillDown(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '20px' }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '100%', maxWidth: '560px', maxHeight: '80vh', overflowY: 'auto' }}>
@@ -1124,11 +1794,9 @@ export default function Reports() {
                 <X size={18} />
               </button>
             </div>
-
             <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '10px' }}>
               Top Products Sold (Top {Math.min(drillDown.top_products.length, 10)})
             </div>
-
             {drillDown.top_products.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '32px', color: '#94a3b8', fontSize: '13px' }}>No product data</div>
             ) : (
