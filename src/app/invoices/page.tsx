@@ -234,7 +234,6 @@ function InvoicesContent() {
   }
 
   async function openEditModal(invoice: Invoice) {
-    if (invoice.status !== 'draft') return
     setInvoiceCurrency((invoice.currency as 'CAD' | 'USD') || 'CAD')
     setEditInvoice(invoice)
     const customer = customers.find(c => c.id === invoice.customer_id) || null
@@ -1449,11 +1448,7 @@ function InvoicesContent() {
             ) : filtered.map(inv => (
               <tr key={inv.id} style={{ borderBottom: '1px solid #f1f5f9', background: inv.status === 'sent' ? '#fff7ed' : undefined }}>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600', borderLeft: inv.status === 'sent' ? '3px solid #f97316' : '3px solid transparent' }}>
-                  {inv.status === 'draft' ? (
-                    <span onClick={() => openEditModal(inv)} style={{ color: '#2563eb', cursor: 'pointer', textDecoration: 'underline' }}>{inv.invoice_no}</span>
-                  ) : (
-                    <span style={{ color: '#64748b' }}>{inv.invoice_no}</span>
-                  )}
+                  <span onClick={() => openEditModal(inv)} style={{ color: '#2563eb', cursor: 'pointer', textDecoration: 'underline' }}>{inv.invoice_no}</span>
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{inv.customers?.company_name}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{formatTorontoDate(inv.issued_at)}</td>
@@ -1651,11 +1646,7 @@ function InvoicesContent() {
             ) : filteredUs.map(inv => (
               <tr key={inv.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '600' }}>
-                  {inv.status === 'draft' ? (
-                    <span onClick={() => { setInvoiceCurrency('USD'); openEditModal(inv) }} style={{ color: '#0369a1', cursor: 'pointer', textDecoration: 'underline' }}>{inv.invoice_no}</span>
-                  ) : (
-                    <span style={{ color: '#64748b' }}>{inv.invoice_no}</span>
-                  )}
+                  <span onClick={() => { setInvoiceCurrency('USD'); openEditModal(inv) }} style={{ color: '#0369a1', cursor: 'pointer', textDecoration: 'underline' }}>{inv.invoice_no}</span>
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#1e293b' }}>{inv.customers?.company_name}</td>
                 <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{formatTorontoDate(inv.issued_at)}</td>
