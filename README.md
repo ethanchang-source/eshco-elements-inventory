@@ -118,17 +118,39 @@ ESHCO ELEMENTS (원자재·포장재 납품 전문) internal inventory & sales m
 - Excel import/export
 
 ### Reports (`/reports`)
-- Year selector for revenue analysis
-- KPIs: total revenue, collected, outstanding, invoice count, units, avg order
+
+Tabs: **Overview** / **Monthly** / **All-Time Summary** / **By Customer** / **Expenses** / **Tax Summary**
+
+#### Overview tab
+- Year selector (2020–present)
+- KPI cards: total revenue, paid, unpaid, invoice count, avg order value, units sold
+- Gross Profit Summary: revenue, COGS, gross profit, gross margin %, est. net profit
 - Monthly revenue bar chart + quarterly breakdown
 - Top 10 items by revenue
-- Customer drill-down
-- Tax Summary
-- **Expense Report section**: Annual summary table + Monthly Expenses chart
-  - Bar/Line chart toggle
-  - Data fetched with pagination (1000/page)
-  - Query uses NO `deleted_at` filter
-- PowerPoint export (annual report)
+- PowerPoint annual report export
+
+#### Monthly tab
+- Year × month revenue table — Subtotal CAD (excl. tax) + Total CAD (incl. tax)
+- Multi-year line/bar chart toggle
+
+#### All-Time Summary tab
+- **5 KPI dark cards**: All-Time Revenue (CAD), All-Time Units Sold, All-Time Expenses (CAD), Gross Margin (Revenue − Expenses, green/red), Current Inventory Value (raw materials + packaging stock × cost)
+- **Revenue by Year** table (year × month, subtotal CAD) + bar/line chart toggle
+- **Units Sold by Year** table (year × month) + bar/line chart toggle
+- All data fetched with pagination (1000/page); no `deleted_at` filter on expenses
+
+#### By Customer tab
+- Customer revenue breakdown for selected year
+- Drill-down modal: top 10 items per customer
+- HERA BEAUTY grouped across all locations
+
+#### Expenses tab
+- Expenses by Category table (year × month)
+- All-years expense report table + bar/line chart toggle
+- No `deleted_at` filter (column does not exist in ESHCO schema)
+
+#### Tax Summary tab
+- Tax Collected (invoices − credit memos), Tax Paid (expenses), Estimated Tax Owing
 
 ### Barcode Scan (`/scan`)
 - Camera barcode scan
@@ -200,8 +222,8 @@ invoices
 
 invoice_items
   id, invoice_id → invoices
-  material_type ('raw_material' | 'packaging'), material_id
-  qty, unit_price_cad, line_total_cad  -- GENERATED ALWAYS
+  item_type ('raw_material' | 'packaging'), item_id
+  qty, unit_price_cad, discount, line_total_cad  -- line_total_cad GENERATED ALWAYS
 
 credit_memos
   id, memo_no, customer_id → customers
@@ -338,6 +360,17 @@ public/
 ├── icon-512x512.png
 └── manifest.json
 ```
+
+---
+
+## Historical Data Notes
+
+| Dataset | Status |
+|---------|--------|
+| CAD invoices (2020–2026) | ✅ Fully entered |
+| Expenses (2020–2026) | ✅ Fully entered |
+
+All-Time Summary tab reflects complete historical data from 2020 onwards.
 
 ---
 
