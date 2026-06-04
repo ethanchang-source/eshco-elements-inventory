@@ -696,32 +696,6 @@ export default function Reports() {
       {/* ── OVERVIEW TAB ── */}
       {activeTab === 'overview' && (
         <>
-          {/* All-time KPI dark cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-            <div style={{ background: '#1e293b', borderRadius: '12px', padding: '20px', color: '#fff' }}>
-              {allTimeLoading ? (
-                <div style={{ fontSize: '13px', color: '#94a3b8' }}>Loading...</div>
-              ) : (
-                <>
-                  <div style={{ fontSize: '24px', fontWeight: '700', marginBottom: '4px' }}>${formatCurrency(allTimeStats.total_revenue)}</div>
-                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#94a3b8' }}>All-Time Revenue</div>
-                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>CAD, all non-draft invoices</div>
-                </>
-              )}
-            </div>
-            <div style={{ background: '#1e293b', borderRadius: '12px', padding: '20px', color: '#fff' }}>
-              {allTimeLoading ? (
-                <div style={{ fontSize: '13px', color: '#94a3b8' }}>Loading...</div>
-              ) : (
-                <>
-                  <div style={{ fontSize: '24px', fontWeight: '700', marginBottom: '4px' }}>{allTimeStats.total_qty.toLocaleString()}</div>
-                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#94a3b8' }}>All-Time Units</div>
-                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>Total units across all invoices</div>
-                </>
-              )}
-            </div>
-          </div>
-
           {/* Year KPI cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
             {[
