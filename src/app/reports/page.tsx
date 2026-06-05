@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { formatCurrency } from '@/lib/utils'
 import { BarChart3, TrendingUp, DollarSign, Package, ShoppingCart, X } from 'lucide-react'
 
@@ -65,6 +66,16 @@ interface ProductMarginRow {
   margin_pct: number
 }
 
+interface PnLRow {
+  month: string
+  revenue: number
+  gross_profit: number
+  gp_pct: number
+  expenses: number
+  net_profit: number
+  net_pct: number
+}
+
 async function resolveItems(items: any[]): Promise<Map<string, { item_no: string; name: string; unit_cost: number }>> {
   const rawIds  = [...new Set(items.filter((i: any) => i.item_type === 'raw_material' && i.item_id).map((i: any) => i.item_id as string))]
   const packIds = [...new Set(items.filter((i: any) => i.item_type === 'packaging'    && i.item_id).map((i: any) => i.item_id as string))]
@@ -98,7 +109,7 @@ function qoqChange(curr: number, prev: number): { text: string; up: boolean } | 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
 export default function Reports() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'revenue' | 'alltime' | 'customers' | 'expenses' | 'tax'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'revenue' | 'alltime' | 'pnl' | 'customers' | 'expenses' | 'tax'>('overview')
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
 
   const [loading, setLoading] = useState(true)
@@ -397,6 +408,89 @@ export default function Reports() {
 
   useEffect(() => { fetchMarginData() }, [fetchMarginData])
 
+  const [pnlLoading, setPnlLoading] = useState(false)
+  const [pnlRows, setPnlRows]       = useState<PnLRow[]>([])
+
+  const fetchPnL = useCallback(async () => {
+    setPnlLoading(true)
+
+    const [{ data: invoices }, { data: creditMemos }, { data: expData }] = await Promise.all([
+      supabase
+        .from('invoices')
+        .select('issued_at, subtotal_cad, currency, invoice_items(qty, unit_price_cad, item_id, item_type)')
+        .gte('issued_at', `${selectedYear}-01-01`)
+        .lte('issued_at', `${selectedYear}-12-31`)
+        .eq('currency', 'CAD')
+        .neq('status', 'draft'),
+      supabase
+        .from('credit_memos')
+        .select('issued_at, subtotal_cad')
+        .gte('issued_at', `${selectedYear}-01-01`)
+        .lte('issued_at', `${selectedYear}-12-31`),
+      supabase
+        .from('expenses')
+        .select('expense_date, total_amount, category')
+        .gte('expense_date', `${selectedYear}-01-01`)
+        .lte('expense_date', `${selectedYear}-12-31`),
+    ])
+
+    const allItems = (invoices || []).flatMap(inv => (inv.invoice_items || []) as any[]).filter((it: any) => it.item_id)
+    const costMap = await resolveItems(allItems)
+
+    const revByMonth    = Array(12).fill(0)
+    const gpByMonth     = Array(12).fill(0)
+    const expByMonth    = Array(12).fill(0)
+
+    for (const inv of invoices || []) {
+      if (!inv.issued_at) continue
+      const mo = parseInt(inv.issued_at.slice(5, 7)) - 1
+      revByMonth[mo] += inv.subtotal_cad || 0
+      for (const it of (inv.invoice_items || []) as any[]) {
+        if (!it.item_id) continue
+        const cost = costMap.get(it.item_id)?.unit_cost || 0
+        const qty  = it.qty || 0
+        const sp   = it.unit_price_cad || 0
+        gpByMonth[mo] += qty * (sp - cost)
+      }
+    }
+
+    for (const cm of creditMemos || []) {
+      if (!cm.issued_at) continue
+      const mo = parseInt(cm.issued_at.slice(5, 7)) - 1
+      revByMonth[mo] -= cm.subtotal_cad || 0
+    }
+
+    const JOB_MATERIALS = ['job materials', 'job material']
+    for (const exp of expData || []) {
+      if (!exp.expense_date) continue
+      const cat = (exp.category || '').toLowerCase().trim()
+      if (JOB_MATERIALS.includes(cat)) continue
+      const mo = parseInt(exp.expense_date.slice(5, 7)) - 1
+      expByMonth[mo] += exp.total_amount || 0
+    }
+
+    const rows: PnLRow[] = MONTH_NAMES.map((month, i) => {
+      const revenue = revByMonth[i]
+      const gross_profit = gpByMonth[i]
+      const expenses = expByMonth[i]
+      const net_profit = gross_profit - expenses
+      return {
+        month,
+        revenue,
+        gross_profit,
+        gp_pct: revenue > 0 ? (gross_profit / revenue) * 100 : 0,
+        expenses,
+        net_profit,
+        net_pct: revenue > 0 ? (net_profit / revenue) * 100 : 0,
+      }
+    })
+
+    setPnlRows(rows)
+    setPnlLoading(false)
+  }, [selectedYear])
+
+  useEffect(() => { fetchPnL() }, [fetchPnL])
+
   const fetchExpensesByCategory = useCallback(async () => {
     setExpenseCatLoading(true)
     const { data } = await supabase
@@ -682,6 +776,7 @@ export default function Reports() {
           { key: 'overview',   label: 'Overview' },
           { key: 'revenue',    label: 'Revenue' },
           { key: 'alltime',    label: 'All-Time Summary' },
+          { key: 'pnl',        label: 'P&L' },
           { key: 'customers',  label: 'By Customer' },
           { key: 'expenses',   label: 'Expenses' },
           { key: 'tax',        label: 'Tax Summary' },
@@ -1423,6 +1518,95 @@ export default function Reports() {
           </div>
         </>
       )}
+
+      {/* ── P&L TAB ── */}
+      {activeTab === 'pnl' && (() => {
+        const totalRevenue    = pnlRows.reduce((s, r) => s + r.revenue, 0)
+        const totalGP         = pnlRows.reduce((s, r) => s + r.gross_profit, 0)
+        const totalExpenses   = pnlRows.reduce((s, r) => s + r.expenses, 0)
+        const totalNet        = pnlRows.reduce((s, r) => s + r.net_profit, 0)
+        const totalGpPct      = totalRevenue > 0 ? (totalGP / totalRevenue) * 100 : 0
+        const totalNetPct     = totalRevenue > 0 ? (totalNet / totalRevenue) * 100 : 0
+
+        const chartData = pnlRows.map(r => ({
+          name: r.month,
+          Revenue: Math.round(r.revenue),
+          'Gross Profit': Math.round(r.gross_profit),
+          'Net Profit': Math.round(r.net_profit),
+        }))
+
+        const fmtPct = (v: number) => `${v >= 0 ? '' : ''}${v.toFixed(1)}%`
+        const valColor = (v: number) => v >= 0 ? '#16a34a' : '#dc2626'
+
+        return (
+          <>
+            {/* Monthly table */}
+            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '24px' }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', margin: 0 }}>P&L — {selectedYear}</h3>
+                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>CAD revenue (credit memo adjusted) · Expenses exclude Job Materials</div>
+              </div>
+              {pnlLoading ? (
+                <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>Loading...</div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '700px' }}>
+                    <thead>
+                      <tr style={{ background: '#1e293b' }}>
+                        {['Month', 'Revenue', 'Gross Profit', 'GP%', 'Expenses', 'Net Profit', 'Net%'].map(h => (
+                          <th key={h} style={{ padding: '10px 16px', textAlign: h === 'Month' ? 'left' : 'right', fontSize: '11px', fontWeight: '600', color: '#fff', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pnlRows.map((r, i) => (
+                        <tr key={r.month} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                          <td style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '500', color: '#1e293b' }}>{r.month} {selectedYear}</td>
+                          <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', color: r.revenue !== 0 ? '#1e293b' : '#94a3b8' }}>{r.revenue !== 0 ? `$${formatCurrency(r.revenue)}` : '—'}</td>
+                          <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: r.gross_profit !== 0 ? valColor(r.gross_profit) : '#94a3b8' }}>{r.gross_profit !== 0 ? `$${formatCurrency(r.gross_profit)}` : '—'}</td>
+                          <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', color: r.revenue > 0 ? valColor(r.gp_pct) : '#94a3b8' }}>{r.revenue > 0 ? fmtPct(r.gp_pct) : '—'}</td>
+                          <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', color: r.expenses > 0 ? '#dc2626' : '#94a3b8' }}>{r.expenses > 0 ? `$${formatCurrency(r.expenses)}` : '—'}</td>
+                          <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', fontWeight: '600', color: r.revenue !== 0 ? valColor(r.net_profit) : '#94a3b8' }}>{r.revenue !== 0 || r.expenses > 0 ? `$${formatCurrency(r.net_profit)}` : '—'}</td>
+                          <td style={{ padding: '10px 16px', fontSize: '13px', textAlign: 'right', color: r.revenue > 0 ? valColor(r.net_pct) : '#94a3b8' }}>{r.revenue > 0 ? fmtPct(r.net_pct) : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#eff6ff', borderTop: '2px solid #bfdbfe' }}>
+                        <td style={{ padding: '12px 16px', fontSize: '13px', fontWeight: '700', color: '#1d4ed8' }}>TOTAL</td>
+                        <td style={{ padding: '12px 16px', fontSize: '13px', textAlign: 'right', fontWeight: '700', color: '#1d4ed8' }}>${formatCurrency(totalRevenue)}</td>
+                        <td style={{ padding: '12px 16px', fontSize: '13px', textAlign: 'right', fontWeight: '700', color: '#1d4ed8' }}>${formatCurrency(totalGP)}</td>
+                        <td style={{ padding: '12px 16px', fontSize: '13px', textAlign: 'right', fontWeight: '700', color: '#1d4ed8' }}>{totalRevenue > 0 ? fmtPct(totalGpPct) : '—'}</td>
+                        <td style={{ padding: '12px 16px', fontSize: '13px', textAlign: 'right', fontWeight: '700', color: '#1d4ed8' }}>${formatCurrency(totalExpenses)}</td>
+                        <td style={{ padding: '12px 16px', fontSize: '13px', textAlign: 'right', fontWeight: '700', color: '#1d4ed8' }}>${formatCurrency(totalNet)}</td>
+                        <td style={{ padding: '12px 16px', fontSize: '13px', textAlign: 'right', fontWeight: '700', color: '#1d4ed8' }}>{totalRevenue > 0 ? fmtPct(totalNetPct) : '—'}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Bar chart */}
+            {!pnlLoading && (
+              <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', marginBottom: '24px' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#1e293b', marginBottom: '16px' }}>Monthly P&L Chart — {selectedYear}</h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={chartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} />
+                    <YAxis tickFormatter={v => `$${(v/1000).toFixed(0)}k`} tick={{ fontSize: 11, fill: '#64748b' }} />
+                    <Tooltip formatter={(value: number) => `$${formatCurrency(value)}`} />
+                    <Legend wrapperStyle={{ fontSize: '12px' }} />
+                    <Bar dataKey="Revenue" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="Gross Profit" fill="#16a34a" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="Net Profit" fill="#f59e0b" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </>
+        )
+      })()}
 
       {/* ── BY CUSTOMER TAB ── */}
       {activeTab === 'customers' && (
