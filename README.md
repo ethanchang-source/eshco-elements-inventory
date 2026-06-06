@@ -33,7 +33,7 @@ ESHCO ELEMENTS (원자재·포장재 납품 전문) internal inventory & sales m
 | Framework | Next.js 15 (App Router) |
 | Language | TypeScript 5 |
 | DB / Auth | Supabase (PostgreSQL + Supabase Auth) |
-| UI | Tailwind CSS v4, lucide-react |
+| UI | Tailwind CSS v4, lucide-react, recharts |
 | PDF | jsPDF + jspdf-autotable |
 | Excel | xlsx (SheetJS) |
 | PowerPoint | pptxgenjs |
@@ -73,9 +73,10 @@ ESHCO ELEMENTS (원자재·포장재 납품 전문) internal inventory & sales m
 - Manual snapshot capture
 
 ### Invoices (`/invoices`)
-- Tabs: **CAD** / **USD**
+- Tabs: **CAD** / **USD** (separated invoice list by currency)
 - Auto-increment invoice numbers (gap-fill)
 - Create/edit/delete (Draft → Sent → Paid)
+- **Paid invoices are clickable and fully editable** (previously read-only)
 - Line items: raw material or packaging, qty, unit price, discount
 - Customer-specific custom pricing auto-applied (`customer_prices`)
 - HST auto-calculation (HST# 752458133RT0001)
@@ -119,7 +120,7 @@ ESHCO ELEMENTS (원자재·포장재 납품 전문) internal inventory & sales m
 
 ### Reports (`/reports`)
 
-Tabs: **Overview** / **Monthly** / **All-Time Summary** / **By Customer** / **Expenses** / **Tax Summary**
+Tabs: **Overview** / **Revenue** / **All-Time Summary** / **P&L** / **By Customer** / **Expenses** / **Tax Summary**
 
 #### Overview tab
 - Year selector (2020–present)
@@ -129,7 +130,7 @@ Tabs: **Overview** / **Monthly** / **All-Time Summary** / **By Customer** / **Ex
 - Top 10 items by revenue
 - PowerPoint annual report export
 
-#### Monthly tab
+#### Revenue tab
 - Year × month revenue table — Subtotal CAD (excl. tax) + Total CAD (incl. tax)
 - Multi-year line/bar chart toggle
 
@@ -138,6 +139,14 @@ Tabs: **Overview** / **Monthly** / **All-Time Summary** / **By Customer** / **Ex
 - **Revenue by Year** table (year × month, subtotal CAD) + bar/line chart toggle
 - **Units Sold by Year** table (year × month) + bar/line chart toggle
 - All data fetched with pagination (1000/page); no `deleted_at` filter on expenses
+
+#### P&L tab
+- Year selector (2020–present)
+- Monthly table: **Revenue** (CAD invoices, credit memo adjusted) / **Gross Profit** (selling price − cost per item) / **GP%** / **Expenses** (Job Materials category excluded) / **Net Profit** / **Net%**
+- TOTAL row at bottom (blue background, bold)
+- Positive values green (`#16a34a`), negative values red (`#dc2626`)
+- recharts BarChart: Revenue (blue) / Gross Profit (green) / Net Profit (amber)
+- Gross Profit calculated per invoice_item: `qty × (unit_price_cad − cost_per_unit_cad/cost_cad)`
 
 #### By Customer tab
 - Customer revenue breakdown for selected year
@@ -367,10 +376,10 @@ public/
 
 | Dataset | Status |
 |---------|--------|
-| CAD invoices (2020–2026) | ✅ Fully entered |
+| CAD invoices (2020–2026) | ✅ Fully entered (latest: EE26-00016) |
 | Expenses (2020–2026) | ✅ Fully entered |
 
-All-Time Summary tab reflects complete historical data from 2020 onwards.
+All-Time Summary and P&L tabs reflect complete historical data from 2020 onwards.
 
 ---
 
