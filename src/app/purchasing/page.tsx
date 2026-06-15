@@ -37,6 +37,9 @@ interface POLineItem {
   total: number
   qty_str: string
   price_str: string
+  purchase_unit: string
+  weight_per_drum: number
+  weight_per_drum_str: string
 }
 
 interface PO {
@@ -67,6 +70,9 @@ interface POItem {
   material_id: string
   quantity: number
   unit_price: number
+  purchase_unit?: string | null
+  weight_per_drum?: number | null
+  ml_conversion?: number | null
 }
 
 interface POAttachment {
@@ -197,7 +203,7 @@ export default function Purchasing() {
       supabase.from('suppliers').select('id, name').order('name'),
       supabase.from('raw_materials').select('id, item_no, name, unit, cost_per_unit_cad').order('item_no'),
       supabase.from('packaging').select('id, item_no, name, type, cost_cad').order('item_no'),
-      supabase.from('purchase_order_items').select('id, po_id, material_type, material_id, quantity, unit_price'),
+      supabase.from('purchase_order_items').select('id, po_id, material_type, material_id, quantity, unit_price, purchase_unit, weight_per_drum, ml_conversion'),
       supabase.from('purchase_order_attachments').select('id, po_id, file_name, file_url, uploaded_at').order('uploaded_at'),
     ])
     setPOs(posRes.data || [])
@@ -244,6 +250,9 @@ export default function Purchasing() {
       total: 0,
       qty_str: '',
       price_str: String(m.cost_per_unit),
+      purchase_unit: 'ml',
+      weight_per_drum: 0,
+      weight_per_drum_str: '',
     })))
   }
 
@@ -325,6 +334,9 @@ export default function Purchasing() {
         material_id: item.material_id,
         quantity: item.qty,
         unit_price: item.unit_price,
+        purchase_unit: item.material_type === 'raw_material' ? (item.purchase_unit || 'ml') : null,
+        weight_per_drum: item.material_type === 'raw_material' && item.purchase_unit === 'drum' ? (item.weight_per_drum || null) : null,
+        ml_conversion: computeMlConversion(item),
       }))
     )
 
@@ -384,7 +396,7 @@ export default function Purchasing() {
 
     const [freshItemsRes, attachRes] = await Promise.all([
       supabase.from('purchase_order_items')
-        .select('id, po_id, material_type, material_id, quantity, unit_price')
+        .select('id, po_id, material_type, material_id, quantity, unit_price, purchase_unit, weight_per_drum, ml_conversion')
         .eq('po_id', po.id),
       supabase.from('purchase_order_attachments')
         .select('id, file_name, file_url')
@@ -392,9 +404,13 @@ export default function Purchasing() {
         .order('uploaded_at'),
     ])
 
-    const existingMap: Record<string, { qty: number; unit_price: number }> = {}
+    const existingMap: Record<string, { qty: number; unit_price: number; purchase_unit: string; weight_per_drum: number }> = {}
     for (const item of (freshItemsRes.data || []) as POItem[]) {
-      existingMap[item.material_id] = { qty: item.quantity, unit_price: item.unit_price }
+      existingMap[item.material_id] = {
+        qty: item.quantity, unit_price: item.unit_price,
+        purchase_unit: item.purchase_unit || 'ml',
+        weight_per_drum: item.weight_per_drum || 0,
+      }
     }
 
     setEditLineItems(materials.map(m => ({
@@ -408,6 +424,9 @@ export default function Purchasing() {
       total: (existingMap[m.id]?.unit_price ?? m.cost_per_unit) * (existingMap[m.id]?.qty ?? 0),
       qty_str: existingMap[m.id]?.qty ? String(existingMap[m.id].qty) : '',
       price_str: String(existingMap[m.id]?.unit_price ?? m.cost_per_unit),
+      purchase_unit: existingMap[m.id]?.purchase_unit ?? 'ml',
+      weight_per_drum: existingMap[m.id]?.weight_per_drum ?? 0,
+      weight_per_drum_str: existingMap[m.id]?.weight_per_drum ? String(existingMap[m.id].weight_per_drum) : '',
     })))
 
     setEditAttachments(attachRes.data || [])
@@ -434,6 +453,48 @@ export default function Purchasing() {
     })
   }
 
+  function updateCreatePurchaseUnit(index: number, unit: string) {
+    setCreateLineItems(prev => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], purchase_unit: unit }
+      return updated
+    })
+  }
+
+  function updateCreateWeightPerDrum(index: number, val: string) {
+    if (val !== '' && !/^[0-9]*\.?[0-9]*$/.test(val)) return
+    setCreateLineItems(prev => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], weight_per_drum_str: val, weight_per_drum: parseFloat(val) || 0 }
+      return updated
+    })
+  }
+
+  function updateEditPurchaseUnit(index: number, unit: string) {
+    setEditLineItems(prev => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], purchase_unit: unit }
+      return updated
+    })
+  }
+
+  function updateEditWeightPerDrum(index: number, val: string) {
+    if (val !== '' && !/^[0-9]*\.?[0-9]*$/.test(val)) return
+    setEditLineItems(prev => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], weight_per_drum_str: val, weight_per_drum: parseFloat(val) || 0 }
+      return updated
+    })
+  }
+
+  function computeMlConversion(item: POLineItem): number | null {
+    if (item.material_type !== 'raw_material') return null
+    const pu = item.purchase_unit || 'ml'
+    if (pu === 'kg') return item.qty * 1000
+    if (pu === 'drum') return item.qty * (item.weight_per_drum || 0) * 1000
+    return null
+  }
+
   const activeEditItems = editLineItems.filter(item => item.qty > 0)
   const editSubtotal = activeEditItems.reduce((s, i) => s + i.total, 0)
   const editShipping = parseFloat(editForm.shipping_cad || '0') || 0
@@ -448,7 +509,7 @@ export default function Purchasing() {
 
   // Shared helper: add or subtract stock + avg_cost_cad on received/rollback
   async function applyReceivedStock(
-    items: { material_type: string; material_id: string; quantity: number; unit_price: number }[],
+    items: { material_type: string; material_id: string; quantity: number; unit_price: number; ml_conversion?: number | null }[],
     direction: 'add' | 'subtract'
   ) {
     for (const item of items) {
@@ -459,24 +520,25 @@ export default function Purchasing() {
           .eq('id', item.material_id)
           .single()
         const oldStock = mat?.current_stock || 0
+        const stockDelta = item.ml_conversion ?? item.quantity
         if (direction === 'add') {
           const { data: allItems } = await supabase
             .from('purchase_order_items')
-            .select('quantity, unit_price, purchase_orders!inner(status)')
+            .select('quantity, unit_price, ml_conversion, purchase_orders!inner(status)')
             .eq('material_type', 'raw_material')
             .eq('material_id', item.material_id)
             .eq('purchase_orders.status', 'received')
-          const totalQty = allItems?.reduce((s, i) => s + i.quantity, 0) || 0
-          const totalValue = allItems?.reduce((s, i) => s + i.quantity * i.unit_price, 0) || 0
-          const newAvg = totalQty > 0 ? totalValue / totalQty : 0
+          const totalMl = allItems?.reduce((s, i) => s + (i.ml_conversion ?? i.quantity), 0) || 0
+          const totalCost = allItems?.reduce((s, i) => s + i.quantity * i.unit_price, 0) || 0
+          const newAvg = totalMl > 0 ? totalCost / totalMl : 0
           await supabase.from('raw_materials').update({
-            current_stock: oldStock + item.quantity,
+            current_stock: oldStock + stockDelta,
             avg_cost_cad: newAvg,
           }).eq('id', item.material_id)
         } else {
           // avg_cost_cad not reversed on rollback
           await supabase.from('raw_materials').update({
-            current_stock: Math.max(0, oldStock - item.quantity),
+            current_stock: Math.max(0, oldStock - stockDelta),
           }).eq('id', item.material_id)
         }
       } else {
@@ -555,12 +617,15 @@ export default function Purchasing() {
         material_id: item.material_id,
         quantity: item.qty,
         unit_price: item.unit_price,
+        purchase_unit: item.material_type === 'raw_material' ? (item.purchase_unit || 'ml') : null,
+        weight_per_drum: item.material_type === 'raw_material' && item.purchase_unit === 'drum' ? (item.weight_per_drum || null) : null,
+        ml_conversion: computeMlConversion(item),
       }))
     )
 
     const editItemsNorm = activeEditItems.map(i => ({
       material_type: i.material_type, material_id: i.material_id,
-      quantity: i.qty, unit_price: i.unit_price,
+      quantity: i.qty, unit_price: i.unit_price, ml_conversion: computeMlConversion(i),
     }))
     if (editForm.status === 'received' && previousDBStatus !== 'received') {
       await applyReceivedStock(editItemsNorm, 'add')
@@ -721,7 +786,7 @@ export default function Purchasing() {
 
     const items = (poItems[po.id] || []).map(i => ({
       material_type: i.material_type, material_id: i.material_id,
-      quantity: i.quantity, unit_price: i.unit_price,
+      quantity: i.quantity, unit_price: i.unit_price, ml_conversion: i.ml_conversion,
     }))
     if (newStatus === 'received' && previousDBStatus !== 'received') {
       await applyReceivedStock(items, 'add')
@@ -752,7 +817,7 @@ export default function Purchasing() {
     if (previousDBStatus !== 'received') {
       const items = (poItems[dateModalPO.id] || []).map(i => ({
         material_type: i.material_type, material_id: i.material_id,
-        quantity: i.quantity, unit_price: i.unit_price,
+        quantity: i.quantity, unit_price: i.unit_price, ml_conversion: i.ml_conversion,
       }))
       await applyReceivedStock(items, 'add')
     }
@@ -1017,6 +1082,29 @@ export default function Purchasing() {
                               placeholder='0'
                               style={{ ...numInp, padding: '4px 8px', fontSize: '13px', width: '80px' }}
                             />
+                            {item.material_type === 'raw_material' && (
+                              <div style={{ marginTop: '4px' }}>
+                                <select
+                                  value={item.purchase_unit}
+                                  onChange={e => updateCreatePurchaseUnit(idx, e.target.value)}
+                                  style={{ fontSize: '11px', padding: '2px 4px', border: '1px solid #e2e8f0', borderRadius: '4px', color: '#374151', background: '#fff' }}
+                                >
+                                  <option value='ml'>ml</option>
+                                  <option value='kg'>kg</option>
+                                  <option value='drum'>drum</option>
+                                </select>
+                              </div>
+                            )}
+                            {item.material_type === 'raw_material' && item.purchase_unit === 'drum' && (
+                              <div style={{ marginTop: '4px' }}>
+                                <input type='text' inputMode='decimal'
+                                  value={item.weight_per_drum_str}
+                                  onChange={e => updateCreateWeightPerDrum(idx, e.target.value)}
+                                  placeholder='kg/drum'
+                                  style={{ ...numInp, padding: '2px 6px', fontSize: '11px', width: '80px' }}
+                                />
+                              </div>
+                            )}
                           </td>
                           <td style={{ padding: '7px 14px', textAlign: 'right' }}>
                             <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
@@ -1028,6 +1116,11 @@ export default function Purchasing() {
                                 style={{ ...numInp, padding: '4px 8px 4px 18px', fontSize: '13px', width: '90px' }}
                               />
                             </div>
+                            {item.material_type === 'raw_material' && item.purchase_unit !== 'ml' && item.unit_price > 0 && (() => {
+                              const mlPerUnit = item.purchase_unit === 'drum' ? (item.weight_per_drum || 0) * 1000 : 1000
+                              const cadPerMl = mlPerUnit > 0 ? item.unit_price / mlPerUnit : 0
+                              return cadPerMl > 0 ? <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>${cadPerMl.toFixed(4)}/ml</div> : null
+                            })()}
                           </td>
                           <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: '500', color: item.qty > 0 ? '#1e293b' : '#94a3b8' }}>
                             {item.qty > 0 ? `$${formatCurrency(item.total)}` : '—'}
@@ -1255,28 +1348,72 @@ export default function Purchasing() {
                         <td style={{ padding: '7px 14px', textAlign: 'right', color: '#64748b' }}>{item.unit}</td>
                         <td style={{ padding: '7px 14px', textAlign: 'right' }}>
                           {isReadOnly ? (
-                            <span style={{ color: '#374151' }}>{item.qty > 0 ? item.qty : '—'}</span>
+                            <div>
+                              <span style={{ color: '#374151' }}>{item.qty > 0 ? item.qty : '—'}</span>
+                              {item.material_type === 'raw_material' && item.purchase_unit && item.purchase_unit !== 'ml' && (
+                                <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>{item.purchase_unit}{item.purchase_unit === 'drum' && item.weight_per_drum ? ` (${item.weight_per_drum}kg)` : ''}</div>
+                              )}
+                            </div>
                           ) : (
-                            <input type='text' inputMode='decimal'
-                              value={item.qty_str}
-                              onChange={e => updateEditQty(idx, e.target.value)}
-                              placeholder='0'
-                              style={{ ...numInp, padding: '4px 8px', fontSize: '13px', width: '80px' }}
-                            />
+                            <div>
+                              <input type='text' inputMode='decimal'
+                                value={item.qty_str}
+                                onChange={e => updateEditQty(idx, e.target.value)}
+                                placeholder='0'
+                                style={{ ...numInp, padding: '4px 8px', fontSize: '13px', width: '80px' }}
+                              />
+                              {item.material_type === 'raw_material' && (
+                                <div style={{ marginTop: '4px' }}>
+                                  <select
+                                    value={item.purchase_unit}
+                                    onChange={e => updateEditPurchaseUnit(idx, e.target.value)}
+                                    style={{ fontSize: '11px', padding: '2px 4px', border: '1px solid #e2e8f0', borderRadius: '4px', color: '#374151', background: '#fff' }}
+                                  >
+                                    <option value='ml'>ml</option>
+                                    <option value='kg'>kg</option>
+                                    <option value='drum'>drum</option>
+                                  </select>
+                                </div>
+                              )}
+                              {item.material_type === 'raw_material' && item.purchase_unit === 'drum' && (
+                                <div style={{ marginTop: '4px' }}>
+                                  <input type='text' inputMode='decimal'
+                                    value={item.weight_per_drum_str}
+                                    onChange={e => updateEditWeightPerDrum(idx, e.target.value)}
+                                    placeholder='kg/drum'
+                                    style={{ ...numInp, padding: '2px 6px', fontSize: '11px', width: '80px' }}
+                                  />
+                                </div>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td style={{ padding: '7px 14px', textAlign: 'right' }}>
                           {isReadOnly ? (
-                            <span style={{ color: '#64748b' }}>${formatPrice(item.unit_price)}</span>
+                            <div>
+                              <span style={{ color: '#64748b' }}>${formatPrice(item.unit_price)}</span>
+                              {item.material_type === 'raw_material' && item.purchase_unit && item.purchase_unit !== 'ml' && item.unit_price > 0 && (() => {
+                                const mlPerUnit = item.purchase_unit === 'drum' ? (item.weight_per_drum || 0) * 1000 : 1000
+                                const cadPerMl = mlPerUnit > 0 ? item.unit_price / mlPerUnit : 0
+                                return cadPerMl > 0 ? <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>${cadPerMl.toFixed(4)}/ml</div> : null
+                              })()}
+                            </div>
                           ) : (
-                            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-                              <span style={{ position: 'absolute', left: '8px', color: '#64748b', fontSize: '13px', pointerEvents: 'none' }}>$</span>
-                              <input type='text' inputMode='decimal'
-                                value={item.price_str}
-                                onChange={e => updateEditPrice(idx, e.target.value)}
-                                placeholder='0.00'
-                                style={{ ...numInp, padding: '4px 8px 4px 18px', fontSize: '13px', width: '90px' }}
-                              />
+                            <div>
+                              <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                                <span style={{ position: 'absolute', left: '8px', color: '#64748b', fontSize: '13px', pointerEvents: 'none' }}>$</span>
+                                <input type='text' inputMode='decimal'
+                                  value={item.price_str}
+                                  onChange={e => updateEditPrice(idx, e.target.value)}
+                                  placeholder='0.00'
+                                  style={{ ...numInp, padding: '4px 8px 4px 18px', fontSize: '13px', width: '90px' }}
+                                />
+                              </div>
+                              {item.material_type === 'raw_material' && item.purchase_unit !== 'ml' && item.unit_price > 0 && (() => {
+                                const mlPerUnit = item.purchase_unit === 'drum' ? (item.weight_per_drum || 0) * 1000 : 1000
+                                const cadPerMl = mlPerUnit > 0 ? item.unit_price / mlPerUnit : 0
+                                return cadPerMl > 0 ? <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>${cadPerMl.toFixed(4)}/ml</div> : null
+                              })()}
                             </div>
                           )}
                         </td>
