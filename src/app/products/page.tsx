@@ -15,7 +15,6 @@ interface RawMaterial {
   name: string
   unit: string
   cost_per_unit_cad: number
-  cost_per_unit_usd?: number | null
   avg_cost_cad: number | null
   price_whs_cad?: number | null
   barcode?: string | null
@@ -104,7 +103,7 @@ export default function Products() {
   const [editRaw, setEditRaw] = useState<RawMaterial | null>(null)
   const [editPack, setEditPack] = useState<Packaging | null>(null)
   const [editRawForm, setEditRawForm] = useState({
-    item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '', cost_per_unit_usd: '',
+    item_no: '', name: '', unit: 'ml', cost_per_unit_cad: '',
     price_whs_cad: '', barcode: '',
     current_stock: '', reorder_threshold: '', max_capacity: '',
     preferred_supplier_id: '', purchase_unit: '', purchase_unit_kg: '',
@@ -160,7 +159,6 @@ export default function Products() {
     setEditRawForm({
       item_no: r.item_no || '', name: r.name || '', unit: r.unit || 'ml',
       cost_per_unit_cad: String(r.cost_per_unit_cad ?? ''),
-      cost_per_unit_usd: String(r.cost_per_unit_usd ?? ''),
       price_whs_cad: String(r.price_whs_cad ?? ''),
       barcode: r.barcode || '',
       current_stock: String(r.current_stock ?? ''),
@@ -201,7 +199,6 @@ export default function Products() {
     const { error } = await supabase.from('raw_materials').update({
       item_no: editRawForm.item_no.trim(), name: editRawForm.name.trim(), unit: editRawForm.unit,
       cost_per_unit_cad: parseFloat(editRawForm.cost_per_unit_cad) || 0,
-      cost_per_unit_usd: editRawForm.cost_per_unit_usd !== '' ? parseFloat(editRawForm.cost_per_unit_usd) : null,
       price_whs_cad: editRawForm.price_whs_cad !== '' ? parseFloat(editRawForm.price_whs_cad) : null,
       barcode: editRawForm.barcode.trim() || null,
       current_stock: parseFloat(editRawForm.current_stock) || 0,
@@ -709,10 +706,6 @@ export default function Products() {
               <div>
                 <label style={lbl}>Cost (CAD)</label>
                 <input type='number' min='0' step='0.0001' value={editRawForm.cost_per_unit_cad} onChange={e => setEditRawForm({ ...editRawForm, cost_per_unit_cad: e.target.value })} style={inp} />
-              </div>
-              <div>
-                <label style={lbl}>USD Price/kg</label>
-                <input type='number' min='0' step='0.01' value={editRawForm.cost_per_unit_usd} onChange={e => setEditRawForm({ ...editRawForm, cost_per_unit_usd: e.target.value })} placeholder='—' style={inp} />
               </div>
               <div>
                 <label style={lbl}>WHS Price (CAD)</label>
