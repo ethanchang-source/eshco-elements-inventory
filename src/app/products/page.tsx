@@ -235,7 +235,7 @@ export default function Products() {
     if (!editPack) return
     setEditPackError('')
     const maxCap = editPackForm.max_capacity !== '' ? parseInt(editPackForm.max_capacity) : null
-    const { data, error } = await supabase.from('packaging').update({
+    const { error } = await supabase.from('packaging').update({
       item_no: editPackForm.item_no.trim(), name: editPackForm.name.trim(), type: editPackForm.type,
       size_oz: parseFloat(editPackForm.size_oz) || 0, unit: editPackForm.unit || null,
       cost_cad: parseFloat(editPackForm.cost_cad) || 0,
@@ -245,9 +245,9 @@ export default function Products() {
       reorder_threshold: parseInt(editPackForm.reorder_threshold) || 0,
       max_capacity: maxCap != null && !isNaN(maxCap) ? maxCap : null,
       preferred_supplier_id: editPackForm.preferred_supplier_id || null,
-    }).eq('id', editPack.id).select()
+      roll_length_m: editPackForm.roll_length_m !== '' ? parseFloat(editPackForm.roll_length_m) : null,
+    }).eq('id', editPack.id)
     if (error) { setEditPackError(`DB error: ${error.message} (code: ${error.code})`); return }
-    if (!data || data.length === 0) { setEditPackError('Update failed: no rows were modified.'); return }
     setEditPack(null); setItemPurchaseHistory([])
     fetchAll()
   }
