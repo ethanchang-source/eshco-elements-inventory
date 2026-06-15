@@ -115,6 +115,7 @@ export default function Products() {
     current_stock: '', reorder_threshold: '', max_capacity: '',
     preferred_supplier_id: '', modules: '', maxCapModules: '', roll_length_m: '',
   })
+  const [editRawError, setEditRawError] = useState('')
   const [editPackError, setEditPackError] = useState('')
   const [itemPurchaseHistory, setItemPurchaseHistory] = useState<PurchaseHistoryEntry[]>([])
   const [loadingItemHistory, setLoadingItemHistory] = useState(false)
@@ -154,6 +155,7 @@ export default function Products() {
 
   function openEditRaw(r: RawMaterial) {
     setEditRaw(r)
+    setEditRawError('')
     setItemPurchaseHistory([])
     setEditRawForm({
       item_no: r.item_no || '', name: r.name || '', unit: r.unit || 'ml',
@@ -195,6 +197,7 @@ export default function Products() {
 
   async function handleUpdateRaw() {
     if (!editRaw) return
+    setEditRawError('')
     const { error } = await supabase.from('raw_materials').update({
       item_no: editRawForm.item_no.trim(), name: editRawForm.name.trim(), unit: editRawForm.unit,
       cost_per_unit_cad: parseFloat(editRawForm.cost_per_unit_cad) || 0,
@@ -208,7 +211,7 @@ export default function Products() {
       purchase_unit: editRawForm.purchase_unit || null,
       purchase_unit_kg: editRawForm.purchase_unit_kg !== '' ? parseFloat(editRawForm.purchase_unit_kg) : null,
     }).eq('id', editRaw.id)
-    if (error) console.error('raw_material update error:', error)
+    if (error) { setEditRawError(`DB error: ${error.message} (code: ${error.code})`); return }
     setEditRaw(null); setItemPurchaseHistory([])
     fetchAll()
   }
@@ -754,10 +757,13 @@ export default function Products() {
               </div>
             </div>
             <PurchaseHistorySection />
+            {editRawError && (
+              <div style={{ marginBottom: '12px', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', color: '#dc2626', fontSize: '13px' }}>{editRawError}</div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
               <button onClick={handleDeleteRaw} style={{ padding: '9px 20px', background: '#fff', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>Delete</button>
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button onClick={() => { setEditRaw(null); setItemPurchaseHistory([]) }} style={{ padding: '9px 20px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
+                <button onClick={() => { setEditRaw(null); setEditRawError(''); setItemPurchaseHistory([]) }} style={{ padding: '9px 20px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '14px' }}>Cancel</button>
                 <button onClick={handleUpdateRaw} style={{ padding: '9px 22px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}>Save Changes</button>
               </div>
             </div>
