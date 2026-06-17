@@ -61,6 +61,11 @@ interface PO {
   tax_rate?: number | null
   tax_amount?: number | null
   suppliers?: { name: string }
+  international_fee_cad?: number | null
+  wire_discount_amount?: number | null
+  wire_discount_pct?: number | null
+  brokerage_currency?: string | null
+  gst_amount_cad?: number | null
 }
 
 interface POItem {
@@ -129,6 +134,10 @@ export default function Purchasing() {
     supplier_id: '', ordered_at: getLocalDateString(),
     shipping_cad: '', brokerage_cad: '', duty_cad: '',
     amount_usd: '', amount_cad: '', notes: '', tax_rate: '0',
+    international_fee: '', international_fee_currency: 'CAD',
+    wire_discount: '', wire_discount_mode: 'amount',
+    brokerage_currency: 'CAD',
+    gst_amount: '', tax_mode: 'rate',
   })
   const [saving, setSaving] = useState(false)
   const [createError, setCreateError] = useState('')
@@ -142,6 +151,10 @@ export default function Purchasing() {
     shipping_cad: '', brokerage_cad: '', duty_cad: '',
     amount_usd: '', amount_cad: '', notes: '',
     shipped_at: '', received_at: '', tax_rate: '0',
+    international_fee: '', international_fee_currency: 'CAD',
+    wire_discount: '', wire_discount_mode: 'amount',
+    brokerage_currency: 'CAD',
+    gst_amount: '', tax_mode: 'rate',
   })
   const [updating, setUpdating] = useState(false)
   const [updateError, setUpdateError] = useState('')
@@ -279,13 +292,24 @@ export default function Purchasing() {
   const activeCreateItems = createLineItems.filter(item => item.qty > 0)
   const createSubtotal = activeCreateItems.reduce((s, i) => s + i.total, 0)
   const createShipping = parseFloat(createForm.shipping_cad || '0') || 0
-  const createBrokerage = parseFloat(createForm.brokerage_cad || '0') || 0
+  const createBrokerageRaw = parseFloat(createForm.brokerage_cad || '0') || 0
   const createDuty = parseFloat(createForm.duty_cad || '0') || 0
-  const createTaxRate = parseFloat(createForm.tax_rate || '0') || 0
-  const createHST = createSubtotal * createTaxRate / 100
-  const createTotal = createSubtotal + createShipping + createBrokerage + createDuty + createHST
   const createExchangeRate = createForm.amount_usd && createForm.amount_cad && parseFloat(createForm.amount_usd) > 0
     ? (parseFloat(createForm.amount_cad) / parseFloat(createForm.amount_usd)).toFixed(4) : null
+  const createExchangeRateNum = createExchangeRate ? parseFloat(createExchangeRate) : 1
+  const createBrokerageFinal = createForm.brokerage_currency === 'USD'
+    ? createBrokerageRaw * createExchangeRateNum : createBrokerageRaw
+  const createIntlFeeRaw = parseFloat(createForm.international_fee || '0') || 0
+  const createIntlFeeCad = createForm.international_fee_currency === 'USD'
+    ? createIntlFeeRaw * createExchangeRateNum : createIntlFeeRaw
+  const createWireDiscountRaw = parseFloat(createForm.wire_discount || '0') || 0
+  const createWireDiscount = createForm.wire_discount_mode === 'pct'
+    ? createSubtotal * createWireDiscountRaw / 100 : createWireDiscountRaw
+  const createTaxRate = parseFloat(createForm.tax_rate || '0') || 0
+  const createGstAmountRaw = parseFloat(createForm.gst_amount || '0') || 0
+  const createGstFinal = createForm.tax_mode === 'amount'
+    ? createGstAmountRaw : createSubtotal * createTaxRate / 100
+  const createTotal = createSubtotal + createShipping + createBrokerageFinal + createDuty + createIntlFeeCad - createWireDiscount + createGstFinal
 
   function closeCreate() {
     setShowCreate(false)
@@ -310,15 +334,20 @@ export default function Purchasing() {
       qty_ordered: 0,
       cost_total_cad: createTotal,
       shipping_cad: createShipping || null,
-      brokerage_cad: createBrokerage || null,
+      brokerage_cad: createBrokerageFinal || null,
       duty_cad: createDuty || null,
       status: 'ordered',
       ordered_at: createForm.ordered_at,
       notes: createForm.notes || null,
       amount_usd: createForm.amount_usd ? parseFloat(createForm.amount_usd) : null,
       exchange_rate: exchangeRate,
-      tax_rate: parseFloat(createForm.tax_rate || '0') / 100,
-      tax_amount: createTotal * (parseFloat(createForm.tax_rate || '0') / 100),
+      tax_rate: createForm.tax_mode === 'rate' ? (parseFloat(createForm.tax_rate || '0') / 100) : null,
+      tax_amount: createGstFinal || null,
+      international_fee_cad: createIntlFeeCad || null,
+      wire_discount_amount: createForm.wire_discount_mode === 'amount' ? (createWireDiscountRaw || null) : null,
+      wire_discount_pct: createForm.wire_discount_mode === 'pct' ? (createWireDiscountRaw || null) : null,
+      brokerage_currency: createForm.brokerage_currency,
+      gst_amount_cad: createForm.tax_mode === 'amount' ? (createGstAmountRaw || null) : null,
     }]).select('id').single()
 
     if (poError || !poData) {
@@ -335,7 +364,7 @@ export default function Purchasing() {
         quantity: item.qty,
         unit_price: item.unit_price,
         purchase_unit: item.material_type === 'raw_material' ? (item.purchase_unit || 'ml') : null,
-        weight_per_drum: item.material_type === 'raw_material' && item.purchase_unit === 'drum' ? (item.weight_per_drum || null) : null,
+        weight_per_drum: item.material_type === 'raw_material' && ['drum', 'gallon', 'pail'].includes(item.purchase_unit || '') ? (item.weight_per_drum || null) : null,
         ml_conversion: computeMlConversion(item),
       }))
     )
@@ -367,7 +396,7 @@ export default function Purchasing() {
     }
     setShowCreate(false)
     setCreateError('')
-    setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '', tax_rate: '0' })
+    setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '', tax_rate: '0', international_fee: '', international_fee_currency: 'CAD', wire_discount: '', wire_discount_mode: 'amount', brokerage_currency: 'CAD', gst_amount: '', tax_mode: 'rate' })
     setCreateLineItems([])
     setCreateSupplier(null)
     setCreateFiles([])
@@ -376,6 +405,9 @@ export default function Purchasing() {
 
   async function openDetail(po: PO) {
     setDetailPO(po)
+    const editWireMode = po.wire_discount_pct != null ? 'pct' : 'amount'
+    const editWireVal = po.wire_discount_pct != null ? String(po.wire_discount_pct) : (po.wire_discount_amount != null ? String(po.wire_discount_amount) : '')
+    const editTaxMode = po.gst_amount_cad != null ? 'amount' : 'rate'
     setEditForm({
       supplier_id: po.supplier_id,
       ordered_at: toTorontoDateInput(po.ordered_at),
@@ -389,6 +421,13 @@ export default function Purchasing() {
       shipped_at: toTorontoDateInput(po.shipped_at || ''),
       received_at: toTorontoDateInput(po.received_at || ''),
       tax_rate: po.tax_rate != null ? String(Math.round(po.tax_rate * 100)) : '0',
+      international_fee: po.international_fee_cad != null ? String(po.international_fee_cad) : '',
+      international_fee_currency: 'CAD',
+      wire_discount: editWireVal,
+      wire_discount_mode: editWireMode,
+      brokerage_currency: po.brokerage_currency || 'CAD',
+      gst_amount: po.gst_amount_cad != null ? String(po.gst_amount_cad) : '',
+      tax_mode: editTaxMode,
     })
     setUpdateError('')
     setEditNewFiles([])
@@ -492,19 +531,32 @@ export default function Purchasing() {
     const pu = item.purchase_unit || 'ml'
     if (pu === 'kg') return item.qty * 1000
     if (pu === 'drum') return item.qty * (item.weight_per_drum || 0) * 1000
+    if (pu === 'gallon') return item.qty * (item.weight_per_drum || 0)
+    if (pu === 'pail') return item.qty * (item.weight_per_drum || 0) * 1000
     return null
   }
 
   const activeEditItems = editLineItems.filter(item => item.qty > 0)
   const editSubtotal = activeEditItems.reduce((s, i) => s + i.total, 0)
   const editShipping = parseFloat(editForm.shipping_cad || '0') || 0
-  const editBrokerage = parseFloat(editForm.brokerage_cad || '0') || 0
+  const editBrokerageRaw = parseFloat(editForm.brokerage_cad || '0') || 0
   const editDuty = parseFloat(editForm.duty_cad || '0') || 0
-  const editTaxRate = parseFloat(editForm.tax_rate || '0') || 0
-  const editHST = editSubtotal * editTaxRate / 100
-  const editTotal = editSubtotal + editShipping + editBrokerage + editDuty + editHST
   const editExchangeRate = editForm.amount_usd && editForm.amount_cad && parseFloat(editForm.amount_usd) > 0
     ? (parseFloat(editForm.amount_cad) / parseFloat(editForm.amount_usd)).toFixed(4) : null
+  const editExchangeRateNum = editExchangeRate ? parseFloat(editExchangeRate) : 1
+  const editBrokerageFinal = editForm.brokerage_currency === 'USD'
+    ? editBrokerageRaw * editExchangeRateNum : editBrokerageRaw
+  const editIntlFeeRaw = parseFloat(editForm.international_fee || '0') || 0
+  const editIntlFeeCad = editForm.international_fee_currency === 'USD'
+    ? editIntlFeeRaw * editExchangeRateNum : editIntlFeeRaw
+  const editWireDiscountRaw = parseFloat(editForm.wire_discount || '0') || 0
+  const editWireDiscount = editForm.wire_discount_mode === 'pct'
+    ? editSubtotal * editWireDiscountRaw / 100 : editWireDiscountRaw
+  const editTaxRate = parseFloat(editForm.tax_rate || '0') || 0
+  const editGstAmountRaw = parseFloat(editForm.gst_amount || '0') || 0
+  const editGstFinal = editForm.tax_mode === 'amount'
+    ? editGstAmountRaw : editSubtotal * editTaxRate / 100
+  const editTotal = editSubtotal + editShipping + editBrokerageFinal + editDuty + editIntlFeeCad - editWireDiscount + editGstFinal
   const isReadOnly = detailPO?.status === 'received' || detailPO?.status === 'cancelled'
 
   // Shared helper: add or subtract stock + avg_cost_cad on received/rollback
@@ -593,17 +645,22 @@ export default function Purchasing() {
       status: editForm.status,
       cost_total_cad: editTotal,
       shipping_cad: editShipping || null,
-      brokerage_cad: editBrokerage || null,
+      brokerage_cad: editBrokerageFinal || null,
       duty_cad: editDuty || null,
       notes: editForm.notes || null,
       amount_usd: editForm.amount_usd ? parseFloat(editForm.amount_usd) : null,
       exchange_rate: exchangeRate,
-      tax_rate: parseFloat(editForm.tax_rate || '0') / 100,
-      tax_amount: editTotal * (parseFloat(editForm.tax_rate || '0') / 100),
+      tax_rate: editForm.tax_mode === 'rate' ? (parseFloat(editForm.tax_rate || '0') / 100) : null,
+      tax_amount: editGstFinal || null,
       shipped_at: editForm.status === 'shipped' || editForm.status === 'received'
         ? (editForm.shipped_at || getLocalDateString()) : null,
       received_at: editForm.status === 'received'
         ? (editForm.received_at || getLocalDateString()) : null,
+      international_fee_cad: editIntlFeeCad || null,
+      wire_discount_amount: editForm.wire_discount_mode === 'amount' ? (editWireDiscountRaw || null) : null,
+      wire_discount_pct: editForm.wire_discount_mode === 'pct' ? (editWireDiscountRaw || null) : null,
+      brokerage_currency: editForm.brokerage_currency,
+      gst_amount_cad: editForm.tax_mode === 'amount' ? (editGstAmountRaw || null) : null,
     }
 
     const { error } = await supabase.from('purchase_orders').update(updatePayload).eq('id', detailPO.id)
@@ -618,7 +675,7 @@ export default function Purchasing() {
         quantity: item.qty,
         unit_price: item.unit_price,
         purchase_unit: item.material_type === 'raw_material' ? (item.purchase_unit || 'ml') : null,
-        weight_per_drum: item.material_type === 'raw_material' && item.purchase_unit === 'drum' ? (item.weight_per_drum || null) : null,
+        weight_per_drum: item.material_type === 'raw_material' && ['drum', 'gallon', 'pail'].includes(item.purchase_unit || '') ? (item.weight_per_drum || null) : null,
         ml_conversion: computeMlConversion(item),
       }))
     )
@@ -900,7 +957,7 @@ export default function Purchasing() {
             <Download size={15} /> Export Excel
           </button>
           <button
-            onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '', tax_rate: '0' }); setCreateLineItems([]); setCreateSupplier(null); setCreateFiles([]) }}
+            onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '', tax_rate: '0', international_fee: '', international_fee_currency: 'CAD', wire_discount: '', wire_discount_mode: 'amount', brokerage_currency: 'CAD', gst_amount: '', tax_mode: 'rate' }); setCreateLineItems([]); setCreateSupplier(null); setCreateFiles([]) }}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}
           >
             <Plus size={16} /> New PO
@@ -1092,15 +1149,17 @@ export default function Purchasing() {
                                   <option value='ml'>ml</option>
                                   <option value='kg'>kg</option>
                                   <option value='drum'>drum</option>
+                                  <option value='gallon'>gallon</option>
+                                  <option value='pail'>pail</option>
                                 </select>
                               </div>
                             )}
-                            {item.material_type === 'raw_material' && item.purchase_unit === 'drum' && (
+                            {item.material_type === 'raw_material' && ['drum', 'gallon', 'pail'].includes(item.purchase_unit || '') && (
                               <div style={{ marginTop: '4px' }}>
                                 <input type='text' inputMode='decimal'
                                   value={item.weight_per_drum_str}
                                   onChange={e => updateCreateWeightPerDrum(idx, e.target.value)}
-                                  placeholder='kg/drum'
+                                  placeholder={item.purchase_unit === 'gallon' ? 'ml/gal' : item.purchase_unit === 'pail' ? 'kg/pail' : 'kg/drum'}
                                   style={{ ...numInp, padding: '2px 6px', fontSize: '11px', width: '80px' }}
                                 />
                               </div>
@@ -1117,7 +1176,12 @@ export default function Purchasing() {
                               />
                             </div>
                             {item.material_type === 'raw_material' && item.purchase_unit !== 'ml' && item.unit_price > 0 && (() => {
-                              const mlPerUnit = item.purchase_unit === 'drum' ? (item.weight_per_drum || 0) * 1000 : 1000
+                              const pu = item.purchase_unit || 'ml'
+                              let mlPerUnit = 0
+                              if (pu === 'kg') mlPerUnit = 1000
+                              else if (pu === 'drum') mlPerUnit = (item.weight_per_drum || 0) * 1000
+                              else if (pu === 'gallon') mlPerUnit = item.weight_per_drum || 0
+                              else if (pu === 'pail') mlPerUnit = (item.weight_per_drum || 0) * 1000
                               const cadPerMl = mlPerUnit > 0 ? item.unit_price / mlPerUnit : 0
                               return cadPerMl > 0 ? <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>${cadPerMl.toFixed(4)}/ml</div> : null
                             })()}
@@ -1137,31 +1201,78 @@ export default function Purchasing() {
               </div>
             )}
 
-            {/* Cost fields */}
-            <div className="po-grid-4" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+            {/* Cost fields Row 1: Shipping / Brokerage / Duty */}
+            <div className="po-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
               <div>
                 <label style={lbl}>Shipping (CAD)</label>
                 <input type='number' min='0' step='0.01' value={createForm.shipping_cad} onChange={e => setCreateForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
               </div>
               <div>
-                <label style={lbl}>Brokerage (CAD)</label>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
+                  <label style={{ ...lbl, marginBottom: 0 }}>Brokerage</label>
+                  <div style={{ display: 'flex', gap: '2px' }}>
+                    {(['CAD', 'USD'] as const).map(c => (
+                      <button type='button' key={c} onClick={() => setCreateForm(f => ({ ...f, brokerage_currency: c }))}
+                        style={{ fontSize: '11px', padding: '1px 6px', border: '1px solid', borderRadius: '3px', cursor: 'pointer', background: createForm.brokerage_currency === c ? '#2563eb' : '#fff', color: createForm.brokerage_currency === c ? '#fff' : '#64748b', borderColor: createForm.brokerage_currency === c ? '#2563eb' : '#e2e8f0' }}>
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <input type='number' min='0' step='0.01' value={createForm.brokerage_cad} onChange={e => setCreateForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={numInp} />
               </div>
               <div>
                 <label style={lbl}>Duty (CAD)</label>
                 <input type='number' min='0' step='0.01' value={createForm.duty_cad} onChange={e => setCreateForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
               </div>
+            </div>
+
+            {/* Cost fields Row 2: Intl Fee / Wire Discount / Tax */}
+            <div className="po-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
               <div>
-                <label style={lbl}>Tax Rate (%)</label>
-                <input type='text' inputMode='decimal'
-                  value={createForm.tax_rate}
-                  onChange={e => {
-                    if (e.target.value === '' || /^[0-9]*\.?[0-9]*$/.test(e.target.value))
-                      setCreateForm(f => ({ ...f, tax_rate: e.target.value }))
-                  }}
-                  placeholder='0'
-                  style={numInp}
-                />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
+                  <label style={{ ...lbl, marginBottom: 0 }}>Intl Fee</label>
+                  <div style={{ display: 'flex', gap: '2px' }}>
+                    {(['CAD', 'USD'] as const).map(c => (
+                      <button type='button' key={c} onClick={() => setCreateForm(f => ({ ...f, international_fee_currency: c }))}
+                        style={{ fontSize: '11px', padding: '1px 6px', border: '1px solid', borderRadius: '3px', cursor: 'pointer', background: createForm.international_fee_currency === c ? '#2563eb' : '#fff', color: createForm.international_fee_currency === c ? '#fff' : '#64748b', borderColor: createForm.international_fee_currency === c ? '#2563eb' : '#e2e8f0' }}>
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <input type='number' min='0' step='0.01' value={createForm.international_fee} onChange={e => setCreateForm(f => ({ ...f, international_fee: e.target.value }))} placeholder='0.00' style={numInp} />
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
+                  <label style={{ ...lbl, marginBottom: 0 }}>Wire Discount</label>
+                  <div style={{ display: 'flex', gap: '2px' }}>
+                    <button type='button' onClick={() => setCreateForm(f => ({ ...f, wire_discount_mode: 'amount' }))}
+                      style={{ fontSize: '11px', padding: '1px 6px', border: '1px solid', borderRadius: '3px', cursor: 'pointer', background: createForm.wire_discount_mode === 'amount' ? '#2563eb' : '#fff', color: createForm.wire_discount_mode === 'amount' ? '#fff' : '#64748b', borderColor: createForm.wire_discount_mode === 'amount' ? '#2563eb' : '#e2e8f0' }}>$</button>
+                    <button type='button' onClick={() => setCreateForm(f => ({ ...f, wire_discount_mode: 'pct' }))}
+                      style={{ fontSize: '11px', padding: '1px 6px', border: '1px solid', borderRadius: '3px', cursor: 'pointer', background: createForm.wire_discount_mode === 'pct' ? '#2563eb' : '#fff', color: createForm.wire_discount_mode === 'pct' ? '#fff' : '#64748b', borderColor: createForm.wire_discount_mode === 'pct' ? '#2563eb' : '#e2e8f0' }}>%</button>
+                  </div>
+                </div>
+                <input type='number' min='0' step='0.01' value={createForm.wire_discount} onChange={e => setCreateForm(f => ({ ...f, wire_discount: e.target.value }))} placeholder='0.00' style={numInp} />
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
+                  <label style={{ ...lbl, marginBottom: 0 }}>Tax / GST</label>
+                  <div style={{ display: 'flex', gap: '2px' }}>
+                    <button type='button' onClick={() => setCreateForm(f => ({ ...f, tax_mode: 'rate' }))}
+                      style={{ fontSize: '11px', padding: '1px 6px', border: '1px solid', borderRadius: '3px', cursor: 'pointer', background: createForm.tax_mode === 'rate' ? '#2563eb' : '#fff', color: createForm.tax_mode === 'rate' ? '#fff' : '#64748b', borderColor: createForm.tax_mode === 'rate' ? '#2563eb' : '#e2e8f0' }}>Rate%</button>
+                    <button type='button' onClick={() => setCreateForm(f => ({ ...f, tax_mode: 'amount' }))}
+                      style={{ fontSize: '11px', padding: '1px 6px', border: '1px solid', borderRadius: '3px', cursor: 'pointer', background: createForm.tax_mode === 'amount' ? '#2563eb' : '#fff', color: createForm.tax_mode === 'amount' ? '#fff' : '#64748b', borderColor: createForm.tax_mode === 'amount' ? '#2563eb' : '#e2e8f0' }}>Amt$</button>
+                  </div>
+                </div>
+                {createForm.tax_mode === 'rate' ? (
+                  <input type='text' inputMode='decimal'
+                    value={createForm.tax_rate}
+                    onChange={e => { if (e.target.value === '' || /^[0-9]*\.?[0-9]*$/.test(e.target.value)) setCreateForm(f => ({ ...f, tax_rate: e.target.value })) }}
+                    placeholder='0' style={numInp} />
+                ) : (
+                  <input type='number' min='0' step='0.01' value={createForm.gst_amount} onChange={e => setCreateForm(f => ({ ...f, gst_amount: e.target.value }))} placeholder='0.00' style={numInp} />
+                )}
               </div>
             </div>
 
@@ -1172,6 +1283,7 @@ export default function Purchasing() {
                 <div>
                   <label style={lbl}>Amount (USD)</label>
                   <input type='number' min='0' step='0.01' value={createForm.amount_usd} onChange={e => setCreateForm(f => ({ ...f, amount_usd: e.target.value }))} placeholder='0.00' style={numInp} />
+                  {createSubtotal > 0 && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', textAlign: 'right' }}>Σ items: ${formatCurrency(createSubtotal)}</div>}
                 </div>
                 <div>
                   <label style={lbl}>Amount (CAD)</label>
@@ -1197,10 +1309,10 @@ export default function Purchasing() {
                     <span>${formatCurrency(createShipping)}</span>
                   </div>
                 )}
-                {createBrokerage > 0 && (
+                {createBrokerageRaw > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
-                    <span>Brokerage</span>
-                    <span>${formatCurrency(createBrokerage)}</span>
+                    <span>Brokerage{createForm.brokerage_currency === 'USD' ? ` (${createBrokerageRaw} USD × ${createExchangeRate ?? '?'})` : ' (CAD)'}</span>
+                    <span>${formatCurrency(createBrokerageFinal)}</span>
                   </div>
                 )}
                 {createDuty > 0 && (
@@ -1209,16 +1321,22 @@ export default function Purchasing() {
                     <span>${formatCurrency(createDuty)}</span>
                   </div>
                 )}
-                {(createShipping > 0 || createBrokerage > 0 || createDuty > 0) && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px', borderTop: '1px solid #bfdbfe', paddingTop: '6px', marginTop: '2px' }}>
-                    <span>Subtotal</span>
-                    <span>${formatCurrency(createSubtotal + createShipping + createBrokerage + createDuty)}</span>
+                {createIntlFeeCad > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                    <span>Intl Fee{createForm.international_fee_currency === 'USD' ? ` (${createIntlFeeRaw} USD × ${createExchangeRate ?? '?'})` : ' (CAD)'}</span>
+                    <span>${formatCurrency(createIntlFeeCad)}</span>
                   </div>
                 )}
-                {createTaxRate > 0 && (
+                {createWireDiscount > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                    <span>Wire Discount{createForm.wire_discount_mode === 'pct' ? ` (${createWireDiscountRaw}%)` : ''}</span>
+                    <span style={{ color: '#dc2626' }}>−${formatCurrency(createWireDiscount)}</span>
+                  </div>
+                )}
+                {createGstFinal > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '6px' }}>
-                    <span>Tax ({createTaxRate}%)</span>
-                    <span>${formatCurrency(createHST)}</span>
+                    <span>{createForm.tax_mode === 'rate' ? `Tax (${createTaxRate}% on subtotal)` : 'GST Amount'}</span>
+                    <span>${formatCurrency(createGstFinal)}</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '700', color: '#1d4ed8', borderTop: '1px solid #bfdbfe', paddingTop: '8px' }}>
@@ -1351,7 +1469,12 @@ export default function Purchasing() {
                             <div>
                               <span style={{ color: '#374151' }}>{item.qty > 0 ? item.qty : '—'}</span>
                               {item.material_type === 'raw_material' && item.purchase_unit && item.purchase_unit !== 'ml' && (
-                                <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>{item.purchase_unit}{item.purchase_unit === 'drum' && item.weight_per_drum ? ` (${item.weight_per_drum}kg)` : ''}</div>
+                                <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
+                                  {item.purchase_unit}
+                                  {item.purchase_unit === 'drum' && item.weight_per_drum ? ` (${item.weight_per_drum}kg/drum)` : ''}
+                                  {item.purchase_unit === 'gallon' && item.weight_per_drum ? ` (${item.weight_per_drum}ml/gal)` : ''}
+                                  {item.purchase_unit === 'pail' && item.weight_per_drum ? ` (${item.weight_per_drum}kg/pail)` : ''}
+                                </div>
                               )}
                             </div>
                           ) : (
@@ -1372,15 +1495,17 @@ export default function Purchasing() {
                                     <option value='ml'>ml</option>
                                     <option value='kg'>kg</option>
                                     <option value='drum'>drum</option>
+                                    <option value='gallon'>gallon</option>
+                                    <option value='pail'>pail</option>
                                   </select>
                                 </div>
                               )}
-                              {item.material_type === 'raw_material' && item.purchase_unit === 'drum' && (
+                              {item.material_type === 'raw_material' && ['drum', 'gallon', 'pail'].includes(item.purchase_unit || '') && (
                                 <div style={{ marginTop: '4px' }}>
                                   <input type='text' inputMode='decimal'
                                     value={item.weight_per_drum_str}
                                     onChange={e => updateEditWeightPerDrum(idx, e.target.value)}
-                                    placeholder='kg/drum'
+                                    placeholder={item.purchase_unit === 'gallon' ? 'ml/gal' : item.purchase_unit === 'pail' ? 'kg/pail' : 'kg/drum'}
                                     style={{ ...numInp, padding: '2px 6px', fontSize: '11px', width: '80px' }}
                                   />
                                 </div>
@@ -1393,7 +1518,12 @@ export default function Purchasing() {
                             <div>
                               <span style={{ color: '#64748b' }}>${formatPrice(item.unit_price)}</span>
                               {item.material_type === 'raw_material' && item.purchase_unit && item.purchase_unit !== 'ml' && item.unit_price > 0 && (() => {
-                                const mlPerUnit = item.purchase_unit === 'drum' ? (item.weight_per_drum || 0) * 1000 : 1000
+                                const pu = item.purchase_unit
+                                let mlPerUnit = 0
+                                if (pu === 'kg') mlPerUnit = 1000
+                                else if (pu === 'drum') mlPerUnit = (item.weight_per_drum || 0) * 1000
+                                else if (pu === 'gallon') mlPerUnit = item.weight_per_drum || 0
+                                else if (pu === 'pail') mlPerUnit = (item.weight_per_drum || 0) * 1000
                                 const cadPerMl = mlPerUnit > 0 ? item.unit_price / mlPerUnit : 0
                                 return cadPerMl > 0 ? <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>${cadPerMl.toFixed(4)}/ml</div> : null
                               })()}
@@ -1410,7 +1540,12 @@ export default function Purchasing() {
                                 />
                               </div>
                               {item.material_type === 'raw_material' && item.purchase_unit !== 'ml' && item.unit_price > 0 && (() => {
-                                const mlPerUnit = item.purchase_unit === 'drum' ? (item.weight_per_drum || 0) * 1000 : 1000
+                                const pu = item.purchase_unit
+                                let mlPerUnit = 0
+                                if (pu === 'kg') mlPerUnit = 1000
+                                else if (pu === 'drum') mlPerUnit = (item.weight_per_drum || 0) * 1000
+                                else if (pu === 'gallon') mlPerUnit = item.weight_per_drum || 0
+                                else if (pu === 'pail') mlPerUnit = (item.weight_per_drum || 0) * 1000
                                 const cadPerMl = mlPerUnit > 0 ? item.unit_price / mlPerUnit : 0
                                 return cadPerMl > 0 ? <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>${cadPerMl.toFixed(4)}/ml</div> : null
                               })()}
@@ -1433,32 +1568,84 @@ export default function Purchasing() {
 
             {/* Cost fields */}
             {!isReadOnly && (
-              <div className="po-grid-4" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-                <div>
-                  <label style={lbl}>Shipping (CAD)</label>
-                  <input type='number' min='0' step='0.01' value={editForm.shipping_cad} onChange={e => setEditForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                  <div>
+                    <label style={lbl}>Shipping (CAD)</label>
+                    <input type='number' min='0' step='0.01' value={editForm.shipping_cad} onChange={e => setEditForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                  </div>
+                  <div>
+                    <label style={lbl}>Brokerage ({editForm.brokerage_currency})</label>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <input type='number' min='0' step='0.01' value={editForm.brokerage_cad} onChange={e => setEditForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={{ ...numInp, flex: 1 }} />
+                      <div style={{ display: 'flex', borderRadius: '6px', overflow: 'hidden', border: '1px solid #e2e8f0', flexShrink: 0 }}>
+                        {(['CAD', 'USD'] as const).map(c => (
+                          <button key={c} type='button' onClick={() => setEditForm(f => ({ ...f, brokerage_currency: c }))}
+                            style={{ padding: '4px 8px', fontSize: '11px', fontWeight: '500', border: 'none', cursor: 'pointer', background: editForm.brokerage_currency === c ? '#2563eb' : '#f8fafc', color: editForm.brokerage_currency === c ? '#fff' : '#374151' }}>
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <label style={lbl}>Duty (CAD)</label>
+                    <input type='number' min='0' step='0.01' value={editForm.duty_cad} onChange={e => setEditForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                  </div>
                 </div>
-                <div>
-                  <label style={lbl}>Brokerage (CAD)</label>
-                  <input type='number' min='0' step='0.01' value={editForm.brokerage_cad} onChange={e => setEditForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                  <div>
+                    <label style={lbl}>Intl Fee ({editForm.international_fee_currency})</label>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <input type='number' min='0' step='0.01' value={editForm.international_fee} onChange={e => setEditForm(f => ({ ...f, international_fee: e.target.value }))} placeholder='0.00' style={{ ...numInp, flex: 1 }} />
+                      <div style={{ display: 'flex', borderRadius: '6px', overflow: 'hidden', border: '1px solid #e2e8f0', flexShrink: 0 }}>
+                        {(['CAD', 'USD'] as const).map(c => (
+                          <button key={c} type='button' onClick={() => setEditForm(f => ({ ...f, international_fee_currency: c }))}
+                            style={{ padding: '4px 8px', fontSize: '11px', fontWeight: '500', border: 'none', cursor: 'pointer', background: editForm.international_fee_currency === c ? '#2563eb' : '#f8fafc', color: editForm.international_fee_currency === c ? '#fff' : '#374151' }}>
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <label style={lbl}>Wire Discount ({editForm.wire_discount_mode === 'pct' ? '%' : '$'})</label>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <input type='number' min='0' step='0.01' value={editForm.wire_discount} onChange={e => setEditForm(f => ({ ...f, wire_discount: e.target.value }))} placeholder='0.00' style={{ ...numInp, flex: 1 }} />
+                      <div style={{ display: 'flex', borderRadius: '6px', overflow: 'hidden', border: '1px solid #e2e8f0', flexShrink: 0 }}>
+                        {(['amount', 'pct'] as const).map(m => (
+                          <button key={m} type='button' onClick={() => setEditForm(f => ({ ...f, wire_discount_mode: m }))}
+                            style={{ padding: '4px 8px', fontSize: '11px', fontWeight: '500', border: 'none', cursor: 'pointer', background: editForm.wire_discount_mode === m ? '#2563eb' : '#f8fafc', color: editForm.wire_discount_mode === m ? '#fff' : '#374151' }}>
+                            {m === 'amount' ? '$' : '%'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <label style={lbl}>{editForm.tax_mode === 'amount' ? 'GST Amount ($)' : 'Tax Rate (%)'}</label>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <input type='text' inputMode='decimal'
+                        value={editForm.tax_mode === 'amount' ? editForm.gst_amount : editForm.tax_rate}
+                        onChange={e => {
+                          if (e.target.value === '' || /^[0-9]*\.?[0-9]*$/.test(e.target.value))
+                            setEditForm(f => editForm.tax_mode === 'amount' ? { ...f, gst_amount: e.target.value } : { ...f, tax_rate: e.target.value })
+                        }}
+                        placeholder='0'
+                        style={{ ...numInp, flex: 1 }}
+                      />
+                      <div style={{ display: 'flex', borderRadius: '6px', overflow: 'hidden', border: '1px solid #e2e8f0', flexShrink: 0 }}>
+                        {(['rate', 'amount'] as const).map(m => (
+                          <button key={m} type='button' onClick={() => setEditForm(f => ({ ...f, tax_mode: m }))}
+                            style={{ padding: '4px 8px', fontSize: '11px', fontWeight: '500', border: 'none', cursor: 'pointer', background: editForm.tax_mode === m ? '#2563eb' : '#f8fafc', color: editForm.tax_mode === m ? '#fff' : '#374151' }}>
+                            {m === 'rate' ? '%' : '$'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label style={lbl}>Duty (CAD)</label>
-                  <input type='number' min='0' step='0.01' value={editForm.duty_cad} onChange={e => setEditForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                </div>
-                <div>
-                  <label style={lbl}>Tax Rate (%)</label>
-                  <input type='text' inputMode='decimal'
-                    value={editForm.tax_rate}
-                    onChange={e => {
-                      if (e.target.value === '' || /^[0-9]*\.?[0-9]*$/.test(e.target.value))
-                        setEditForm(f => ({ ...f, tax_rate: e.target.value }))
-                    }}
-                    placeholder='0'
-                    style={numInp}
-                  />
-                </div>
-              </div>
+              </>
             )}
 
             {/* Summary */}
@@ -1473,10 +1660,10 @@ export default function Purchasing() {
                   <span>${formatCurrency(editShipping)}</span>
                 </div>
               )}
-              {editBrokerage > 0 && (
+              {editBrokerageFinal > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
-                  <span>Brokerage</span>
-                  <span>${formatCurrency(editBrokerage)}</span>
+                  <span>Brokerage{editForm.brokerage_currency === 'USD' ? ' (USD→CAD)' : ''}</span>
+                  <span>${formatCurrency(editBrokerageFinal)}</span>
                 </div>
               )}
               {editDuty > 0 && (
@@ -1485,16 +1672,22 @@ export default function Purchasing() {
                   <span>${formatCurrency(editDuty)}</span>
                 </div>
               )}
-              {(editShipping > 0 || editBrokerage > 0 || editDuty > 0) && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px', borderTop: '1px solid #bfdbfe', paddingTop: '6px', marginTop: '2px' }}>
-                  <span>Subtotal</span>
-                  <span>${formatCurrency(editSubtotal + editShipping + editBrokerage + editDuty)}</span>
+              {editIntlFeeCad > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                  <span>Intl Fee{editForm.international_fee_currency === 'USD' ? ' (USD→CAD)' : ''}</span>
+                  <span>${formatCurrency(editIntlFeeCad)}</span>
                 </div>
               )}
-              {editTaxRate > 0 && (
+              {editWireDiscount > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#dc2626', marginBottom: '4px' }}>
+                  <span>Wire Discount{editForm.wire_discount_mode === 'pct' ? ` (${editWireDiscountRaw}%)` : ''}</span>
+                  <span>−${formatCurrency(editWireDiscount)}</span>
+                </div>
+              )}
+              {editGstFinal > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '6px' }}>
-                  <span>Tax ({editTaxRate}%)</span>
-                  <span>${formatCurrency(editHST)}</span>
+                  <span>{editForm.tax_mode === 'amount' ? 'GST' : `Tax (${editTaxRate}%)`}</span>
+                  <span>${formatCurrency(editGstFinal)}</span>
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '700', color: '#1d4ed8', borderTop: '1px solid #bfdbfe', paddingTop: '8px' }}>
