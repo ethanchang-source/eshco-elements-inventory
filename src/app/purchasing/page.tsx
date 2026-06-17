@@ -296,18 +296,18 @@ export default function Purchasing() {
   const activeCreateItems = createLineItems.filter(item => item.qty > 0)
   // Step 1: Items subtotal (USD in USD mode, CAD in CAD mode)
   const createSubtotalUsd = activeCreateItems.reduce((s, i) => s + i.total, 0)
-  // Step 2: + International Fee (USD)
-  const createIntlFeeUsd = parseFloat(createForm.international_fee_usd || '0') || 0
-  const createAfterIntlUsd = createSubtotalUsd + createIntlFeeUsd
-  // Step 3: Wire Discount (%)
+  // Step 2: Wire Discount (%) on subtotal before intl fee
   const createWireDiscountPct = parseFloat(createForm.wire_discount_pct || '0') || 0
-  const createWireDiscountUsd = createAfterIntlUsd * createWireDiscountPct / 100
-  const createAfterDiscountUsd = createAfterIntlUsd - createWireDiscountUsd
+  const createWireDiscountUsd = createSubtotalUsd * createWireDiscountPct / 100
+  const createAfterDiscountUsd = createSubtotalUsd - createWireDiscountUsd
+  // Step 3: + International Fee (USD) after discount
+  const createIntlFeeUsd = parseFloat(createForm.international_fee_usd || '0') || 0
+  const createAfterIntlUsd = createAfterDiscountUsd + createIntlFeeUsd
   // Step 4: × exchange rate → Subtotal 2 (CAD)
   const createExchangeRate = createForm.amount_usd && createForm.amount_cad && parseFloat(createForm.amount_usd) > 0
     ? (parseFloat(createForm.amount_cad) / parseFloat(createForm.amount_usd)).toFixed(4) : null
   const createExchangeRateNum = createExchangeRate ? parseFloat(createExchangeRate) : 1
-  const createSubtotal2Cad = createAfterDiscountUsd * createExchangeRateNum
+  const createSubtotal2Cad = createAfterIntlUsd * createExchangeRateNum
   // CAD mode: simple tax on subtotal
   const createTaxRate = parseFloat(createForm.tax_rate || '0') || 0
   const createCadTax = createSubtotalUsd * createTaxRate / 100
@@ -1319,16 +1319,16 @@ export default function Purchasing() {
                   <span>${formatCurrency(createSubtotalUsd)}</span>
                 </div>
                 {createForm.purchase_currency === 'USD' && (<>
-                  {createIntlFeeUsd > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
-                      <span>+ Intl Fee (USD {formatCurrency(createIntlFeeUsd)})</span>
-                      <span>= ${formatCurrency(createAfterIntlUsd)} USD</span>
-                    </div>
-                  )}
                   {createWireDiscountUsd > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
                       <span>− Wire Discount ({createWireDiscountPct}%)</span>
                       <span style={{ color: '#dc2626' }}>−${formatCurrency(createWireDiscountUsd)} USD</span>
+                    </div>
+                  )}
+                  {createIntlFeeUsd > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                      <span>+ Intl Fee</span>
+                      <span>+${formatCurrency(createIntlFeeUsd)} USD</span>
                     </div>
                   )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
