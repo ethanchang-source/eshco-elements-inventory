@@ -132,13 +132,17 @@ export default function Purchasing() {
   const [createLineItems, setCreateLineItems] = useState<POLineItem[]>([])
   const [createForm, setCreateForm] = useState({
     supplier_id: '', ordered_at: getLocalDateString(),
+    purchase_currency: 'USD',
+    international_fee_usd: '',
+    wire_discount_pct: '',
+    tax_rate: '0',
     shipping_cad: '', brokerage_cad: '', duty_cad: '',
-    amount_usd: '', amount_cad: '', notes: '', tax_rate: '0',
-    international_fee: '', international_fee_currency: 'CAD',
-    wire_discount: '', wire_discount_mode: 'amount',
-    brokerage_currency: 'CAD',
-    gst_amount: '', tax_mode: 'rate',
+    gst_amount_cad: '',
+    amount_usd: '', amount_cad: '',
+    notes: '',
   })
+  const [createShippingTaxable, setCreateShippingTaxable] = useState(false)
+  const [createBrokerageTaxable, setCreateBrokerageTaxable] = useState(false)
   const [saving, setSaving] = useState(false)
   const [createError, setCreateError] = useState('')
 
@@ -290,26 +294,35 @@ export default function Purchasing() {
   }
 
   const activeCreateItems = createLineItems.filter(item => item.qty > 0)
-  const createSubtotal = activeCreateItems.reduce((s, i) => s + i.total, 0)
-  const createShipping = parseFloat(createForm.shipping_cad || '0') || 0
-  const createBrokerageRaw = parseFloat(createForm.brokerage_cad || '0') || 0
-  const createDuty = parseFloat(createForm.duty_cad || '0') || 0
+  // Step 1: Items subtotal (USD in USD mode, CAD in CAD mode)
+  const createSubtotalUsd = activeCreateItems.reduce((s, i) => s + i.total, 0)
+  // Step 2: + International Fee (USD)
+  const createIntlFeeUsd = parseFloat(createForm.international_fee_usd || '0') || 0
+  const createAfterIntlUsd = createSubtotalUsd + createIntlFeeUsd
+  // Step 3: Wire Discount (%)
+  const createWireDiscountPct = parseFloat(createForm.wire_discount_pct || '0') || 0
+  const createWireDiscountUsd = createAfterIntlUsd * createWireDiscountPct / 100
+  const createAfterDiscountUsd = createAfterIntlUsd - createWireDiscountUsd
+  // Step 4: × exchange rate → Subtotal 2 (CAD)
   const createExchangeRate = createForm.amount_usd && createForm.amount_cad && parseFloat(createForm.amount_usd) > 0
     ? (parseFloat(createForm.amount_cad) / parseFloat(createForm.amount_usd)).toFixed(4) : null
   const createExchangeRateNum = createExchangeRate ? parseFloat(createExchangeRate) : 1
-  const createBrokerageFinal = createForm.brokerage_currency === 'USD'
-    ? createBrokerageRaw * createExchangeRateNum : createBrokerageRaw
-  const createIntlFeeRaw = parseFloat(createForm.international_fee || '0') || 0
-  const createIntlFeeCad = createForm.international_fee_currency === 'USD'
-    ? createIntlFeeRaw * createExchangeRateNum : createIntlFeeRaw
-  const createWireDiscountRaw = parseFloat(createForm.wire_discount || '0') || 0
-  const createWireDiscount = createForm.wire_discount_mode === 'pct'
-    ? createSubtotal * createWireDiscountRaw / 100 : createWireDiscountRaw
+  const createSubtotal2Cad = createAfterDiscountUsd * createExchangeRateNum
+  // CAD mode: simple tax on subtotal
   const createTaxRate = parseFloat(createForm.tax_rate || '0') || 0
-  const createGstAmountRaw = parseFloat(createForm.gst_amount || '0') || 0
-  const createGstFinal = createForm.tax_mode === 'amount'
-    ? createGstAmountRaw : createSubtotal * createTaxRate / 100
-  const createTotal = createSubtotal + createShipping + createBrokerageFinal + createDuty + createIntlFeeCad - createWireDiscount + createGstFinal
+  const createCadTax = createSubtotalUsd * createTaxRate / 100
+  // Step 5: CAD extras with HST
+  const createShipping = parseFloat(createForm.shipping_cad || '0') || 0
+  const createShippingHst = createShippingTaxable ? createShipping * 0.13 : 0
+  const createBrokerageRaw = parseFloat(createForm.brokerage_cad || '0') || 0
+  const createBrokerageHst = createBrokerageTaxable ? createBrokerageRaw * 0.13 : 0
+  const createDuty = parseFloat(createForm.duty_cad || '0') || 0
+  const createGstAmountCad = parseFloat(createForm.gst_amount_cad || '0') || 0
+  // Step 6: Grand Total
+  const createCadExtras = createShipping + createShippingHst + createBrokerageRaw + createBrokerageHst + createDuty + createGstAmountCad
+  const createTotal = createForm.purchase_currency === 'USD'
+    ? createSubtotal2Cad + createCadExtras
+    : createSubtotalUsd + createCadTax + createCadExtras
 
   function closeCreate() {
     setShowCreate(false)
@@ -334,20 +347,20 @@ export default function Purchasing() {
       qty_ordered: 0,
       cost_total_cad: createTotal,
       shipping_cad: createShipping || null,
-      brokerage_cad: createBrokerageFinal || null,
+      brokerage_cad: createBrokerageRaw || null,
       duty_cad: createDuty || null,
       status: 'ordered',
       ordered_at: createForm.ordered_at,
       notes: createForm.notes || null,
       amount_usd: createForm.amount_usd ? parseFloat(createForm.amount_usd) : null,
       exchange_rate: exchangeRate,
-      tax_rate: createForm.tax_mode === 'rate' ? (parseFloat(createForm.tax_rate || '0') / 100) : null,
-      tax_amount: createGstFinal || null,
-      international_fee_cad: createIntlFeeCad || null,
-      wire_discount_amount: createForm.wire_discount_mode === 'amount' ? (createWireDiscountRaw || null) : null,
-      wire_discount_pct: createForm.wire_discount_mode === 'pct' ? (createWireDiscountRaw || null) : null,
-      brokerage_currency: createForm.brokerage_currency,
-      gst_amount_cad: createForm.tax_mode === 'amount' ? (createGstAmountRaw || null) : null,
+      tax_rate: createForm.purchase_currency === 'CAD' ? (createTaxRate / 100) : null,
+      tax_amount: (createShippingHst + createBrokerageHst) || null,
+      international_fee_cad: (createIntlFeeUsd * createExchangeRateNum) || null,
+      wire_discount_amount: (createWireDiscountUsd * createExchangeRateNum) || null,
+      wire_discount_pct: createWireDiscountPct || null,
+      brokerage_currency: 'CAD',
+      gst_amount_cad: createGstAmountCad || null,
     }]).select('id').single()
 
     if (poError || !poData) {
@@ -396,7 +409,9 @@ export default function Purchasing() {
     }
     setShowCreate(false)
     setCreateError('')
-    setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '', tax_rate: '0', international_fee: '', international_fee_currency: 'CAD', wire_discount: '', wire_discount_mode: 'amount', brokerage_currency: 'CAD', gst_amount: '', tax_mode: 'rate' })
+    setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), purchase_currency: 'USD', international_fee_usd: '', wire_discount_pct: '', tax_rate: '0', shipping_cad: '', brokerage_cad: '', duty_cad: '', gst_amount_cad: '', amount_usd: '', amount_cad: '', notes: '' })
+    setCreateShippingTaxable(false)
+    setCreateBrokerageTaxable(false)
     setCreateLineItems([])
     setCreateSupplier(null)
     setCreateFiles([])
@@ -957,7 +972,7 @@ export default function Purchasing() {
             <Download size={15} /> Export Excel
           </button>
           <button
-            onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), shipping_cad: '', brokerage_cad: '', duty_cad: '', amount_usd: '', amount_cad: '', notes: '', tax_rate: '0', international_fee: '', international_fee_currency: 'CAD', wire_discount: '', wire_discount_mode: 'amount', brokerage_currency: 'CAD', gst_amount: '', tax_mode: 'rate' }); setCreateLineItems([]); setCreateSupplier(null); setCreateFiles([]) }}
+            onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), purchase_currency: 'USD', international_fee_usd: '', wire_discount_pct: '', tax_rate: '0', shipping_cad: '', brokerage_cad: '', duty_cad: '', gst_amount_cad: '', amount_usd: '', amount_cad: '', notes: '' }); setCreateShippingTaxable(false); setCreateBrokerageTaxable(false); setCreateLineItems([]); setCreateSupplier(null); setCreateFiles([]) }}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}
           >
             <Plus size={16} /> New PO
@@ -1196,103 +1211,103 @@ export default function Purchasing() {
                 </div>
                 <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#64748b' }}>
                   <span>{activeCreateItems.length} item(s) with qty &gt; 0</span>
-                  {createSubtotal > 0 && <span style={{ fontWeight: '600', color: '#1e293b' }}>Subtotal: ${formatCurrency(createSubtotal)}</span>}
+                  {createSubtotalUsd > 0 && <span style={{ fontWeight: '600', color: '#1e293b' }}>Subtotal ({createForm.purchase_currency}): ${formatCurrency(createSubtotalUsd)}</span>}
                 </div>
               </div>
             )}
 
-            {/* Cost fields Row 1: Shipping / Brokerage / Duty */}
-            <div className="po-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-              <div>
-                <label style={lbl}>Shipping (CAD)</label>
-                <input type='number' min='0' step='0.01' value={createForm.shipping_cad} onChange={e => setCreateForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-              </div>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
-                  <label style={{ ...lbl, marginBottom: 0 }}>Brokerage</label>
-                  <div style={{ display: 'flex', gap: '2px' }}>
-                    {(['CAD', 'USD'] as const).map(c => (
-                      <button type='button' key={c} onClick={() => setCreateForm(f => ({ ...f, brokerage_currency: c }))}
-                        style={{ fontSize: '11px', padding: '1px 6px', border: '1px solid', borderRadius: '3px', cursor: 'pointer', background: createForm.brokerage_currency === c ? '#2563eb' : '#fff', color: createForm.brokerage_currency === c ? '#fff' : '#64748b', borderColor: createForm.brokerage_currency === c ? '#2563eb' : '#e2e8f0' }}>
-                        {c}
-                      </button>
-                    ))}
+            {/* Purchase type toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+              <span style={{ fontSize: '13px', fontWeight: '500', color: '#374151' }}>Purchase Type:</span>
+              {(['USD', 'CAD'] as const).map(c => (
+                <button type='button' key={c} onClick={() => setCreateForm(f => ({ ...f, purchase_currency: c }))}
+                  style={{ fontSize: '13px', padding: '5px 14px', border: '1px solid', borderRadius: '6px', cursor: 'pointer', fontWeight: createForm.purchase_currency === c ? '600' : '400', background: createForm.purchase_currency === c ? '#2563eb' : '#fff', color: createForm.purchase_currency === c ? '#fff' : '#64748b', borderColor: createForm.purchase_currency === c ? '#2563eb' : '#e2e8f0' }}>
+                  {c === 'USD' ? 'USD (International)' : 'CAD (Local)'}
+                </button>
+              ))}
+            </div>
+
+            {/* USD mode: invoice amounts + intl fee + wire discount */}
+            {createForm.purchase_currency === 'USD' && (
+              <div style={{ marginBottom: '14px', padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>USD Invoice</div>
+                <div className="po-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                  <div>
+                    <label style={lbl}>Amount (USD)</label>
+                    <input type='number' min='0' step='0.01' value={createForm.amount_usd} onChange={e => setCreateForm(f => ({ ...f, amount_usd: e.target.value }))} placeholder='0.00' style={numInp} />
+                    {createSubtotalUsd > 0 && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', textAlign: 'right' }}>Σ items: ${formatCurrency(createSubtotalUsd)}</div>}
+                  </div>
+                  <div>
+                    <label style={lbl}>Amount (CAD) — wire</label>
+                    <input type='number' min='0' step='0.01' value={createForm.amount_cad} onChange={e => setCreateForm(f => ({ ...f, amount_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                  </div>
+                  <div>
+                    <label style={lbl}>Exchange Rate</label>
+                    <input readOnly value={createExchangeRate ?? ''} placeholder='auto' style={{ ...inp, background: '#f1f5f9', color: '#64748b', textAlign: 'right' }} />
                   </div>
                 </div>
+                <div className="po-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={lbl}>International Fee (USD)</label>
+                    <input type='number' min='0' step='0.01' value={createForm.international_fee_usd} onChange={e => setCreateForm(f => ({ ...f, international_fee_usd: e.target.value }))} placeholder='0.00' style={numInp} />
+                    {createIntlFeeUsd > 0 && createExchangeRate && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', textAlign: 'right' }}>= CAD ${formatCurrency(createIntlFeeUsd * createExchangeRateNum)}</div>}
+                  </div>
+                  <div>
+                    <label style={lbl}>Wire Discount (%)</label>
+                    <input type='number' min='0' step='0.01' value={createForm.wire_discount_pct} onChange={e => setCreateForm(f => ({ ...f, wire_discount_pct: e.target.value }))} placeholder='0.00' style={numInp} />
+                    {createWireDiscountUsd > 0 && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', textAlign: 'right' }}>= −USD ${formatCurrency(createWireDiscountUsd)}</div>}
+                  </div>
+                </div>
+                {createSubtotal2Cad > 0 && (
+                  <div style={{ marginTop: '10px', padding: '6px 10px', background: '#e0f2fe', borderRadius: '6px', fontSize: '13px', color: '#0369a1', display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Subtotal 2 (CAD after discount × rate)</span>
+                    <span style={{ fontWeight: '600' }}>${formatCurrency(createSubtotal2Cad)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* CAD mode: tax rate */}
+            {createForm.purchase_currency === 'CAD' && (
+              <div style={{ marginBottom: '14px' }}>
+                <label style={lbl}>Tax Rate (%)</label>
+                <input type='text' inputMode='decimal' value={createForm.tax_rate}
+                  onChange={e => { if (e.target.value === '' || /^[0-9]*\.?[0-9]*$/.test(e.target.value)) setCreateForm(f => ({ ...f, tax_rate: e.target.value })) }}
+                  placeholder='0' style={numInp} />
+              </div>
+            )}
+
+            {/* CAD extras: Shipping + HST / Brokerage + HST / Duty / GST */}
+            <div className="po-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+                  <label style={{ ...lbl, marginBottom: 0 }}>Shipping (CAD)</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#64748b', cursor: 'pointer', fontWeight: 'normal' }}>
+                    <input type='checkbox' checked={createShippingTaxable} onChange={e => setCreateShippingTaxable(e.target.checked)} style={{ accentColor: '#2563eb' }} />
+                    +HST 13%
+                  </label>
+                </div>
+                <input type='number' min='0' step='0.01' value={createForm.shipping_cad} onChange={e => setCreateForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                {createShippingTaxable && createShipping > 0 && <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', textAlign: 'right' }}>+HST: ${formatCurrency(createShippingHst)}</div>}
+              </div>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+                  <label style={{ ...lbl, marginBottom: 0 }}>Brokerage (CAD)</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#64748b', cursor: 'pointer', fontWeight: 'normal' }}>
+                    <input type='checkbox' checked={createBrokerageTaxable} onChange={e => setCreateBrokerageTaxable(e.target.checked)} style={{ accentColor: '#2563eb' }} />
+                    +HST 13%
+                  </label>
+                </div>
                 <input type='number' min='0' step='0.01' value={createForm.brokerage_cad} onChange={e => setCreateForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                {createBrokerageTaxable && createBrokerageRaw > 0 && <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', textAlign: 'right' }}>+HST: ${formatCurrency(createBrokerageHst)}</div>}
               </div>
               <div>
                 <label style={lbl}>Duty (CAD)</label>
                 <input type='number' min='0' step='0.01' value={createForm.duty_cad} onChange={e => setCreateForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
               </div>
-            </div>
-
-            {/* Cost fields Row 2: Intl Fee / Wire Discount / Tax */}
-            <div className="po-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
-                  <label style={{ ...lbl, marginBottom: 0 }}>Intl Fee</label>
-                  <div style={{ display: 'flex', gap: '2px' }}>
-                    {(['CAD', 'USD'] as const).map(c => (
-                      <button type='button' key={c} onClick={() => setCreateForm(f => ({ ...f, international_fee_currency: c }))}
-                        style={{ fontSize: '11px', padding: '1px 6px', border: '1px solid', borderRadius: '3px', cursor: 'pointer', background: createForm.international_fee_currency === c ? '#2563eb' : '#fff', color: createForm.international_fee_currency === c ? '#fff' : '#64748b', borderColor: createForm.international_fee_currency === c ? '#2563eb' : '#e2e8f0' }}>
-                        {c}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <input type='number' min='0' step='0.01' value={createForm.international_fee} onChange={e => setCreateForm(f => ({ ...f, international_fee: e.target.value }))} placeholder='0.00' style={numInp} />
-              </div>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
-                  <label style={{ ...lbl, marginBottom: 0 }}>Wire Discount</label>
-                  <div style={{ display: 'flex', gap: '2px' }}>
-                    <button type='button' onClick={() => setCreateForm(f => ({ ...f, wire_discount_mode: 'amount' }))}
-                      style={{ fontSize: '11px', padding: '1px 6px', border: '1px solid', borderRadius: '3px', cursor: 'pointer', background: createForm.wire_discount_mode === 'amount' ? '#2563eb' : '#fff', color: createForm.wire_discount_mode === 'amount' ? '#fff' : '#64748b', borderColor: createForm.wire_discount_mode === 'amount' ? '#2563eb' : '#e2e8f0' }}>$</button>
-                    <button type='button' onClick={() => setCreateForm(f => ({ ...f, wire_discount_mode: 'pct' }))}
-                      style={{ fontSize: '11px', padding: '1px 6px', border: '1px solid', borderRadius: '3px', cursor: 'pointer', background: createForm.wire_discount_mode === 'pct' ? '#2563eb' : '#fff', color: createForm.wire_discount_mode === 'pct' ? '#fff' : '#64748b', borderColor: createForm.wire_discount_mode === 'pct' ? '#2563eb' : '#e2e8f0' }}>%</button>
-                  </div>
-                </div>
-                <input type='number' min='0' step='0.01' value={createForm.wire_discount} onChange={e => setCreateForm(f => ({ ...f, wire_discount: e.target.value }))} placeholder='0.00' style={numInp} />
-              </div>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '5px' }}>
-                  <label style={{ ...lbl, marginBottom: 0 }}>Tax / GST</label>
-                  <div style={{ display: 'flex', gap: '2px' }}>
-                    <button type='button' onClick={() => setCreateForm(f => ({ ...f, tax_mode: 'rate' }))}
-                      style={{ fontSize: '11px', padding: '1px 6px', border: '1px solid', borderRadius: '3px', cursor: 'pointer', background: createForm.tax_mode === 'rate' ? '#2563eb' : '#fff', color: createForm.tax_mode === 'rate' ? '#fff' : '#64748b', borderColor: createForm.tax_mode === 'rate' ? '#2563eb' : '#e2e8f0' }}>Rate%</button>
-                    <button type='button' onClick={() => setCreateForm(f => ({ ...f, tax_mode: 'amount' }))}
-                      style={{ fontSize: '11px', padding: '1px 6px', border: '1px solid', borderRadius: '3px', cursor: 'pointer', background: createForm.tax_mode === 'amount' ? '#2563eb' : '#fff', color: createForm.tax_mode === 'amount' ? '#fff' : '#64748b', borderColor: createForm.tax_mode === 'amount' ? '#2563eb' : '#e2e8f0' }}>Amt$</button>
-                  </div>
-                </div>
-                {createForm.tax_mode === 'rate' ? (
-                  <input type='text' inputMode='decimal'
-                    value={createForm.tax_rate}
-                    onChange={e => { if (e.target.value === '' || /^[0-9]*\.?[0-9]*$/.test(e.target.value)) setCreateForm(f => ({ ...f, tax_rate: e.target.value })) }}
-                    placeholder='0' style={numInp} />
-                ) : (
-                  <input type='number' min='0' step='0.01' value={createForm.gst_amount} onChange={e => setCreateForm(f => ({ ...f, gst_amount: e.target.value }))} placeholder='0.00' style={numInp} />
-                )}
-              </div>
-            </div>
-
-            {/* USD section */}
-            <div style={{ marginBottom: '14px', padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-              <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>USD Invoice (optional)</div>
-              <div className="po-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
-                <div>
-                  <label style={lbl}>Amount (USD)</label>
-                  <input type='number' min='0' step='0.01' value={createForm.amount_usd} onChange={e => setCreateForm(f => ({ ...f, amount_usd: e.target.value }))} placeholder='0.00' style={numInp} />
-                  {createSubtotal > 0 && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', textAlign: 'right' }}>Σ items: ${formatCurrency(createSubtotal)}</div>}
-                </div>
-                <div>
-                  <label style={lbl}>Amount (CAD)</label>
-                  <input type='number' min='0' step='0.01' value={createForm.amount_cad} onChange={e => setCreateForm(f => ({ ...f, amount_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                </div>
-                <div>
-                  <label style={lbl}>Exchange Rate</label>
-                  <input readOnly value={createExchangeRate ?? ''} placeholder='auto' style={{ ...inp, background: '#f8fafc', color: '#64748b', textAlign: 'right' }} />
-                </div>
+                <label style={lbl}>GST Amount (CAD)</label>
+                <input type='number' min='0' step='0.01' value={createForm.gst_amount_cad} onChange={e => setCreateForm(f => ({ ...f, gst_amount_cad: e.target.value }))} placeholder='0.00' style={numInp} />
               </div>
             </div>
 
@@ -1300,19 +1315,43 @@ export default function Purchasing() {
             {createSupplier && (
               <div style={{ marginBottom: '14px', padding: '12px 16px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
-                  <span>Items Subtotal</span>
-                  <span>${formatCurrency(createSubtotal)}</span>
+                  <span>Items Subtotal ({createForm.purchase_currency})</span>
+                  <span>${formatCurrency(createSubtotalUsd)}</span>
                 </div>
+                {createForm.purchase_currency === 'USD' && (<>
+                  {createIntlFeeUsd > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                      <span>+ Intl Fee (USD {formatCurrency(createIntlFeeUsd)})</span>
+                      <span>= ${formatCurrency(createAfterIntlUsd)} USD</span>
+                    </div>
+                  )}
+                  {createWireDiscountUsd > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                      <span>− Wire Discount ({createWireDiscountPct}%)</span>
+                      <span style={{ color: '#dc2626' }}>−${formatCurrency(createWireDiscountUsd)} USD</span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                    <span>Subtotal 2 (CAD) × {createExchangeRate ?? '?'}</span>
+                    <span>${formatCurrency(createSubtotal2Cad)}</span>
+                  </div>
+                </>)}
+                {createForm.purchase_currency === 'CAD' && createCadTax > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                    <span>Tax ({createTaxRate}%)</span>
+                    <span>${formatCurrency(createCadTax)}</span>
+                  </div>
+                )}
                 {createShipping > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
-                    <span>Shipping</span>
-                    <span>${formatCurrency(createShipping)}</span>
+                    <span>Shipping{createShippingTaxable ? ' + HST' : ''}</span>
+                    <span>${formatCurrency(createShipping + createShippingHst)}</span>
                   </div>
                 )}
                 {createBrokerageRaw > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
-                    <span>Brokerage{createForm.brokerage_currency === 'USD' ? ` (${createBrokerageRaw} USD × ${createExchangeRate ?? '?'})` : ' (CAD)'}</span>
-                    <span>${formatCurrency(createBrokerageFinal)}</span>
+                    <span>Brokerage{createBrokerageTaxable ? ' + HST' : ''}</span>
+                    <span>${formatCurrency(createBrokerageRaw + createBrokerageHst)}</span>
                   </div>
                 )}
                 {createDuty > 0 && (
@@ -1321,22 +1360,10 @@ export default function Purchasing() {
                     <span>${formatCurrency(createDuty)}</span>
                   </div>
                 )}
-                {createIntlFeeCad > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
-                    <span>Intl Fee{createForm.international_fee_currency === 'USD' ? ` (${createIntlFeeRaw} USD × ${createExchangeRate ?? '?'})` : ' (CAD)'}</span>
-                    <span>${formatCurrency(createIntlFeeCad)}</span>
-                  </div>
-                )}
-                {createWireDiscount > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
-                    <span>Wire Discount{createForm.wire_discount_mode === 'pct' ? ` (${createWireDiscountRaw}%)` : ''}</span>
-                    <span style={{ color: '#dc2626' }}>−${formatCurrency(createWireDiscount)}</span>
-                  </div>
-                )}
-                {createGstFinal > 0 && (
+                {createGstAmountCad > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '6px' }}>
-                    <span>{createForm.tax_mode === 'rate' ? `Tax (${createTaxRate}% on subtotal)` : 'GST Amount'}</span>
-                    <span>${formatCurrency(createGstFinal)}</span>
+                    <span>GST</span>
+                    <span>${formatCurrency(createGstAmountCad)}</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '700', color: '#1d4ed8', borderTop: '1px solid #bfdbfe', paddingTop: '8px' }}>
