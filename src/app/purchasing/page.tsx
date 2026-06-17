@@ -138,7 +138,7 @@ export default function Purchasing() {
     tax_rate: '0',
     shipping_cad: '', brokerage_cad: '', duty_cad: '',
     gst_amount_cad: '',
-    amount_usd: '', amount_cad: '',
+    amount_cad: '',
     notes: '',
   })
   const [createShippingTaxable, setCreateShippingTaxable] = useState(false)
@@ -303,11 +303,12 @@ export default function Purchasing() {
   // Step 3: + International Fee (USD) after discount
   const createIntlFeeUsd = parseFloat(createForm.international_fee_usd || '0') || 0
   const createAfterIntlUsd = createAfterDiscountUsd + createIntlFeeUsd
-  // Step 4: × exchange rate → Subtotal 2 (CAD)
-  const createExchangeRate = createForm.amount_usd && createForm.amount_cad && parseFloat(createForm.amount_usd) > 0
-    ? (parseFloat(createForm.amount_cad) / parseFloat(createForm.amount_usd)).toFixed(4) : null
+  // Step 4: amount_usd = auto-computed; exchange rate = wire_cad / amount_usd
+  const createWireCad = parseFloat(createForm.amount_cad || '0') || 0
+  const createExchangeRate = createAfterIntlUsd > 0 && createWireCad > 0
+    ? (createWireCad / createAfterIntlUsd).toFixed(4) : null
   const createExchangeRateNum = createExchangeRate ? parseFloat(createExchangeRate) : 1
-  const createSubtotal2Cad = createAfterIntlUsd * createExchangeRateNum
+  const createSubtotal2Cad = createWireCad
   // CAD mode: simple tax on subtotal
   const createTaxRate = parseFloat(createForm.tax_rate || '0') || 0
   const createCadTax = createSubtotalUsd * createTaxRate / 100
@@ -336,8 +337,6 @@ export default function Purchasing() {
     if (activeCreateItems.length === 0) { setCreateError('Please enter a quantity for at least one item.'); return }
 
     setSaving(true)
-    const exchangeRate = createForm.amount_usd && createForm.amount_cad && parseFloat(createForm.amount_usd) > 0
-      ? parseFloat(createForm.amount_cad) / parseFloat(createForm.amount_usd) : null
 
     const { data: poData, error: poError } = await supabase.from('purchase_orders').insert([{
       supplier_id: createForm.supplier_id,
@@ -352,8 +351,8 @@ export default function Purchasing() {
       status: 'ordered',
       ordered_at: createForm.ordered_at,
       notes: createForm.notes || null,
-      amount_usd: createForm.amount_usd ? parseFloat(createForm.amount_usd) : null,
-      exchange_rate: exchangeRate,
+      amount_usd: createAfterIntlUsd || null,
+      exchange_rate: createExchangeRate ? parseFloat(createExchangeRate) : null,
       tax_rate: createForm.purchase_currency === 'CAD' ? (createTaxRate / 100) : null,
       tax_amount: (createShippingHst + createBrokerageHst) || null,
       international_fee_cad: (createIntlFeeUsd * createExchangeRateNum) || null,
@@ -409,7 +408,7 @@ export default function Purchasing() {
     }
     setShowCreate(false)
     setCreateError('')
-    setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), purchase_currency: 'USD', international_fee_usd: '', wire_discount_pct: '', tax_rate: '0', shipping_cad: '', brokerage_cad: '', duty_cad: '', gst_amount_cad: '', amount_usd: '', amount_cad: '', notes: '' })
+    setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), purchase_currency: 'USD', international_fee_usd: '', wire_discount_pct: '', tax_rate: '0', shipping_cad: '', brokerage_cad: '', duty_cad: '', gst_amount_cad: '', amount_cad: '', notes: '' })
     setCreateShippingTaxable(false)
     setCreateBrokerageTaxable(false)
     setCreateLineItems([])
@@ -972,7 +971,7 @@ export default function Purchasing() {
             <Download size={15} /> Export Excel
           </button>
           <button
-            onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), purchase_currency: 'USD', international_fee_usd: '', wire_discount_pct: '', tax_rate: '0', shipping_cad: '', brokerage_cad: '', duty_cad: '', gst_amount_cad: '', amount_usd: '', amount_cad: '', notes: '' }); setCreateShippingTaxable(false); setCreateBrokerageTaxable(false); setCreateLineItems([]); setCreateSupplier(null); setCreateFiles([]) }}
+            onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), purchase_currency: 'USD', international_fee_usd: '', wire_discount_pct: '', tax_rate: '0', shipping_cad: '', brokerage_cad: '', duty_cad: '', gst_amount_cad: '', amount_cad: '', notes: '' }); setCreateShippingTaxable(false); setCreateBrokerageTaxable(false); setCreateLineItems([]); setCreateSupplier(null); setCreateFiles([]) }}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}
           >
             <Plus size={16} /> New PO
@@ -1231,11 +1230,23 @@ export default function Purchasing() {
             {createForm.purchase_currency === 'USD' && (
               <div style={{ marginBottom: '14px', padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                 <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>USD Invoice</div>
-                <div className="po-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                <div className="po-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                  <div>
+                    <label style={lbl}>Wire Discount (%)</label>
+                    <input type='number' min='0' step='0.01' value={createForm.wire_discount_pct} onChange={e => setCreateForm(f => ({ ...f, wire_discount_pct: e.target.value }))} placeholder='0.00' style={numInp} />
+                    {createWireDiscountUsd > 0 && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', textAlign: 'right' }}>= −USD ${formatCurrency(createWireDiscountUsd)}</div>}
+                  </div>
+                  <div>
+                    <label style={lbl}>International Fee (USD)</label>
+                    <input type='number' min='0' step='0.01' value={createForm.international_fee_usd} onChange={e => setCreateForm(f => ({ ...f, international_fee_usd: e.target.value }))} placeholder='0.00' style={numInp} />
+                    {createIntlFeeUsd > 0 && createExchangeRate && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', textAlign: 'right' }}>= CAD ${formatCurrency(createIntlFeeUsd * createExchangeRateNum)}</div>}
+                  </div>
+                </div>
+                <div className="po-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                   <div>
                     <label style={lbl}>Amount (USD)</label>
-                    <input type='number' min='0' step='0.01' value={createForm.amount_usd} onChange={e => setCreateForm(f => ({ ...f, amount_usd: e.target.value }))} placeholder='0.00' style={numInp} />
-                    {createSubtotalUsd > 0 && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', textAlign: 'right' }}>Σ items: ${formatCurrency(createSubtotalUsd)}</div>}
+                    <input readOnly value={createAfterIntlUsd > 0 ? createAfterIntlUsd.toFixed(2) : ''} placeholder='auto' style={{ ...inp, background: '#f1f5f9', color: '#64748b', textAlign: 'right' }} />
+                    {createAfterIntlUsd > 0 && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', textAlign: 'right' }}>= Subtotal − Discount + Intl Fee</div>}
                   </div>
                   <div>
                     <label style={lbl}>Amount (CAD) — wire</label>
@@ -1246,24 +1257,6 @@ export default function Purchasing() {
                     <input readOnly value={createExchangeRate ?? ''} placeholder='auto' style={{ ...inp, background: '#f1f5f9', color: '#64748b', textAlign: 'right' }} />
                   </div>
                 </div>
-                <div className="po-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <div>
-                    <label style={lbl}>International Fee (USD)</label>
-                    <input type='number' min='0' step='0.01' value={createForm.international_fee_usd} onChange={e => setCreateForm(f => ({ ...f, international_fee_usd: e.target.value }))} placeholder='0.00' style={numInp} />
-                    {createIntlFeeUsd > 0 && createExchangeRate && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', textAlign: 'right' }}>= CAD ${formatCurrency(createIntlFeeUsd * createExchangeRateNum)}</div>}
-                  </div>
-                  <div>
-                    <label style={lbl}>Wire Discount (%)</label>
-                    <input type='number' min='0' step='0.01' value={createForm.wire_discount_pct} onChange={e => setCreateForm(f => ({ ...f, wire_discount_pct: e.target.value }))} placeholder='0.00' style={numInp} />
-                    {createWireDiscountUsd > 0 && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', textAlign: 'right' }}>= −USD ${formatCurrency(createWireDiscountUsd)}</div>}
-                  </div>
-                </div>
-                {createSubtotal2Cad > 0 && (
-                  <div style={{ marginTop: '10px', padding: '6px 10px', background: '#e0f2fe', borderRadius: '6px', fontSize: '13px', color: '#0369a1', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Subtotal 2 (CAD after discount × rate)</span>
-                    <span style={{ fontWeight: '600' }}>${formatCurrency(createSubtotal2Cad)}</span>
-                  </div>
-                )}
               </div>
             )}
 
@@ -1331,10 +1324,12 @@ export default function Purchasing() {
                       <span>+${formatCurrency(createIntlFeeUsd)} USD</span>
                     </div>
                   )}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
-                    <span>Subtotal 2 (CAD) × {createExchangeRate ?? '?'}</span>
-                    <span>${formatCurrency(createSubtotal2Cad)}</span>
-                  </div>
+                  {createWireCad > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                      <span>Wire Amount (CAD){createExchangeRate ? ` × ${createExchangeRate}` : ''}</span>
+                      <span>${formatCurrency(createWireCad)}</span>
+                    </div>
+                  )}
                 </>)}
                 {createForm.purchase_currency === 'CAD' && createCadTax > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
