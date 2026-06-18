@@ -505,6 +505,13 @@ export default function ActivityLog() {
           if (itemsErr) throw itemsErr
         }
       } else {
+        const ALLOWED_RESTORE_TABLES = [
+          'raw_materials', 'packaging', 'suppliers', 'purchase_orders',
+          'purchase_order_items', 'invoices', 'invoice_items', 'credit_memos', 'credit_memo_items',
+        ]
+        if (!ALLOWED_RESTORE_TABLES.includes(entry.table_name)) {
+          throw new Error('Unauthorized table restore')
+        }
         const {
           id: _id, created_at: _ca, updated_at: _ua, deleted_at: _da,
           customers: _c, suppliers: _s, raw_materials: _r, packaging: _p,

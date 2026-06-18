@@ -9,7 +9,10 @@ export async function GET(request: NextRequest) {
   const nextRaw = searchParams.get('next') ?? '/reset-password'
   const next = nextRaw.startsWith('/') ? nextRaw : '/reset-password'
 
-  if (token_hash && type) {
+  const VALID_OTP_TYPES = ['recovery', 'signup', 'invite', 'email_change', 'magiclink'] as const
+  type OtpType = typeof VALID_OTP_TYPES[number]
+
+  if (token_hash && type && (VALID_OTP_TYPES as readonly string[]).includes(type)) {
     const response = NextResponse.redirect(new URL(next, request.url))
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,7 +25,7 @@ export async function GET(request: NextRequest) {
         },
       }}
     )
-    const { error } = await supabase.auth.verifyOtp({ type: type as any, token_hash })
+    const { error } = await supabase.auth.verifyOtp({ type: type as OtpType, token_hash })
     if (!error) return response
   }
   return NextResponse.redirect(new URL('/login', request.url))
