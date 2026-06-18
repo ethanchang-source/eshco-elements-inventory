@@ -784,11 +784,16 @@ export default function Purchasing() {
   function getPOSummary(po: PO): string {
     const items = poItems[po.id]
     if (!items || items.length === 0) return '—'
-    if (items.length === 1) {
-      const mat = materials.find(m => m.id === items[0].material_id)
-      return mat ? `${mat.item_no} — ${mat.name}` : '—'
-    }
-    return `${items.length} items`
+    return items.length === 1 ? '1 item' : `${items.length} items`
+  }
+
+  function getPOItemNamesStr(po: PO): string {
+    const items = poItems[po.id]
+    if (!items || items.length === 0) return ''
+    return items.map(it => {
+      const mat = materials.find(m => m.id === it.material_id)
+      return mat ? `${mat.item_no} ${mat.name}` : ''
+    }).join(' ')
   }
 
   async function openAttachments(e: React.MouseEvent, po: PO) {
@@ -953,8 +958,9 @@ export default function Purchasing() {
 
   const filtered = pos.filter(po =>
     po.suppliers?.name?.toLowerCase().includes(search.toLowerCase()) ||
-    getPOSummary(po).toLowerCase().includes(search.toLowerCase()) ||
-    po.status?.toLowerCase().includes(search.toLowerCase())
+    getPOItemNamesStr(po).toLowerCase().includes(search.toLowerCase()) ||
+    po.status?.toLowerCase().includes(search.toLowerCase()) ||
+    (po.po_number || '').toLowerCase().includes(search.toLowerCase())
   )
 
   return (
@@ -999,11 +1005,11 @@ export default function Purchasing() {
         </div>
       ) : (
         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', minWidth: '1100px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', minWidth: '1380px' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                {['Supplier', 'Items', 'Order Date', 'Subtotal', 'Tax', 'Total (CAD)', 'Status', 'Shipped Date', 'Received Date', ''].map((h, i) => (
-                  <th key={i} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>{h}</th>
+                {['PO #', 'Supplier', 'Date', 'Items', 'USD Invoice', 'CAD Invoice', 'Additional (CAD)', 'Total (CAD)', 'Status', 'Shipped', 'Received', ''].map((h, i) => (
+                  <th key={i} style={{ padding: '12px 16px', textAlign: i >= 4 && i <= 7 ? 'right' : 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -1011,21 +1017,34 @@ export default function Purchasing() {
               {filtered.map((po, i) => {
                 const st = STATUS_STYLE[po.status] || STATUS_STYLE.ordered
                 const items = poItems[po.id] || []
-                const subtotal = items.reduce((s, it) => s + it.quantity * it.unit_price, 0)
-                const extras = (po.shipping_cad || 0) + (po.brokerage_cad || 0) + (po.duty_cad || 0)
-                const tax = (po.cost_total_cad || 0) - subtotal - extras
+                const isUsdPO = po.exchange_rate != null && po.amount_usd != null
+                const cadInvoice = isUsdPO
+                  ? po.amount_usd! * po.exchange_rate!
+                  : items.reduce((s, it) => s + it.quantity * it.unit_price, 0)
+                const additionalCad = (po.cost_total_cad || 0) - cadInvoice
+                const itemLabel = items.length === 0 ? '—' : items.length === 1 ? '1 item' : `${items.length} items`
+                const itemTooltip = items.map(it => {
+                  const mat = materials.find(m => m.id === it.material_id)
+                  return mat ? `${mat.item_no} — ${mat.name}` : '—'
+                }).join('\n')
                 return (
                   <tr key={po.id} onClick={() => openDetail(po)}
                     style={{ borderBottom: i < filtered.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer' }}
                     onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = '#f8fafc'}
                     onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}
                   >
+                    <td style={{ padding: '12px 16px', color: '#64748b', fontSize: '13px', whiteSpace: 'nowrap' }}>{po.po_number || '—'}</td>
                     <td style={{ padding: '12px 16px', fontWeight: '500', color: '#374151' }}>{po.suppliers?.name || '—'}</td>
-                    <td style={{ padding: '12px 16px', color: '#374151', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{getPOSummary(po)}</td>
-                    <td style={{ padding: '12px 16px', color: '#64748b', fontSize: '13px' }}>{formatTorontoDate(po.ordered_at || '')}</td>
-                    <td style={{ padding: '12px 16px', color: '#1e293b' }}>${formatCurrency(subtotal)}</td>
-                    <td style={{ padding: '12px 16px', color: tax > 0.005 ? '#1e293b' : '#94a3b8' }}>{tax > 0.005 ? `$${formatCurrency(tax)}` : '—'}</td>
-                    <td style={{ padding: '12px 16px', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(po.cost_total_cad || 0)}</td>
+                    <td style={{ padding: '12px 16px', color: '#64748b', fontSize: '13px', whiteSpace: 'nowrap' }}>{formatTorontoDate(po.ordered_at || '')}</td>
+                    <td style={{ padding: '12px 16px', color: '#374151', cursor: itemTooltip ? 'help' : 'pointer' }} title={itemTooltip}>{itemLabel}</td>
+                    <td style={{ padding: '12px 16px', color: isUsdPO ? '#1e293b' : '#94a3b8', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {isUsdPO ? `$${formatCurrency(po.amount_usd!)} USD` : '—'}
+                    </td>
+                    <td style={{ padding: '12px 16px', color: '#1e293b', textAlign: 'right', whiteSpace: 'nowrap' }}>${formatCurrency(cadInvoice)}</td>
+                    <td style={{ padding: '12px 16px', color: additionalCad > 0.005 ? '#1e293b' : '#94a3b8', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {additionalCad > 0.005 ? `$${formatCurrency(additionalCad)}` : '—'}
+                    </td>
+                    <td style={{ padding: '12px 16px', fontWeight: '600', color: '#1e293b', textAlign: 'right', whiteSpace: 'nowrap' }}>${formatCurrency(po.cost_total_cad || 0)}</td>
                     <td style={{ padding: '8px 12px' }} onClick={e => e.stopPropagation()}>
                       <select
                         value={po.status}
