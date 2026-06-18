@@ -7,6 +7,8 @@
 // --   file_url text NOT NULL,
 // --   uploaded_at timestamptz DEFAULT now()
 // -- );
+// -- ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS pallet_count numeric DEFAULT 0;
+// -- ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS landed_cost_cad numeric;
 
 import { useEffect, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
@@ -40,6 +42,8 @@ interface POLineItem {
   purchase_unit: string
   weight_per_drum: number
   weight_per_drum_str: string
+  pallet_count: number
+  pallet_count_str: string
 }
 
 interface PO {
@@ -78,6 +82,7 @@ interface POItem {
   purchase_unit?: string | null
   weight_per_drum?: number | null
   ml_conversion?: number | null
+  pallet_count?: number | null
 }
 
 interface POAttachment {
@@ -225,7 +230,7 @@ export default function Purchasing() {
       supabase.from('suppliers').select('id, name').order('name'),
       supabase.from('raw_materials').select('id, item_no, name, unit, cost_per_unit_cad').order('item_no'),
       supabase.from('packaging').select('id, item_no, name, type, cost_cad').order('item_no'),
-      supabase.from('purchase_order_items').select('id, po_id, material_type, material_id, quantity, unit_price, purchase_unit, weight_per_drum, ml_conversion'),
+      supabase.from('purchase_order_items').select('id, po_id, material_type, material_id, quantity, unit_price, purchase_unit, weight_per_drum, ml_conversion, pallet_count'),
       supabase.from('purchase_order_attachments').select('id, po_id, file_name, file_url, uploaded_at').order('uploaded_at'),
     ])
     setPOs(posRes.data || [])
@@ -275,6 +280,8 @@ export default function Purchasing() {
       purchase_unit: 'ml',
       weight_per_drum: 0,
       weight_per_drum_str: '',
+      pallet_count: 0,
+      pallet_count_str: '',
     })))
   }
 
@@ -383,6 +390,7 @@ export default function Purchasing() {
         purchase_unit: item.material_type === 'raw_material' ? (item.purchase_unit || 'ml') : null,
         weight_per_drum: item.material_type === 'raw_material' && ['drum', 'gallon', 'pail'].includes(item.purchase_unit || '') ? (item.weight_per_drum || null) : null,
         ml_conversion: computeMlConversion(item),
+        pallet_count: item.material_type === 'packaging' ? (item.pallet_count || null) : null,
       }))
     )
 
@@ -455,7 +463,7 @@ export default function Purchasing() {
 
     const [freshItemsRes, attachRes] = await Promise.all([
       supabase.from('purchase_order_items')
-        .select('id, po_id, material_type, material_id, quantity, unit_price, purchase_unit, weight_per_drum, ml_conversion')
+        .select('id, po_id, material_type, material_id, quantity, unit_price, purchase_unit, weight_per_drum, ml_conversion, pallet_count')
         .eq('po_id', po.id),
       supabase.from('purchase_order_attachments')
         .select('id, file_name, file_url')
@@ -463,12 +471,13 @@ export default function Purchasing() {
         .order('uploaded_at'),
     ])
 
-    const existingMap: Record<string, { qty: number; unit_price: number; purchase_unit: string; weight_per_drum: number }> = {}
+    const existingMap: Record<string, { qty: number; unit_price: number; purchase_unit: string; weight_per_drum: number; pallet_count: number }> = {}
     for (const item of (freshItemsRes.data || []) as POItem[]) {
       existingMap[item.material_id] = {
         qty: item.quantity, unit_price: item.unit_price,
         purchase_unit: item.purchase_unit || 'ml',
         weight_per_drum: item.weight_per_drum || 0,
+        pallet_count: item.pallet_count || 0,
       }
     }
 
@@ -486,6 +495,8 @@ export default function Purchasing() {
       purchase_unit: existingMap[m.id]?.purchase_unit ?? 'ml',
       weight_per_drum: existingMap[m.id]?.weight_per_drum ?? 0,
       weight_per_drum_str: existingMap[m.id]?.weight_per_drum ? String(existingMap[m.id].weight_per_drum) : '',
+      pallet_count: existingMap[m.id]?.pallet_count ?? 0,
+      pallet_count_str: existingMap[m.id]?.pallet_count ? String(existingMap[m.id].pallet_count) : '',
     })))
 
     setEditAttachments(attachRes.data || [])
@@ -556,6 +567,24 @@ export default function Purchasing() {
     return null
   }
 
+  function updateCreatePalletCount(index: number, val: string) {
+    if (val !== '' && !/^[0-9]*\.?[0-9]*$/.test(val)) return
+    setCreateLineItems(prev => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], pallet_count_str: val, pallet_count: parseFloat(val) || 0 }
+      return updated
+    })
+  }
+
+  function updateEditPalletCount(index: number, val: string) {
+    if (val !== '' && !/^[0-9]*\.?[0-9]*$/.test(val)) return
+    setEditLineItems(prev => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], pallet_count_str: val, pallet_count: parseFloat(val) || 0 }
+      return updated
+    })
+  }
+
   const activeEditItems = editLineItems.filter(item => item.qty > 0)
   // Step 1: Items subtotal
   const editSubtotalUsd = activeEditItems.reduce((s, i) => s + i.total, 0)
@@ -588,11 +617,61 @@ export default function Purchasing() {
     : editSubtotalUsd + editCadTax + editCadExtras
   const isReadOnly = detailPO?.status === 'received' || detailPO?.status === 'cancelled'
 
+  function itemKgWeight(item: { quantity: number; purchase_unit?: string | null; weight_per_drum?: number | null; ml_conversion?: number | null }): number {
+    const pu = item.purchase_unit || 'ml'
+    if (pu === 'kg') return item.quantity
+    if (pu === 'drum') return item.quantity * (item.weight_per_drum || 0)
+    if (pu === 'pail') return item.quantity * (item.weight_per_drum || 0)
+    if (pu === 'gallon') return item.quantity * (item.weight_per_drum || 0) / 1000
+    return (item.ml_conversion ?? item.quantity) / 1000
+  }
+
   // Shared helper: add or subtract stock + avg_cost_cad on received/rollback
   async function applyReceivedStock(
-    items: { material_type: string; material_id: string; quantity: number; unit_price: number; ml_conversion?: number | null }[],
-    direction: 'add' | 'subtract'
+    items: { material_type: string; material_id: string; quantity: number; unit_price: number; ml_conversion?: number | null; pallet_count?: number | null; purchase_unit?: string | null; weight_per_drum?: number | null }[],
+    direction: 'add' | 'subtract',
+    poContext?: { po_id: string; exchange_rate: number | null; shipping_cad: number | null; brokerage_cad: number | null; duty_cad: number | null }
   ) {
+    if (direction === 'add' && poContext) {
+      const exRate = poContext.exchange_rate ?? 1
+      const distributableCad = (poContext.shipping_cad ?? 0) + (poContext.brokerage_cad ?? 0) + (poContext.duty_cad ?? 0)
+      const rawItems = items.filter(i => i.material_type === 'raw_material')
+      const pkgItems = items.filter(i => i.material_type === 'packaging')
+      const rawSubtotal = rawItems.reduce((s, i) => s + i.quantity * i.unit_price * exRate, 0)
+      const pkgSubtotal = pkgItems.reduce((s, i) => s + i.quantity * i.unit_price * exRate, 0)
+      const totalSubtotal = rawSubtotal + pkgSubtotal
+      const rawGroupCost = totalSubtotal > 0 ? distributableCad * rawSubtotal / totalSubtotal : (pkgItems.length === 0 ? distributableCad : 0)
+      const pkgGroupCost = totalSubtotal > 0 ? distributableCad * pkgSubtotal / totalSubtotal : (rawItems.length === 0 ? distributableCad : 0)
+
+      const landedCostMap = new Map<string, number>()
+
+      const rawTotalKg = rawItems.reduce((s, i) => s + itemKgWeight(i), 0)
+      for (const i of rawItems) {
+        const kg = itemKgWeight(i)
+        const distCost = rawTotalKg > 0 ? rawGroupCost * kg / rawTotalKg : rawGroupCost / Math.max(rawItems.length, 1)
+        landedCostMap.set(i.material_id, i.quantity * i.unit_price * exRate + distCost)
+      }
+
+      const pkgTotalPallets = pkgItems.reduce((s, i) => s + (i.pallet_count || 0), 0)
+      const pkgTotalQty = pkgItems.reduce((s, i) => s + i.quantity, 0)
+      for (const i of pkgItems) {
+        const share = pkgTotalPallets > 0
+          ? (i.pallet_count || 0) / pkgTotalPallets
+          : (pkgTotalQty > 0 ? i.quantity / pkgTotalQty : 1 / Math.max(pkgItems.length, 1))
+        landedCostMap.set(i.material_id, i.quantity * i.unit_price * exRate + pkgGroupCost * share)
+      }
+
+      for (const [materialId, landedCost] of landedCostMap.entries()) {
+        const item = items.find(i => i.material_id === materialId)
+        if (!item) continue
+        await supabase.from('purchase_order_items')
+          .update({ landed_cost_cad: landedCost })
+          .eq('po_id', poContext.po_id)
+          .eq('material_id', materialId)
+          .eq('material_type', item.material_type)
+      }
+    }
+
     for (const item of items) {
       if (item.material_type === 'raw_material') {
         const { data: mat } = await supabase
@@ -605,19 +684,22 @@ export default function Purchasing() {
         if (direction === 'add') {
           const { data: allItems } = await supabase
             .from('purchase_order_items')
-            .select('quantity, unit_price, ml_conversion, purchase_orders!inner(status)')
+            .select('quantity, unit_price, ml_conversion, landed_cost_cad, purchase_orders!inner(status, exchange_rate)')
             .eq('material_type', 'raw_material')
             .eq('material_id', item.material_id)
             .eq('purchase_orders.status', 'received')
-          const totalMl = allItems?.reduce((s, i) => s + (i.ml_conversion ?? i.quantity), 0) || 0
-          const totalCost = allItems?.reduce((s, i) => s + i.quantity * i.unit_price, 0) || 0
+          const totalMl = allItems?.reduce((s: number, i: any) => s + (i.ml_conversion ?? i.quantity), 0) || 0
+          const totalCost = allItems?.reduce((s: number, i: any) => {
+            if (i.landed_cost_cad != null) return s + i.landed_cost_cad
+            const er = i.purchase_orders?.exchange_rate ?? 1
+            return s + i.quantity * i.unit_price * er
+          }, 0) || 0
           const newAvg = totalMl > 0 ? totalCost / totalMl : 0
           await supabase.from('raw_materials').update({
             current_stock: oldStock + stockDelta,
             avg_cost_cad: newAvg,
           }).eq('id', item.material_id)
         } else {
-          // avg_cost_cad not reversed on rollback
           await supabase.from('raw_materials').update({
             current_stock: Math.max(0, oldStock - stockDelta),
           }).eq('id', item.material_id)
@@ -632,19 +714,22 @@ export default function Purchasing() {
         if (direction === 'add') {
           const { data: allItems } = await supabase
             .from('purchase_order_items')
-            .select('quantity, unit_price, purchase_orders!inner(status)')
+            .select('quantity, unit_price, landed_cost_cad, purchase_orders!inner(status, exchange_rate)')
             .eq('material_type', 'packaging')
             .eq('material_id', item.material_id)
             .eq('purchase_orders.status', 'received')
-          const totalQty = allItems?.reduce((s, i) => s + i.quantity, 0) || 0
-          const totalValue = allItems?.reduce((s, i) => s + i.quantity * i.unit_price, 0) || 0
+          const totalQty = allItems?.reduce((s: number, i: any) => s + i.quantity, 0) || 0
+          const totalValue = allItems?.reduce((s: number, i: any) => {
+            if (i.landed_cost_cad != null) return s + i.landed_cost_cad
+            const er = i.purchase_orders?.exchange_rate ?? 1
+            return s + i.quantity * i.unit_price * er
+          }, 0) || 0
           const newAvg = totalQty > 0 ? totalValue / totalQty : 0
           await supabase.from('packaging').update({
             current_stock: oldStock + item.quantity,
             avg_cost_cad: newAvg,
           }).eq('id', item.material_id)
         } else {
-          // avg_cost_cad not reversed on rollback
           await supabase.from('packaging').update({
             current_stock: Math.max(0, oldStock - item.quantity),
           }).eq('id', item.material_id)
@@ -704,15 +789,22 @@ export default function Purchasing() {
         purchase_unit: item.material_type === 'raw_material' ? (item.purchase_unit || 'ml') : null,
         weight_per_drum: item.material_type === 'raw_material' && ['drum', 'gallon', 'pail'].includes(item.purchase_unit || '') ? (item.weight_per_drum || null) : null,
         ml_conversion: computeMlConversion(item),
+        pallet_count: item.material_type === 'packaging' ? (item.pallet_count || null) : null,
       }))
     )
 
     const editItemsNorm = activeEditItems.map(i => ({
       material_type: i.material_type, material_id: i.material_id,
       quantity: i.qty, unit_price: i.unit_price, ml_conversion: computeMlConversion(i),
+      pallet_count: i.pallet_count, purchase_unit: i.purchase_unit, weight_per_drum: i.weight_per_drum,
     }))
+    const editPoCtx = {
+      po_id: detailPO.id,
+      exchange_rate: editForm.purchase_currency === 'USD' && editExchangeRate ? parseFloat(editExchangeRate) : null,
+      shipping_cad: editShipping || null, brokerage_cad: editBrokerageRaw || null, duty_cad: editDuty || null,
+    }
     if (editForm.status === 'received' && previousDBStatus !== 'received') {
-      await applyReceivedStock(editItemsNorm, 'add')
+      await applyReceivedStock(editItemsNorm, 'add', editPoCtx)
     } else if (editForm.status !== 'received' && previousDBStatus === 'received') {
       await applyReceivedStock(editItemsNorm, 'subtract')
     }
@@ -876,9 +968,17 @@ export default function Purchasing() {
     const items = (poItems[po.id] || []).map(i => ({
       material_type: i.material_type, material_id: i.material_id,
       quantity: i.quantity, unit_price: i.unit_price, ml_conversion: i.ml_conversion,
+      pallet_count: i.pallet_count, purchase_unit: i.purchase_unit, weight_per_drum: i.weight_per_drum,
     }))
     if (newStatus === 'received' && previousDBStatus !== 'received') {
-      await applyReceivedStock(items, 'add')
+      const tablePoCtx = {
+        po_id: po.id,
+        exchange_rate: po.exchange_rate ?? null,
+        shipping_cad: po.shipping_cad ?? null,
+        brokerage_cad: po.brokerage_cad ?? null,
+        duty_cad: po.duty_cad ?? null,
+      }
+      await applyReceivedStock(items, 'add', tablePoCtx)
     } else if (newStatus !== 'received' && previousDBStatus === 'received') {
       await applyReceivedStock(items, 'subtract')
     }
@@ -907,8 +1007,16 @@ export default function Purchasing() {
       const items = (poItems[dateModalPO.id] || []).map(i => ({
         material_type: i.material_type, material_id: i.material_id,
         quantity: i.quantity, unit_price: i.unit_price, ml_conversion: i.ml_conversion,
+        pallet_count: i.pallet_count, purchase_unit: i.purchase_unit, weight_per_drum: i.weight_per_drum,
       }))
-      await applyReceivedStock(items, 'add')
+      const datePoCtx = {
+        po_id: dateModalPO.id,
+        exchange_rate: dateModalPO.exchange_rate ?? null,
+        shipping_cad: dateModalPO.shipping_cad ?? null,
+        brokerage_cad: dateModalPO.brokerage_cad ?? null,
+        duty_cad: dateModalPO.duty_cad ?? null,
+      }
+      await applyReceivedStock(items, 'add', datePoCtx)
     }
     setShowReceivedModal(false)
     setDateModalPO(null)
@@ -1206,6 +1314,16 @@ export default function Purchasing() {
                                   value={item.weight_per_drum_str}
                                   onChange={e => updateCreateWeightPerDrum(idx, e.target.value)}
                                   placeholder={item.purchase_unit === 'gallon' ? 'ml/gal' : item.purchase_unit === 'pail' ? 'kg/pail' : 'kg/drum'}
+                                  style={{ ...numInp, padding: '2px 6px', fontSize: '11px', width: '80px' }}
+                                />
+                              </div>
+                            )}
+                            {item.material_type === 'packaging' && (
+                              <div style={{ marginTop: '4px' }}>
+                                <input type='text' inputMode='decimal'
+                                  value={item.pallet_count_str}
+                                  onChange={e => updateCreatePalletCount(idx, e.target.value)}
+                                  placeholder='pallets'
                                   style={{ ...numInp, padding: '2px 6px', fontSize: '11px', width: '80px' }}
                                 />
                               </div>
@@ -1533,6 +1651,9 @@ export default function Purchasing() {
                                   {item.purchase_unit === 'pail' && item.weight_per_drum ? ` (${item.weight_per_drum}kg/pail)` : ''}
                                 </div>
                               )}
+                              {item.material_type === 'packaging' && item.pallet_count > 0 && (
+                                <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>{item.pallet_count} pallets</div>
+                              )}
                             </div>
                           ) : (
                             <div>
@@ -1563,6 +1684,16 @@ export default function Purchasing() {
                                     value={item.weight_per_drum_str}
                                     onChange={e => updateEditWeightPerDrum(idx, e.target.value)}
                                     placeholder={item.purchase_unit === 'gallon' ? 'ml/gal' : item.purchase_unit === 'pail' ? 'kg/pail' : 'kg/drum'}
+                                    style={{ ...numInp, padding: '2px 6px', fontSize: '11px', width: '80px' }}
+                                  />
+                                </div>
+                              )}
+                              {item.material_type === 'packaging' && (
+                                <div style={{ marginTop: '4px' }}>
+                                  <input type='text' inputMode='decimal'
+                                    value={item.pallet_count_str}
+                                    onChange={e => updateEditPalletCount(idx, e.target.value)}
+                                    placeholder='pallets'
                                     style={{ ...numInp, padding: '2px 6px', fontSize: '11px', width: '80px' }}
                                   />
                                 </div>
