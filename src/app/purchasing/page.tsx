@@ -152,14 +152,18 @@ export default function Purchasing() {
   const [editLineItems, setEditLineItems] = useState<POLineItem[]>([])
   const [editForm, setEditForm] = useState({
     supplier_id: '', ordered_at: '', status: 'ordered',
+    purchase_currency: 'USD',
+    international_fee_usd: '',
+    wire_discount_pct: '',
+    tax_rate: '0',
     shipping_cad: '', brokerage_cad: '', duty_cad: '',
-    amount_usd: '', amount_cad: '', notes: '',
-    shipped_at: '', received_at: '', tax_rate: '0',
-    international_fee: '', international_fee_currency: 'CAD',
-    wire_discount: '', wire_discount_mode: 'amount',
-    brokerage_currency: 'CAD',
-    gst_amount: '', tax_mode: 'rate',
+    gst_amount_cad: '',
+    amount_cad: '',
+    notes: '',
+    shipped_at: '', received_at: '',
   })
+  const [editShippingTaxable, setEditShippingTaxable] = useState(false)
+  const [editBrokerageTaxable, setEditBrokerageTaxable] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [updateError, setUpdateError] = useState('')
 
@@ -419,30 +423,30 @@ export default function Purchasing() {
 
   async function openDetail(po: PO) {
     setDetailPO(po)
-    const editWireMode = po.wire_discount_pct != null ? 'pct' : 'amount'
-    const editWireVal = po.wire_discount_pct != null ? String(po.wire_discount_pct) : (po.wire_discount_amount != null ? String(po.wire_discount_amount) : '')
-    const editTaxMode = po.gst_amount_cad != null ? 'amount' : 'rate'
+    const exRate = po.exchange_rate || 1
+    const reconIntlFeeUsd = po.international_fee_cad != null && po.exchange_rate
+      ? po.international_fee_cad / exRate : null
+    const reconWireCad = po.amount_usd != null && po.exchange_rate != null
+      ? po.amount_usd * po.exchange_rate : null
     setEditForm({
       supplier_id: po.supplier_id,
       ordered_at: toTorontoDateInput(po.ordered_at),
       status: po.status,
+      purchase_currency: po.exchange_rate != null ? 'USD' : 'CAD',
+      international_fee_usd: reconIntlFeeUsd != null ? String(parseFloat(reconIntlFeeUsd.toFixed(4))) : '',
+      wire_discount_pct: po.wire_discount_pct != null ? String(po.wire_discount_pct) : '',
+      tax_rate: po.tax_rate != null ? String(Math.round(po.tax_rate * 100)) : '0',
       shipping_cad: po.shipping_cad != null ? String(po.shipping_cad) : '',
       brokerage_cad: po.brokerage_cad != null ? String(po.brokerage_cad) : '',
       duty_cad: po.duty_cad != null ? String(po.duty_cad) : '',
-      amount_usd: po.amount_usd != null ? String(po.amount_usd) : '',
-      amount_cad: '',
+      gst_amount_cad: po.gst_amount_cad != null ? String(po.gst_amount_cad) : '',
+      amount_cad: reconWireCad != null ? reconWireCad.toFixed(2) : '',
       notes: po.notes || '',
       shipped_at: toTorontoDateInput(po.shipped_at || ''),
       received_at: toTorontoDateInput(po.received_at || ''),
-      tax_rate: po.tax_rate != null ? String(Math.round(po.tax_rate * 100)) : '0',
-      international_fee: po.international_fee_cad != null ? String(po.international_fee_cad) : '',
-      international_fee_currency: 'CAD',
-      wire_discount: editWireVal,
-      wire_discount_mode: editWireMode,
-      brokerage_currency: po.brokerage_currency || 'CAD',
-      gst_amount: po.gst_amount_cad != null ? String(po.gst_amount_cad) : '',
-      tax_mode: editTaxMode,
     })
+    setEditShippingTaxable(false)
+    setEditBrokerageTaxable(false)
     setUpdateError('')
     setEditNewFiles([])
     setEditUploadStatus('')
@@ -551,26 +555,35 @@ export default function Purchasing() {
   }
 
   const activeEditItems = editLineItems.filter(item => item.qty > 0)
-  const editSubtotal = activeEditItems.reduce((s, i) => s + i.total, 0)
-  const editShipping = parseFloat(editForm.shipping_cad || '0') || 0
-  const editBrokerageRaw = parseFloat(editForm.brokerage_cad || '0') || 0
-  const editDuty = parseFloat(editForm.duty_cad || '0') || 0
-  const editExchangeRate = editForm.amount_usd && editForm.amount_cad && parseFloat(editForm.amount_usd) > 0
-    ? (parseFloat(editForm.amount_cad) / parseFloat(editForm.amount_usd)).toFixed(4) : null
+  // Step 1: Items subtotal
+  const editSubtotalUsd = activeEditItems.reduce((s, i) => s + i.total, 0)
+  // Step 2: Wire Discount (%) on subtotal before intl fee
+  const editWireDiscountPct = parseFloat(editForm.wire_discount_pct || '0') || 0
+  const editWireDiscountUsd = editSubtotalUsd * editWireDiscountPct / 100
+  const editAfterDiscountUsd = editSubtotalUsd - editWireDiscountUsd
+  // Step 3: + International Fee (USD) after discount
+  const editIntlFeeUsd = parseFloat(editForm.international_fee_usd || '0') || 0
+  const editAfterIntlUsd = editAfterDiscountUsd + editIntlFeeUsd
+  // Step 4: exchange rate = wire_cad / amount_usd_auto
+  const editWireCad = parseFloat(editForm.amount_cad || '0') || 0
+  const editExchangeRate = editAfterIntlUsd > 0 && editWireCad > 0
+    ? (editWireCad / editAfterIntlUsd).toFixed(4) : null
   const editExchangeRateNum = editExchangeRate ? parseFloat(editExchangeRate) : 1
-  const editBrokerageFinal = editForm.brokerage_currency === 'USD'
-    ? editBrokerageRaw * editExchangeRateNum : editBrokerageRaw
-  const editIntlFeeRaw = parseFloat(editForm.international_fee || '0') || 0
-  const editIntlFeeCad = editForm.international_fee_currency === 'USD'
-    ? editIntlFeeRaw * editExchangeRateNum : editIntlFeeRaw
-  const editWireDiscountRaw = parseFloat(editForm.wire_discount || '0') || 0
-  const editWireDiscount = editForm.wire_discount_mode === 'pct'
-    ? editSubtotal * editWireDiscountRaw / 100 : editWireDiscountRaw
+  // CAD mode: simple tax on subtotal
   const editTaxRate = parseFloat(editForm.tax_rate || '0') || 0
-  const editGstAmountRaw = parseFloat(editForm.gst_amount || '0') || 0
-  const editGstFinal = editForm.tax_mode === 'amount'
-    ? editGstAmountRaw : editSubtotal * editTaxRate / 100
-  const editTotal = editSubtotal + editShipping + editBrokerageFinal + editDuty + editIntlFeeCad - editWireDiscount + editGstFinal
+  const editCadTax = editSubtotalUsd * editTaxRate / 100
+  // Step 5: CAD extras with HST
+  const editShipping = parseFloat(editForm.shipping_cad || '0') || 0
+  const editShippingHst = editShippingTaxable ? editShipping * 0.13 : 0
+  const editBrokerageRaw = parseFloat(editForm.brokerage_cad || '0') || 0
+  const editBrokerageHst = editBrokerageTaxable ? editBrokerageRaw * 0.13 : 0
+  const editDuty = parseFloat(editForm.duty_cad || '0') || 0
+  const editGstAmountCad = parseFloat(editForm.gst_amount_cad || '0') || 0
+  // Step 6: Grand Total
+  const editCadExtras = editShipping + editShippingHst + editBrokerageRaw + editBrokerageHst + editDuty + editGstAmountCad
+  const editTotal = editForm.purchase_currency === 'USD'
+    ? editWireCad + editCadExtras
+    : editSubtotalUsd + editCadTax + editCadExtras
   const isReadOnly = detailPO?.status === 'received' || detailPO?.status === 'cancelled'
 
   // Shared helper: add or subtract stock + avg_cost_cad on received/rollback
@@ -650,31 +663,28 @@ export default function Purchasing() {
       .from('purchase_orders').select('status').eq('id', detailPO.id).single()
     const previousDBStatus = currentPOState?.status
 
-    const exchangeRate = editForm.amount_usd && editForm.amount_cad && parseFloat(editForm.amount_usd) > 0
-      ? parseFloat(editForm.amount_cad) / parseFloat(editForm.amount_usd) : detailPO.exchange_rate ?? null
-
     const updatePayload: Record<string, unknown> = {
       supplier_id: editForm.supplier_id,
       ordered_at: editForm.ordered_at,
       status: editForm.status,
       cost_total_cad: editTotal,
       shipping_cad: editShipping || null,
-      brokerage_cad: editBrokerageFinal || null,
+      brokerage_cad: editBrokerageRaw || null,
       duty_cad: editDuty || null,
       notes: editForm.notes || null,
-      amount_usd: editForm.amount_usd ? parseFloat(editForm.amount_usd) : null,
-      exchange_rate: exchangeRate,
-      tax_rate: editForm.tax_mode === 'rate' ? (parseFloat(editForm.tax_rate || '0') / 100) : null,
-      tax_amount: editGstFinal || null,
+      amount_usd: editForm.purchase_currency === 'USD' ? (editAfterIntlUsd || null) : null,
+      exchange_rate: editForm.purchase_currency === 'USD' && editExchangeRate ? parseFloat(editExchangeRate) : null,
+      tax_rate: editForm.purchase_currency === 'CAD' ? (editTaxRate / 100) : null,
+      tax_amount: (editShippingHst + editBrokerageHst) || null,
       shipped_at: editForm.status === 'shipped' || editForm.status === 'received'
         ? (editForm.shipped_at || getLocalDateString()) : null,
       received_at: editForm.status === 'received'
         ? (editForm.received_at || getLocalDateString()) : null,
-      international_fee_cad: editIntlFeeCad || null,
-      wire_discount_amount: editForm.wire_discount_mode === 'amount' ? (editWireDiscountRaw || null) : null,
-      wire_discount_pct: editForm.wire_discount_mode === 'pct' ? (editWireDiscountRaw || null) : null,
-      brokerage_currency: editForm.brokerage_currency,
-      gst_amount_cad: editForm.tax_mode === 'amount' ? (editGstAmountRaw || null) : null,
+      international_fee_cad: editForm.purchase_currency === 'USD' ? ((editIntlFeeUsd * editExchangeRateNum) || null) : null,
+      wire_discount_amount: null,
+      wire_discount_pct: editWireDiscountPct || null,
+      brokerage_currency: 'CAD',
+      gst_amount_cad: editGstAmountCad || null,
     }
 
     const { error } = await supabase.from('purchase_orders').update(updatePayload).eq('id', detailPO.id)
@@ -1584,87 +1594,99 @@ export default function Purchasing() {
               </div>
               <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#64748b' }}>
                 <span>{activeEditItems.length} item(s) with qty &gt; 0</span>
-                {editSubtotal > 0 && <span style={{ fontWeight: '600', color: '#1e293b' }}>Subtotal: ${formatCurrency(editSubtotal)}</span>}
+                {editSubtotalUsd > 0 && <span style={{ fontWeight: '600', color: '#1e293b' }}>Subtotal ({editForm.purchase_currency}): ${formatCurrency(editSubtotalUsd)}</span>}
               </div>
             </div>
 
             {/* Cost fields */}
             {!isReadOnly && (
               <>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-                  <div>
-                    <label style={lbl}>Shipping (CAD)</label>
-                    <input type='number' min='0' step='0.01' value={editForm.shipping_cad} onChange={e => setEditForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
-                  </div>
-                  <div>
-                    <label style={lbl}>Brokerage ({editForm.brokerage_currency})</label>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                      <input type='number' min='0' step='0.01' value={editForm.brokerage_cad} onChange={e => setEditForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={{ ...numInp, flex: 1 }} />
-                      <div style={{ display: 'flex', borderRadius: '6px', overflow: 'hidden', border: '1px solid #e2e8f0', flexShrink: 0 }}>
-                        {(['CAD', 'USD'] as const).map(c => (
-                          <button key={c} type='button' onClick={() => setEditForm(f => ({ ...f, brokerage_currency: c }))}
-                            style={{ padding: '4px 8px', fontSize: '11px', fontWeight: '500', border: 'none', cursor: 'pointer', background: editForm.brokerage_currency === c ? '#2563eb' : '#f8fafc', color: editForm.brokerage_currency === c ? '#fff' : '#374151' }}>
-                            {c}
-                          </button>
-                        ))}
+                {/* Purchase type toggle */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: '500', color: '#374151' }}>Purchase Type:</span>
+                  {(['USD', 'CAD'] as const).map(c => (
+                    <button type='button' key={c} onClick={() => setEditForm(f => ({ ...f, purchase_currency: c }))}
+                      style={{ fontSize: '13px', padding: '5px 14px', border: '1px solid', borderRadius: '6px', cursor: 'pointer', fontWeight: editForm.purchase_currency === c ? '600' : '400', background: editForm.purchase_currency === c ? '#2563eb' : '#fff', color: editForm.purchase_currency === c ? '#fff' : '#64748b', borderColor: editForm.purchase_currency === c ? '#2563eb' : '#e2e8f0' }}>
+                      {c === 'USD' ? 'USD (International)' : 'CAD (Local)'}
+                    </button>
+                  ))}
+                </div>
+
+                {/* USD mode: invoice amounts + intl fee + wire discount */}
+                {editForm.purchase_currency === 'USD' && (
+                  <div style={{ marginBottom: '14px', padding: '14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' }}>USD Invoice</div>
+                    <div className="po-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                      <div>
+                        <label style={lbl}>Wire Discount (%)</label>
+                        <input type='number' min='0' step='0.01' value={editForm.wire_discount_pct} onChange={e => setEditForm(f => ({ ...f, wire_discount_pct: e.target.value }))} placeholder='0.00' style={numInp} />
+                        {editWireDiscountUsd > 0 && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', textAlign: 'right' }}>= −USD ${formatCurrency(editWireDiscountUsd)}</div>}
+                      </div>
+                      <div>
+                        <label style={lbl}>International Fee (USD)</label>
+                        <input type='number' min='0' step='0.01' value={editForm.international_fee_usd} onChange={e => setEditForm(f => ({ ...f, international_fee_usd: e.target.value }))} placeholder='0.00' style={numInp} />
+                        {editIntlFeeUsd > 0 && editExchangeRate && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', textAlign: 'right' }}>= CAD ${formatCurrency(editIntlFeeUsd * editExchangeRateNum)}</div>}
                       </div>
                     </div>
+                    <div className="po-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                      <div>
+                        <label style={lbl}>Amount (USD)</label>
+                        <input readOnly value={editAfterIntlUsd > 0 ? editAfterIntlUsd.toFixed(2) : ''} placeholder='auto' style={{ ...inp, background: '#f1f5f9', color: '#64748b', textAlign: 'right' }} />
+                        {editAfterIntlUsd > 0 && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', textAlign: 'right' }}>= Subtotal − Discount + Intl Fee</div>}
+                      </div>
+                      <div>
+                        <label style={lbl}>Amount (CAD) — wire</label>
+                        <input type='number' min='0' step='0.01' value={editForm.amount_cad} onChange={e => setEditForm(f => ({ ...f, amount_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                      </div>
+                      <div>
+                        <label style={lbl}>Exchange Rate</label>
+                        <input readOnly value={editExchangeRate ?? ''} placeholder='auto' style={{ ...inp, background: '#f1f5f9', color: '#64748b', textAlign: 'right' }} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* CAD mode: tax rate */}
+                {editForm.purchase_currency === 'CAD' && (
+                  <div style={{ marginBottom: '14px' }}>
+                    <label style={lbl}>Tax Rate (%)</label>
+                    <input type='text' inputMode='decimal' value={editForm.tax_rate}
+                      onChange={e => { if (e.target.value === '' || /^[0-9]*\.?[0-9]*$/.test(e.target.value)) setEditForm(f => ({ ...f, tax_rate: e.target.value })) }}
+                      placeholder='0' style={numInp} />
+                  </div>
+                )}
+
+                {/* CAD extras: Shipping + HST / Brokerage + HST / Duty / GST */}
+                <div className="po-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+                      <label style={{ ...lbl, marginBottom: 0 }}>Shipping (CAD)</label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#64748b', cursor: 'pointer', fontWeight: 'normal' }}>
+                        <input type='checkbox' checked={editShippingTaxable} onChange={e => setEditShippingTaxable(e.target.checked)} style={{ accentColor: '#2563eb' }} />
+                        +HST 13%
+                      </label>
+                    </div>
+                    <input type='number' min='0' step='0.01' value={editForm.shipping_cad} onChange={e => setEditForm(f => ({ ...f, shipping_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                    {editShippingTaxable && editShipping > 0 && <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', textAlign: 'right' }}>+HST: ${formatCurrency(editShippingHst)}</div>}
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+                      <label style={{ ...lbl, marginBottom: 0 }}>Brokerage (CAD)</label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#64748b', cursor: 'pointer', fontWeight: 'normal' }}>
+                        <input type='checkbox' checked={editBrokerageTaxable} onChange={e => setEditBrokerageTaxable(e.target.checked)} style={{ accentColor: '#2563eb' }} />
+                        +HST 13%
+                      </label>
+                    </div>
+                    <input type='number' min='0' step='0.01' value={editForm.brokerage_cad} onChange={e => setEditForm(f => ({ ...f, brokerage_cad: e.target.value }))} placeholder='0.00' style={numInp} />
+                    {editBrokerageTaxable && editBrokerageRaw > 0 && <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px', textAlign: 'right' }}>+HST: ${formatCurrency(editBrokerageHst)}</div>}
                   </div>
                   <div>
                     <label style={lbl}>Duty (CAD)</label>
                     <input type='number' min='0' step='0.01' value={editForm.duty_cad} onChange={e => setEditForm(f => ({ ...f, duty_cad: e.target.value }))} placeholder='0.00' style={numInp} />
                   </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
                   <div>
-                    <label style={lbl}>Intl Fee ({editForm.international_fee_currency})</label>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                      <input type='number' min='0' step='0.01' value={editForm.international_fee} onChange={e => setEditForm(f => ({ ...f, international_fee: e.target.value }))} placeholder='0.00' style={{ ...numInp, flex: 1 }} />
-                      <div style={{ display: 'flex', borderRadius: '6px', overflow: 'hidden', border: '1px solid #e2e8f0', flexShrink: 0 }}>
-                        {(['CAD', 'USD'] as const).map(c => (
-                          <button key={c} type='button' onClick={() => setEditForm(f => ({ ...f, international_fee_currency: c }))}
-                            style={{ padding: '4px 8px', fontSize: '11px', fontWeight: '500', border: 'none', cursor: 'pointer', background: editForm.international_fee_currency === c ? '#2563eb' : '#f8fafc', color: editForm.international_fee_currency === c ? '#fff' : '#374151' }}>
-                            {c}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div>
-                    <label style={lbl}>Wire Discount ({editForm.wire_discount_mode === 'pct' ? '%' : '$'})</label>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                      <input type='number' min='0' step='0.01' value={editForm.wire_discount} onChange={e => setEditForm(f => ({ ...f, wire_discount: e.target.value }))} placeholder='0.00' style={{ ...numInp, flex: 1 }} />
-                      <div style={{ display: 'flex', borderRadius: '6px', overflow: 'hidden', border: '1px solid #e2e8f0', flexShrink: 0 }}>
-                        {(['amount', 'pct'] as const).map(m => (
-                          <button key={m} type='button' onClick={() => setEditForm(f => ({ ...f, wire_discount_mode: m }))}
-                            style={{ padding: '4px 8px', fontSize: '11px', fontWeight: '500', border: 'none', cursor: 'pointer', background: editForm.wire_discount_mode === m ? '#2563eb' : '#f8fafc', color: editForm.wire_discount_mode === m ? '#fff' : '#374151' }}>
-                            {m === 'amount' ? '$' : '%'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div>
-                    <label style={lbl}>{editForm.tax_mode === 'amount' ? 'GST Amount ($)' : 'Tax Rate (%)'}</label>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                      <input type='text' inputMode='decimal'
-                        value={editForm.tax_mode === 'amount' ? editForm.gst_amount : editForm.tax_rate}
-                        onChange={e => {
-                          if (e.target.value === '' || /^[0-9]*\.?[0-9]*$/.test(e.target.value))
-                            setEditForm(f => editForm.tax_mode === 'amount' ? { ...f, gst_amount: e.target.value } : { ...f, tax_rate: e.target.value })
-                        }}
-                        placeholder='0'
-                        style={{ ...numInp, flex: 1 }}
-                      />
-                      <div style={{ display: 'flex', borderRadius: '6px', overflow: 'hidden', border: '1px solid #e2e8f0', flexShrink: 0 }}>
-                        {(['rate', 'amount'] as const).map(m => (
-                          <button key={m} type='button' onClick={() => setEditForm(f => ({ ...f, tax_mode: m }))}
-                            style={{ padding: '4px 8px', fontSize: '11px', fontWeight: '500', border: 'none', cursor: 'pointer', background: editForm.tax_mode === m ? '#2563eb' : '#f8fafc', color: editForm.tax_mode === m ? '#fff' : '#374151' }}>
-                            {m === 'rate' ? '%' : '$'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                    <label style={lbl}>GST Amount (CAD)</label>
+                    <input type='number' min='0' step='0.01' value={editForm.gst_amount_cad} onChange={e => setEditForm(f => ({ ...f, gst_amount_cad: e.target.value }))} placeholder='0.00' style={numInp} />
                   </div>
                 </div>
               </>
@@ -1673,19 +1695,45 @@ export default function Purchasing() {
             {/* Summary */}
             <div style={{ marginBottom: '14px', padding: '12px 16px', background: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
-                <span>Items Subtotal</span>
-                <span>${formatCurrency(editSubtotal)}</span>
+                <span>Items Subtotal ({editForm.purchase_currency})</span>
+                <span>${formatCurrency(editSubtotalUsd)}</span>
               </div>
-              {editShipping > 0 && (
+              {editForm.purchase_currency === 'USD' && (<>
+                {editWireDiscountUsd > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                    <span>− Wire Discount ({editWireDiscountPct}%)</span>
+                    <span style={{ color: '#dc2626' }}>−${formatCurrency(editWireDiscountUsd)} USD</span>
+                  </div>
+                )}
+                {editIntlFeeUsd > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                    <span>+ Intl Fee</span>
+                    <span>+${formatCurrency(editIntlFeeUsd)} USD</span>
+                  </div>
+                )}
+                {editWireCad > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                    <span>Wire Amount (CAD){editExchangeRate ? ` × ${editExchangeRate}` : ''}</span>
+                    <span>${formatCurrency(editWireCad)}</span>
+                  </div>
+                )}
+              </>)}
+              {editForm.purchase_currency === 'CAD' && editCadTax > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
-                  <span>Shipping</span>
-                  <span>${formatCurrency(editShipping)}</span>
+                  <span>Tax ({editTaxRate}%)</span>
+                  <span>${formatCurrency(editCadTax)}</span>
                 </div>
               )}
-              {editBrokerageFinal > 0 && (
+              {editShipping > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
-                  <span>Brokerage{editForm.brokerage_currency === 'USD' ? ' (USD→CAD)' : ''}</span>
-                  <span>${formatCurrency(editBrokerageFinal)}</span>
+                  <span>Shipping{editShippingTaxable ? ' + HST' : ''}</span>
+                  <span>${formatCurrency(editShipping + editShippingHst)}</span>
+                </div>
+              )}
+              {editBrokerageRaw > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
+                  <span>Brokerage{editBrokerageTaxable ? ' + HST' : ''}</span>
+                  <span>${formatCurrency(editBrokerageRaw + editBrokerageHst)}</span>
                 </div>
               )}
               {editDuty > 0 && (
@@ -1694,22 +1742,10 @@ export default function Purchasing() {
                   <span>${formatCurrency(editDuty)}</span>
                 </div>
               )}
-              {editIntlFeeCad > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '4px' }}>
-                  <span>Intl Fee{editForm.international_fee_currency === 'USD' ? ' (USD→CAD)' : ''}</span>
-                  <span>${formatCurrency(editIntlFeeCad)}</span>
-                </div>
-              )}
-              {editWireDiscount > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#dc2626', marginBottom: '4px' }}>
-                  <span>Wire Discount{editForm.wire_discount_mode === 'pct' ? ` (${editWireDiscountRaw}%)` : ''}</span>
-                  <span>−${formatCurrency(editWireDiscount)}</span>
-                </div>
-              )}
-              {editGstFinal > 0 && (
+              {editGstAmountCad > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#1d4ed8', marginBottom: '6px' }}>
-                  <span>{editForm.tax_mode === 'amount' ? 'GST' : `Tax (${editTaxRate}%)`}</span>
-                  <span>${formatCurrency(editGstFinal)}</span>
+                  <span>GST</span>
+                  <span>${formatCurrency(editGstAmountCad)}</span>
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', fontWeight: '700', color: '#1d4ed8', borderTop: '1px solid #bfdbfe', paddingTop: '8px' }}>
