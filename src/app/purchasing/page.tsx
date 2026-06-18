@@ -1027,27 +1027,69 @@ export default function Purchasing() {
   }
 
   function handleExport() {
-    const poHeaders = ['Invoice #', 'Supplier', 'Status', 'Ordered At', 'Shipped At', 'Received At', 'Cost Total (CAD)', 'Shipping (CAD)', 'Brokerage (CAD)', 'Duty (CAD)', 'Notes']
-    const poRows = pos.map(po => [
-      po.po_number ?? '',
-      po.suppliers?.name ?? '',
-      po.status,
-      po.ordered_at?.slice(0, 10) ?? '',
-      po.shipped_at?.slice(0, 10) ?? '',
-      po.received_at?.slice(0, 10) ?? '',
-      po.cost_total_cad,
-      po.shipping_cad ?? '',
-      po.brokerage_cad ?? '',
-      po.duty_cad ?? '',
-      po.notes ?? '',
-    ])
+    const poHeaders = [
+      'Invoice #', 'Supplier', 'Order Date', 'Ship Date', 'Received Date', 'Status',
+      'Items Subtotal (USD)', 'Wire Discount (%)', 'Wire Discount Amount (USD)',
+      'International Fee (USD)', 'USD Invoice Amount', 'CAD Invoice Amount (wire)',
+      'Exchange Rate', 'Shipping (CAD)', 'Shipping HST Applied',
+      'Brokerage (CAD)', 'Brokerage HST Applied', 'Duty (CAD)',
+      'GST Amount (CAD)', 'Grand Total (CAD)', 'Notes',
+    ]
+    const poRows = pos.map(po => {
+      const isUSD = !!po.amount_usd
+      const items = poItems[po.id] || []
+      const itemsSubtotalUSD = isUSD ? items.reduce((s, i) => s + i.quantity * i.unit_price, 0) : ''
+      const wireDiscPct = isUSD ? (po.wire_discount_pct ?? '') : ''
+      const wireDiscAmt = isUSD
+        ? (typeof itemsSubtotalUSD === 'number' && po.wire_discount_pct
+            ? itemsSubtotalUSD * (po.wire_discount_pct / 100)
+            : '')
+        : ''
+      const intlFeeUSD = isUSD && po.international_fee_cad && po.exchange_rate
+        ? po.international_fee_cad / po.exchange_rate
+        : ''
+      const usdInvoiceAmt = isUSD ? (po.amount_usd ?? '') : ''
+      const cadInvoiceAmt = isUSD && po.amount_usd && po.exchange_rate
+        ? po.amount_usd * po.exchange_rate
+        : ''
+      const exchangeRate = isUSD ? (po.exchange_rate ?? '') : ''
+      return [
+        po.po_number ?? '',
+        po.suppliers?.name ?? '',
+        po.ordered_at?.slice(0, 10) ?? '',
+        po.shipped_at?.slice(0, 10) ?? '',
+        po.received_at?.slice(0, 10) ?? '',
+        po.status,
+        itemsSubtotalUSD,
+        wireDiscPct,
+        wireDiscAmt,
+        intlFeeUSD,
+        usdInvoiceAmt,
+        cadInvoiceAmt,
+        exchangeRate,
+        po.shipping_cad ?? '',
+        '-',
+        po.brokerage_cad ?? '',
+        '-',
+        po.duty_cad ?? '',
+        po.gst_amount_cad ?? '',
+        po.cost_total_cad,
+        po.notes ?? '',
+      ]
+    })
     const poTotals = pos.reduce((acc, po) => ({
-      cost: acc.cost + (po.cost_total_cad || 0),
       ship: acc.ship + (po.shipping_cad || 0),
       brok: acc.brok + (po.brokerage_cad || 0),
       duty: acc.duty + (po.duty_cad || 0),
-    }), { cost: 0, ship: 0, brok: 0, duty: 0 })
-    const poTotalRow = ['TOTAL', '', '', '', '', '', poTotals.cost, poTotals.ship, poTotals.brok, poTotals.duty, '']
+      gst: acc.gst + (po.gst_amount_cad || 0),
+      grand: acc.grand + (po.cost_total_cad || 0),
+    }), { ship: 0, brok: 0, duty: 0, gst: 0, grand: 0 })
+    const poTotalRow = [
+      'TOTAL', '', '', '', '', '',
+      '', '', '', '', '', '', '',
+      poTotals.ship, '', poTotals.brok, '', poTotals.duty,
+      poTotals.gst, poTotals.grand, '',
+    ]
 
     const itemHeaders = ['PO Number', 'Material Type', 'Item No', 'Name', 'Quantity', 'Unit Price', 'Line Total']
     const itemRows: (string | number)[][] = []
