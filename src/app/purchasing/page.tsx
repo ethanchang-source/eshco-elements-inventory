@@ -1027,7 +1027,7 @@ export default function Purchasing() {
   }
 
   function handleExport() {
-    const poHeaders = ['PO Number', 'Supplier', 'Status', 'Ordered At', 'Shipped At', 'Received At', 'Cost Total (CAD)', 'Shipping (CAD)', 'Brokerage (CAD)', 'Duty (CAD)', 'Notes']
+    const poHeaders = ['Invoice #', 'Supplier', 'Status', 'Ordered At', 'Shipped At', 'Received At', 'Cost Total (CAD)', 'Shipping (CAD)', 'Brokerage (CAD)', 'Duty (CAD)', 'Notes']
     const poRows = pos.map(po => [
       po.po_number ?? '',
       po.suppliers?.name ?? '',
@@ -1121,7 +1121,7 @@ export default function Purchasing() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', minWidth: '1380px' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                {['PO #', 'Supplier', 'Date', 'Items', 'USD Invoice', 'CAD Invoice', 'Additional (CAD)', 'Total (CAD)', 'Status', 'Shipped', 'Received', ''].map((h, i) => (
+                {['Invoice #', 'Supplier', 'Date', 'Items', 'USD Invoice', 'CAD Invoice', 'Additional (CAD)', 'Total (CAD)', 'Status', 'Shipped', 'Received', ''].map((h, i) => (
                   <th key={i} style={{ padding: '12px 16px', textAlign: i >= 4 && i <= 7 ? 'right' : 'left', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -1245,10 +1245,10 @@ export default function Purchasing() {
               <button onClick={closeCreate} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
             </div>
 
-            {/* PO# + Supplier + Date */}
+            {/* Invoice# + Supplier + Date */}
             <div className="po-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: '14px', marginBottom: '20px' }}>
               <div>
-                <label style={lbl}>PO #</label>
+                <label style={lbl}>Invoice #</label>
                 <input type='text' value={createForm.po_number} onChange={e => setCreateForm(f => ({ ...f, po_number: e.target.value }))} placeholder='e.g. PO-2024-001' style={inp} />
               </div>
               <div>
@@ -1590,10 +1590,10 @@ export default function Purchasing() {
               </div>
             </div>
 
-            {/* PO# + Supplier + Date + Status */}
+            {/* Invoice# + Supplier + Date + Status */}
             <div className="po-grid-4" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr', gap: '14px', marginBottom: '20px' }}>
               <div>
-                <label style={lbl}>PO #</label>
+                <label style={lbl}>Invoice #</label>
                 <input type='text' value={editForm.po_number} onChange={e => setEditForm(f => ({ ...f, po_number: e.target.value }))} placeholder='e.g. PO-2024-001' style={inp} disabled={isReadOnly} />
               </div>
               <div>
