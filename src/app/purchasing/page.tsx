@@ -151,6 +151,7 @@ export default function Purchasing() {
   const [detailPO, setDetailPO] = useState<PO | null>(null)
   const [editLineItems, setEditLineItems] = useState<POLineItem[]>([])
   const [editForm, setEditForm] = useState({
+    po_number: '',
     supplier_id: '', ordered_at: '', status: 'ordered',
     purchase_currency: 'USD',
     international_fee_usd: '',
@@ -429,6 +430,7 @@ export default function Purchasing() {
     const reconWireCad = po.amount_usd != null && po.exchange_rate != null
       ? po.amount_usd * po.exchange_rate : null
     setEditForm({
+      po_number: po.po_number || '',
       supplier_id: po.supplier_id,
       ordered_at: toTorontoDateInput(po.ordered_at),
       status: po.status,
@@ -664,6 +666,7 @@ export default function Purchasing() {
     const previousDBStatus = currentPOState?.status
 
     const updatePayload: Record<string, unknown> = {
+      po_number: editForm.po_number || null,
       supplier_id: editForm.supplier_id,
       ordered_at: editForm.ordered_at,
       status: editForm.status,
@@ -1456,7 +1459,6 @@ export default function Purchasing() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
               <div>
                 <h2 style={{ fontSize: '18px', fontWeight: '600', margin: '0 0 2px' }}>Edit Purchase Order</h2>
-                {detailPO.po_number && <div style={{ fontSize: '12px', color: '#94a3b8' }}>PO# {detailPO.po_number}</div>}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <button onClick={() => setShowDeleteConfirm(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: '4px' }}><Trash2 size={16} /></button>
@@ -1464,8 +1466,12 @@ export default function Purchasing() {
               </div>
             </div>
 
-            {/* Supplier + Date + Status */}
-            <div className="po-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '20px' }}>
+            {/* PO# + Supplier + Date + Status */}
+            <div className="po-grid-4" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr', gap: '14px', marginBottom: '20px' }}>
+              <div>
+                <label style={lbl}>PO #</label>
+                <input type='text' value={editForm.po_number} onChange={e => setEditForm(f => ({ ...f, po_number: e.target.value }))} placeholder='e.g. PO-2024-001' style={inp} disabled={isReadOnly} />
+              </div>
               <div>
                 <label style={lbl}>Supplier</label>
                 <select value={editForm.supplier_id} onChange={e => setEditForm(f => ({ ...f, supplier_id: e.target.value }))} style={inp} disabled={isReadOnly}>
