@@ -1113,33 +1113,12 @@ export default function Purchasing() {
       ]
     })
 
-    const totals = pos.reduce((acc, po) => {
-      const { ship: sh, brok: bk } = calcHst(po)
-      return {
-        ship: acc.ship + (po.shipping_cad ?? 0),
-        shipHst: acc.shipHst + (sh ?? 0),
-        brok: acc.brok + (po.brokerage_cad ?? 0),
-        brokHst: acc.brokHst + (bk ?? 0),
-        duty: acc.duty + (po.duty_cad ?? 0),
-        gst: acc.gst + (po.gst_amount_cad ?? 0),
-        grand: acc.grand + (po.cost_total_cad ?? 0),
-      }
-    }, { ship: 0, shipHst: 0, brok: 0, brokHst: 0, duty: 0, gst: 0, grand: 0 })
-
-    const poTotalRow: (string | number | undefined)[] = [
-      'TOTAL', '', '', '', '', '',
-      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-      totals.ship, totals.shipHst,
-      totals.brok, totals.brokHst,
-      totals.duty, totals.gst, totals.grand, '',
-    ]
-
-    const ws = XLSX.utils.aoa_to_sheet([poHeaders, ...poRows, poTotalRow])
+    const ws = XLSX.utils.aoa_to_sheet([poHeaders, ...poRows])
 
     // Apply numFmt to every numeric cell (skip header row 0)
-    const wsRange = XLSX.utils.decode_range(ws['!ref'] ?? 'A1')
     const CURR = '$#,##0.00'
     const currCols = new Set([6, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19])
+    const wsRange = XLSX.utils.decode_range(ws['!ref'] ?? 'A1')
     for (let r = 1; r <= wsRange.e.r; r++) {
       for (let c = 0; c <= wsRange.e.c; c++) {
         const cell = ws[XLSX.utils.encode_cell({ r, c })]
@@ -1149,6 +1128,31 @@ export default function Purchasing() {
         else if (c === 7) cell.z = '0.00%'
       }
     }
+
+    // Add TOTAL / AVERAGE formula row below data
+    // Columns (Excel letters): A=Invoice#, G=ItemsSubUSD, H=WireDisc%, I=WireDiscAmt,
+    // J=IntlFee, K=USDInv, L=CADInv, M=ExchRate, N=Shipping, O=ShipHST,
+    // P=Brokerage, Q=BrokHST, R=Duty, S=GST, T=GrandTotal, U=Notes
+    const dataStart = 2
+    const dataEnd = pos.length + 1          // last data row (Excel 1-based)
+    const fmtRowNum = pos.length + 2        // formula row (Excel 1-based)
+    const fmtRowIdx = pos.length + 1        // formula row (0-based for !ref)
+
+    ws[`A${fmtRowNum}`] = { t: 's', v: 'TOTAL / AVERAGE' }
+
+    const sumCols: [string, string][] = [
+      ['G', CURR], ['I', CURR], ['J', CURR], ['K', CURR], ['L', CURR],
+      ['N', CURR], ['O', CURR], ['P', CURR], ['Q', CURR], ['R', CURR],
+      ['S', CURR], ['T', CURR],
+    ]
+    for (const [col, fmt] of sumCols) {
+      ws[`${col}${fmtRowNum}`] = { t: 'n', f: `SUM(${col}${dataStart}:${col}${dataEnd})`, z: fmt }
+    }
+    ws[`H${fmtRowNum}`] = { t: 'n', f: `AVERAGE(H${dataStart}:H${dataEnd})`, z: '0.00%' }
+    ws[`M${fmtRowNum}`] = { t: 'n', f: `AVERAGE(M${dataStart}:M${dataEnd})`, z: '0.0000' }
+
+    // Expand sheet range to include the formula row
+    ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: fmtRowIdx, c: 20 } })
 
     const itemHeaders = ['PO Number', 'Material Type', 'Item No', 'Name', 'Quantity', 'Unit Price', 'Line Total']
     const itemRows: (string | number)[][] = []
