@@ -1033,10 +1033,32 @@ export default function Purchasing() {
   }
 
   function handleExport() {
-    const fmtC = (val: number | null | undefined) =>
-      val != null ? `$${Number(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'
-    const fmtRate = (val: number | null | undefined) =>
-      val != null ? Number(val).toFixed(4) : '-'
+    // Derive per-PO HST amounts.
+    // If DB columns (shipping_taxable / brokerage_taxable) exist use them directly.
+    // For records predating that migration, reverse-engineer from tax_amount via
+    // 13% rate checks with 0.5% tolerance.
+    function calcHst(po: PO): { ship: number | undefined; brok: number | undefined } {
+      if (po.shipping_taxable != null || po.brokerage_taxable != null) {
+        return {
+          ship: po.shipping_cad != null ? (po.shipping_taxable ? po.shipping_cad * 0.13 : 0) : undefined,
+          brok: po.brokerage_cad != null ? (po.brokerage_taxable ? po.brokerage_cad * 0.13 : 0) : undefined,
+        }
+      }
+      const taxAmt = po.tax_amount ?? 0
+      const expShip = (po.shipping_cad ?? 0) * 0.13
+      const expBrok = (po.brokerage_cad ?? 0) * 0.13
+      const expBoth = expShip + expBrok
+      const eps = 0.005
+      const near = (a: number, b: number) => b > 0 && Math.abs(a - b) / b < eps
+      if (taxAmt === 0) return {
+        ship: po.shipping_cad != null ? 0 : undefined,
+        brok: po.brokerage_cad != null ? 0 : undefined,
+      }
+      if (near(taxAmt, expBoth)) return { ship: expShip, brok: expBrok }
+      if (near(taxAmt, expShip)) return { ship: taxAmt, brok: po.brokerage_cad != null ? 0 : undefined }
+      if (near(taxAmt, expBrok)) return { ship: po.shipping_cad != null ? 0 : undefined, brok: taxAmt }
+      return { ship: taxAmt, brok: po.brokerage_cad != null ? 0 : undefined }
+    }
 
     const poHeaders = [
       'Invoice #', 'Supplier', 'Order Date', 'Ship Date', 'Received Date', 'Status',
@@ -1047,23 +1069,25 @@ export default function Purchasing() {
       'Brokerage (CAD)', 'Brokerage HST Amount (CAD)',
       'Duty (CAD)', 'GST Amount (CAD)', 'Grand Total (CAD)', 'Notes',
     ]
-    const poRows = pos.map(po => {
+
+    const poRows: (string | number | undefined)[][] = pos.map(po => {
       const isUSD = po.amount_usd != null && po.exchange_rate != null
       const items = poItems[po.id] || []
-      const itemsSubtotalUSD = isUSD ? items.reduce((s, i) => s + i.quantity * i.unit_price, 0) : null
-      const wireDiscPct = isUSD ? (po.wire_discount_pct ?? null) : null
+      const itemsSubtotalUSD = isUSD ? items.reduce((s, i) => s + i.quantity * i.unit_price, 0) : undefined
+      // Store as decimal fraction so "0.00%" numFmt renders correctly (e.g. 2% → 0.02)
+      const wireDiscPct = isUSD && po.wire_discount_pct != null ? po.wire_discount_pct / 100 : undefined
       const wireDiscAmtUSD = isUSD && itemsSubtotalUSD != null && po.wire_discount_pct
         ? itemsSubtotalUSD * (po.wire_discount_pct / 100)
-        : null
+        : undefined
       const intlFeeUSD = isUSD && po.international_fee_cad != null && po.exchange_rate
         ? po.international_fee_cad / po.exchange_rate
-        : null
-      const usdInvoiceAmt = isUSD ? po.amount_usd : null
+        : undefined
+      const usdInvoiceAmt = isUSD && po.amount_usd != null ? po.amount_usd : undefined
       const cadInvoiceAmt = isUSD && po.amount_usd != null && po.exchange_rate != null
         ? po.amount_usd * po.exchange_rate
-        : null
-      const shippingHst = po.shipping_taxable ? (po.shipping_cad ?? 0) * 0.13 : 0
-      const brokerageHst = po.brokerage_taxable ? (po.brokerage_cad ?? 0) * 0.13 : 0
+        : undefined
+      const exchangeRate = isUSD && po.exchange_rate != null ? po.exchange_rate : undefined
+      const { ship: shippingHst, brok: brokerageHst } = calcHst(po)
       return [
         po.po_number ?? '',
         po.suppliers?.name ?? '',
@@ -1071,39 +1095,60 @@ export default function Purchasing() {
         po.shipped_at?.slice(0, 10) ?? '',
         po.received_at?.slice(0, 10) ?? '',
         po.status,
-        fmtC(itemsSubtotalUSD),
-        wireDiscPct != null ? `${wireDiscPct}%` : '-',
-        fmtC(wireDiscAmtUSD),
-        fmtC(intlFeeUSD),
-        fmtC(usdInvoiceAmt),
-        fmtC(cadInvoiceAmt),
-        fmtRate(isUSD ? po.exchange_rate : null),
-        fmtC(po.shipping_cad),
-        fmtC(shippingHst),
-        fmtC(po.brokerage_cad),
-        fmtC(brokerageHst),
-        fmtC(po.duty_cad),
-        fmtC(po.gst_amount_cad),
-        fmtC(po.cost_total_cad),
+        itemsSubtotalUSD,
+        wireDiscPct,
+        wireDiscAmtUSD,
+        intlFeeUSD,
+        usdInvoiceAmt,
+        cadInvoiceAmt,
+        exchangeRate,
+        po.shipping_cad ?? undefined,
+        shippingHst,
+        po.brokerage_cad ?? undefined,
+        brokerageHst,
+        po.duty_cad ?? undefined,
+        po.gst_amount_cad ?? undefined,
+        po.cost_total_cad,
         po.notes ?? '',
       ]
     })
-    const poTotals = pos.reduce((acc, po) => ({
-      ship: acc.ship + (po.shipping_cad ?? 0),
-      shipHst: acc.shipHst + (po.shipping_taxable ? (po.shipping_cad ?? 0) * 0.13 : 0),
-      brok: acc.brok + (po.brokerage_cad ?? 0),
-      brokHst: acc.brokHst + (po.brokerage_taxable ? (po.brokerage_cad ?? 0) * 0.13 : 0),
-      duty: acc.duty + (po.duty_cad ?? 0),
-      gst: acc.gst + (po.gst_amount_cad ?? 0),
-      grand: acc.grand + (po.cost_total_cad ?? 0),
-    }), { ship: 0, shipHst: 0, brok: 0, brokHst: 0, duty: 0, gst: 0, grand: 0 })
-    const poTotalRow = [
+
+    const totals = pos.reduce((acc, po) => {
+      const { ship: sh, brok: bk } = calcHst(po)
+      return {
+        ship: acc.ship + (po.shipping_cad ?? 0),
+        shipHst: acc.shipHst + (sh ?? 0),
+        brok: acc.brok + (po.brokerage_cad ?? 0),
+        brokHst: acc.brokHst + (bk ?? 0),
+        duty: acc.duty + (po.duty_cad ?? 0),
+        gst: acc.gst + (po.gst_amount_cad ?? 0),
+        grand: acc.grand + (po.cost_total_cad ?? 0),
+      }
+    }, { ship: 0, shipHst: 0, brok: 0, brokHst: 0, duty: 0, gst: 0, grand: 0 })
+
+    const poTotalRow: (string | number | undefined)[] = [
       'TOTAL', '', '', '', '', '',
-      '', '', '', '', '', '', '',
-      fmtC(poTotals.ship), fmtC(poTotals.shipHst),
-      fmtC(poTotals.brok), fmtC(poTotals.brokHst),
-      fmtC(poTotals.duty), fmtC(poTotals.gst), fmtC(poTotals.grand), '',
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      totals.ship, totals.shipHst,
+      totals.brok, totals.brokHst,
+      totals.duty, totals.gst, totals.grand, '',
     ]
+
+    const ws = XLSX.utils.aoa_to_sheet([poHeaders, ...poRows, poTotalRow])
+
+    // Apply numFmt to every numeric cell (skip header row 0)
+    const wsRange = XLSX.utils.decode_range(ws['!ref'] ?? 'A1')
+    const CURR = '$#,##0.00'
+    const currCols = new Set([6, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19])
+    for (let r = 1; r <= wsRange.e.r; r++) {
+      for (let c = 0; c <= wsRange.e.c; c++) {
+        const cell = ws[XLSX.utils.encode_cell({ r, c })]
+        if (!cell || cell.t !== 'n') continue
+        if (currCols.has(c)) cell.z = CURR
+        else if (c === 12) cell.z = '0.0000'
+        else if (c === 7) cell.z = '0.00%'
+      }
+    }
 
     const itemHeaders = ['PO Number', 'Material Type', 'Item No', 'Name', 'Quantity', 'Unit Price', 'Line Total']
     const itemRows: (string | number)[][] = []
@@ -1120,7 +1165,7 @@ export default function Purchasing() {
     const itemTotalRow = ['TOTAL', '', '', '', itemTotalQty, '', itemTotalAmt]
 
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([poHeaders, ...poRows, poTotalRow]), 'Purchase Orders')
+    XLSX.utils.book_append_sheet(wb, ws, 'Purchase Orders')
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([itemHeaders, ...itemRows, itemTotalRow]), 'PO Items')
     XLSX.writeFile(wb, `purchasing_${selectedYear}.xlsx`)
   }
