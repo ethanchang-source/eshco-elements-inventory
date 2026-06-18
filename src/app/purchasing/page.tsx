@@ -70,6 +70,8 @@ interface PO {
   wire_discount_pct?: number | null
   brokerage_currency?: string | null
   gst_amount_cad?: number | null
+  shipping_taxable?: boolean | null
+  brokerage_taxable?: boolean | null
 }
 
 interface POItem {
@@ -374,6 +376,8 @@ export default function Purchasing() {
       wire_discount_pct: createWireDiscountPct || null,
       brokerage_currency: 'CAD',
       gst_amount_cad: createGstAmountCad || null,
+      shipping_taxable: createShippingTaxable,
+      brokerage_taxable: createBrokerageTaxable,
     }]).select('id').single()
 
     if (poError || !poData) {
@@ -457,8 +461,8 @@ export default function Purchasing() {
       shipped_at: toTorontoDateInput(po.shipped_at || ''),
       received_at: toTorontoDateInput(po.received_at || ''),
     })
-    setEditShippingTaxable(false)
-    setEditBrokerageTaxable(false)
+    setEditShippingTaxable(po.shipping_taxable ?? false)
+    setEditBrokerageTaxable(po.brokerage_taxable ?? false)
     setUpdateError('')
     setEditNewFiles([])
     setEditUploadStatus('')
@@ -775,6 +779,8 @@ export default function Purchasing() {
       wire_discount_pct: editWireDiscountPct || null,
       brokerage_currency: 'CAD',
       gst_amount_cad: editGstAmountCad || null,
+      shipping_taxable: editShippingTaxable,
+      brokerage_taxable: editBrokerageTaxable,
     }
 
     const { error } = await supabase.from('purchase_orders').update(updatePayload).eq('id', detailPO.id)
@@ -1027,32 +1033,37 @@ export default function Purchasing() {
   }
 
   function handleExport() {
+    const fmtC = (val: number | null | undefined) =>
+      val != null ? `$${Number(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'
+    const fmtRate = (val: number | null | undefined) =>
+      val != null ? Number(val).toFixed(4) : '-'
+
     const poHeaders = [
       'Invoice #', 'Supplier', 'Order Date', 'Ship Date', 'Received Date', 'Status',
       'Items Subtotal (USD)', 'Wire Discount (%)', 'Wire Discount Amount (USD)',
       'International Fee (USD)', 'USD Invoice Amount', 'CAD Invoice Amount (wire)',
-      'Exchange Rate', 'Shipping (CAD)', 'Shipping HST Applied',
-      'Brokerage (CAD)', 'Brokerage HST Applied', 'Duty (CAD)',
-      'GST Amount (CAD)', 'Grand Total (CAD)', 'Notes',
+      'Exchange Rate',
+      'Shipping (CAD)', 'Shipping HST Amount (CAD)',
+      'Brokerage (CAD)', 'Brokerage HST Amount (CAD)',
+      'Duty (CAD)', 'GST Amount (CAD)', 'Grand Total (CAD)', 'Notes',
     ]
     const poRows = pos.map(po => {
-      const isUSD = !!po.amount_usd
+      const isUSD = po.amount_usd != null && po.exchange_rate != null
       const items = poItems[po.id] || []
-      const itemsSubtotalUSD = isUSD ? items.reduce((s, i) => s + i.quantity * i.unit_price, 0) : ''
-      const wireDiscPct = isUSD ? (po.wire_discount_pct ?? '') : ''
-      const wireDiscAmt = isUSD
-        ? (typeof itemsSubtotalUSD === 'number' && po.wire_discount_pct
-            ? itemsSubtotalUSD * (po.wire_discount_pct / 100)
-            : '')
-        : ''
-      const intlFeeUSD = isUSD && po.international_fee_cad && po.exchange_rate
+      const itemsSubtotalUSD = isUSD ? items.reduce((s, i) => s + i.quantity * i.unit_price, 0) : null
+      const wireDiscPct = isUSD ? (po.wire_discount_pct ?? null) : null
+      const wireDiscAmtUSD = isUSD && itemsSubtotalUSD != null && po.wire_discount_pct
+        ? itemsSubtotalUSD * (po.wire_discount_pct / 100)
+        : null
+      const intlFeeUSD = isUSD && po.international_fee_cad != null && po.exchange_rate
         ? po.international_fee_cad / po.exchange_rate
-        : ''
-      const usdInvoiceAmt = isUSD ? (po.amount_usd ?? '') : ''
-      const cadInvoiceAmt = isUSD && po.amount_usd && po.exchange_rate
+        : null
+      const usdInvoiceAmt = isUSD ? po.amount_usd : null
+      const cadInvoiceAmt = isUSD && po.amount_usd != null && po.exchange_rate != null
         ? po.amount_usd * po.exchange_rate
-        : ''
-      const exchangeRate = isUSD ? (po.exchange_rate ?? '') : ''
+        : null
+      const shippingHst = po.shipping_taxable ? (po.shipping_cad ?? 0) * 0.13 : 0
+      const brokerageHst = po.brokerage_taxable ? (po.brokerage_cad ?? 0) * 0.13 : 0
       return [
         po.po_number ?? '',
         po.suppliers?.name ?? '',
@@ -1060,35 +1071,38 @@ export default function Purchasing() {
         po.shipped_at?.slice(0, 10) ?? '',
         po.received_at?.slice(0, 10) ?? '',
         po.status,
-        itemsSubtotalUSD,
-        wireDiscPct,
-        wireDiscAmt,
-        intlFeeUSD,
-        usdInvoiceAmt,
-        cadInvoiceAmt,
-        exchangeRate,
-        po.shipping_cad ?? '',
-        '-',
-        po.brokerage_cad ?? '',
-        '-',
-        po.duty_cad ?? '',
-        po.gst_amount_cad ?? '',
-        po.cost_total_cad,
+        fmtC(itemsSubtotalUSD),
+        wireDiscPct != null ? `${wireDiscPct}%` : '-',
+        fmtC(wireDiscAmtUSD),
+        fmtC(intlFeeUSD),
+        fmtC(usdInvoiceAmt),
+        fmtC(cadInvoiceAmt),
+        fmtRate(isUSD ? po.exchange_rate : null),
+        fmtC(po.shipping_cad),
+        fmtC(shippingHst),
+        fmtC(po.brokerage_cad),
+        fmtC(brokerageHst),
+        fmtC(po.duty_cad),
+        fmtC(po.gst_amount_cad),
+        fmtC(po.cost_total_cad),
         po.notes ?? '',
       ]
     })
     const poTotals = pos.reduce((acc, po) => ({
-      ship: acc.ship + (po.shipping_cad || 0),
-      brok: acc.brok + (po.brokerage_cad || 0),
-      duty: acc.duty + (po.duty_cad || 0),
-      gst: acc.gst + (po.gst_amount_cad || 0),
-      grand: acc.grand + (po.cost_total_cad || 0),
-    }), { ship: 0, brok: 0, duty: 0, gst: 0, grand: 0 })
+      ship: acc.ship + (po.shipping_cad ?? 0),
+      shipHst: acc.shipHst + (po.shipping_taxable ? (po.shipping_cad ?? 0) * 0.13 : 0),
+      brok: acc.brok + (po.brokerage_cad ?? 0),
+      brokHst: acc.brokHst + (po.brokerage_taxable ? (po.brokerage_cad ?? 0) * 0.13 : 0),
+      duty: acc.duty + (po.duty_cad ?? 0),
+      gst: acc.gst + (po.gst_amount_cad ?? 0),
+      grand: acc.grand + (po.cost_total_cad ?? 0),
+    }), { ship: 0, shipHst: 0, brok: 0, brokHst: 0, duty: 0, gst: 0, grand: 0 })
     const poTotalRow = [
       'TOTAL', '', '', '', '', '',
       '', '', '', '', '', '', '',
-      poTotals.ship, '', poTotals.brok, '', poTotals.duty,
-      poTotals.gst, poTotals.grand, '',
+      fmtC(poTotals.ship), fmtC(poTotals.shipHst),
+      fmtC(poTotals.brok), fmtC(poTotals.brokHst),
+      fmtC(poTotals.duty), fmtC(poTotals.gst), fmtC(poTotals.grand), '',
     ]
 
     const itemHeaders = ['PO Number', 'Material Type', 'Item No', 'Name', 'Quantity', 'Unit Price', 'Line Total']
