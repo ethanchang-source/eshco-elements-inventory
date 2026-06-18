@@ -136,6 +136,7 @@ export default function Purchasing() {
   const [createSupplier, setCreateSupplier] = useState<Supplier | null>(null)
   const [createLineItems, setCreateLineItems] = useState<POLineItem[]>([])
   const [createForm, setCreateForm] = useState({
+    po_number: '',
     supplier_id: '', ordered_at: getLocalDateString(),
     purchase_currency: 'USD',
     international_fee_usd: '',
@@ -351,6 +352,7 @@ export default function Purchasing() {
     setSaving(true)
 
     const { data: poData, error: poError } = await supabase.from('purchase_orders').insert([{
+      po_number: createForm.po_number || null,
       supplier_id: createForm.supplier_id,
       item_type: activeCreateItems[0].material_type,
       raw_material_id: null,
@@ -421,7 +423,7 @@ export default function Purchasing() {
     }
     setShowCreate(false)
     setCreateError('')
-    setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), purchase_currency: 'USD', international_fee_usd: '', wire_discount_pct: '', tax_rate: '0', shipping_cad: '', brokerage_cad: '', duty_cad: '', gst_amount_cad: '', amount_cad: '', notes: '' })
+    setCreateForm({ po_number: '', supplier_id: '', ordered_at: getLocalDateString(), purchase_currency: 'USD', international_fee_usd: '', wire_discount_pct: '', tax_rate: '0', shipping_cad: '', brokerage_cad: '', duty_cad: '', gst_amount_cad: '', amount_cad: '', notes: '' })
     setCreateShippingTaxable(false)
     setCreateBrokerageTaxable(false)
     setCreateLineItems([])
@@ -1098,7 +1100,7 @@ export default function Purchasing() {
             <Download size={15} /> Export Excel
           </button>
           <button
-            onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ supplier_id: '', ordered_at: getLocalDateString(), purchase_currency: 'USD', international_fee_usd: '', wire_discount_pct: '', tax_rate: '0', shipping_cad: '', brokerage_cad: '', duty_cad: '', gst_amount_cad: '', amount_cad: '', notes: '' }); setCreateShippingTaxable(false); setCreateBrokerageTaxable(false); setCreateLineItems([]); setCreateSupplier(null); setCreateFiles([]) }}
+            onClick={() => { setShowCreate(true); setCreateError(''); setCreateForm({ po_number: '', supplier_id: '', ordered_at: getLocalDateString(), purchase_currency: 'USD', international_fee_usd: '', wire_discount_pct: '', tax_rate: '0', shipping_cad: '', brokerage_cad: '', duty_cad: '', gst_amount_cad: '', amount_cad: '', notes: '' }); setCreateShippingTaxable(false); setCreateBrokerageTaxable(false); setCreateLineItems([]); setCreateSupplier(null); setCreateFiles([]) }}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}
           >
             <Plus size={16} /> New PO
@@ -1243,8 +1245,12 @@ export default function Purchasing() {
               <button onClick={closeCreate} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
             </div>
 
-            {/* Supplier + Date */}
-            <div className="po-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '20px' }}>
+            {/* PO# + Supplier + Date */}
+            <div className="po-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: '14px', marginBottom: '20px' }}>
+              <div>
+                <label style={lbl}>PO #</label>
+                <input type='text' value={createForm.po_number} onChange={e => setCreateForm(f => ({ ...f, po_number: e.target.value }))} placeholder='e.g. PO-2024-001' style={inp} />
+              </div>
               <div>
                 <label style={lbl}>Supplier *</label>
                 <select value={createForm.supplier_id} onChange={e => handleSupplierChange(e.target.value)} style={inp}>
