@@ -20,6 +20,7 @@ ESHCO ELEMENTS (원자재·포장재 납품 전문) internal inventory & sales m
 |-------------|-----|
 | Production | https://eshco.eshcgroup.com |
 | GitHub | https://github.com/ethanchang-source/eshco-elements-inventory |
+| Local | ~/Desktop/eshco-elements-inventory |
 | Supabase | https://xkyzuczpgicuanxtebcr.supabase.co |
 
 `main` branch push → Vercel auto-deploy.
@@ -46,7 +47,6 @@ ESHCO ELEMENTS (원자재·포장재 납품 전문) internal inventory & sales m
 
 ### Authentication (`/login`, `/reset-password`)
 - Supabase Auth (email + password)
-- Password reset (`/reset-password`)
 - `middleware.ts` protects all routes — unauthenticated → `/login`
 - Public: `/login`, `/reset-password`, `/auth/confirm`
 
@@ -62,7 +62,7 @@ ESHCO ELEMENTS (원자재·포장재 납품 전문) internal inventory & sales m
 - CRUD + Excel import/export + Undo Toast
 
 ### Inventory (`/inventory`)
-- Tabs: **Raw Materials** / **Packaging** (no Finished Goods — no manufacturing)
+- Tabs: **Raw Materials** / **Packaging**
 - Reorder threshold + max_capacity settings
 - Purchase History popup per item
 - Excel import/export, Undo Toast
@@ -73,32 +73,37 @@ ESHCO ELEMENTS (원자재·포장재 납품 전문) internal inventory & sales m
 - Manual snapshot capture
 
 ### Invoices (`/invoices`)
-- Tabs: **CAD** / **USD** (separated invoice list by currency)
+- Tabs: **CAD** / **USD**
 - Auto-increment invoice numbers (gap-fill)
 - Create/edit/delete (Draft → Sent → Paid)
-- **Paid invoices are clickable and fully editable** (previously read-only)
+- **Paid invoices are fully editable**
 - Line items: raw material or packaging, qty, unit price, discount
 - Customer-specific custom pricing auto-applied (`customer_prices`)
 - HST auto-calculation (HST# 752458133RT0001)
 - Delivery date + payment date
-- **PDF output**: invoice PDF with company logo
-- **Credit Memos**: return/adjustment memos, PDF output
+- **PDF output** with company logo
+- **Credit Memos**: PDF output
 - Excel import/export
 
 ### Customers (`/customers`)
-- Company info: name, warehouse_address (bill-to), ship_to_address (separate)
-- `bill_to_corp_name` / `ship_to_corp_name` / `ship_to_name` columns (added for PDF corp name display)
-- Payment terms, currency (CAD/USD)
-- Per-customer custom pricing (per-item price override via `customer_prices`)
+- `bill_to_corp_name` / `ship_to_corp_name` / `ship_to_name` columns
+- `bill_to_same_as_ship_to` toggle
+- Per-customer custom pricing via `customer_prices`
 - Excel import/export + template
 
 ### Suppliers (`/suppliers`)
-- Supplier info: contact, country, ship-to / bill-to addresses
-- bill_to_same_as_ship_to toggle
+- Contact, country, ship-to / bill-to addresses
+- `bill_to_same_as_ship_to` toggle
 - Excel import/export + template
 
 ### Purchasing (`/purchasing`)
 - PO creation: supplier, multi-line items (raw material / packaging)
+- **Drum unit input for raw materials**:
+  - Purchase Unit: ml / kg / Drum
+  - Drum: enter count + kg/drum → auto-converts to ml for quantity storage
+  - unit_price stored as ml-basis
+  - purchase_unit and weight_per_drum columns saved for edit reverse-calculation
+- PO list Items column: always "N item(s)" format (never shows item name for single items)
 - Status: Draft → Ordered → Shipped → Received → Cancelled
 - Cost fields: goods (CAD/USD), exchange rate, shipping, brokerage, duty
 - **Attachments**: Supabase Storage multi-file upload per PO
@@ -108,15 +113,12 @@ ESHCO ELEMENTS (원자재·포장재 납품 전문) internal inventory & sales m
 ### Expenses (`/expenses`)
 - Expense CRUD: date, category, type, payee, description, tax, payment method, currency, exchange rate
 - **No `freight_tip`, `reference`, `deleted_at` columns** (ESHCO schema differs from I AM PURE)
-- Expense columns: `expense_date, category, type, payee, description, amount_before_tax, sales_tax, total_amount, payment_method, currency`
 - **Category filter** dropdown
 - **Monthly Summary by Category**
 - Receipt file upload (Supabase Storage)
-- **Yearly Excel Export**: year selector + Export Excel button (top-right of month tabs)
-  - File: `{year}_Expenses-ESHCO_Elements.xlsx`
+- **Yearly Excel Export**: `{year}_Expenses-ESHCO_Elements.xlsx`
   - Summary sheet + 12 monthly sheets
   - Query uses NO `deleted_at` filter (column does not exist)
-- Excel import/export
 
 ### Reports (`/reports`)
 
@@ -130,57 +132,35 @@ Tabs: **Overview** / **Revenue** / **All-Time Summary** / **P&L** / **By Custome
 - Top 10 items by revenue
 - PowerPoint annual report export
 
-#### Revenue tab
-- Year × month revenue table — Subtotal CAD (excl. tax) + Total CAD (incl. tax)
-- Multi-year line/bar chart toggle
-
 #### All-Time Summary tab
-- **5 KPI dark cards**: All-Time Revenue (CAD), All-Time Units Sold, All-Time Expenses (CAD), Gross Margin (Revenue − Expenses, green/red), Current Inventory Value (raw materials + packaging stock × cost)
-- **Revenue by Year** table (year × month, subtotal CAD) + bar/line chart toggle
-- **Units Sold by Year** table (year × month) + bar/line chart toggle
+- 5 KPI dark cards: All-Time Revenue, Units Sold, Expenses, Gross Margin, Current Inventory Value
+- Revenue by Year table + chart
+- Units Sold by Year table + chart
 - All data fetched with pagination (1000/page); no `deleted_at` filter on expenses
 
 #### P&L tab
-- Year selector (2020–present)
-- Monthly table: **Revenue** (CAD invoices, credit memo adjusted) / **Gross Profit** (selling price − cost per item) / **GP%** / **Expenses** (Job Materials category excluded) / **Net Profit** / **Net%**
-- TOTAL row at bottom (blue background, bold)
-- Positive values green (`#16a34a`), negative values red (`#dc2626`)
-- recharts BarChart: Revenue (blue) / Gross Profit (green) / Net Profit (amber)
-- Gross Profit calculated per invoice_item: `qty × (unit_price_cad − cost_per_unit_cad/cost_cad)`
+- Monthly table: Revenue / Gross Profit / GP% / Expenses / Net Profit / Net%
+- Job Materials category excluded from expenses
+- recharts BarChart: Revenue / Gross Profit / Net Profit
 
 #### By Customer tab
-- Customer revenue breakdown for selected year
-- Drill-down modal: top 10 items per customer
 - HERA BEAUTY grouped across all locations
+- Drill-down modal: top 10 items per customer
 
 #### Expenses tab
-- Expenses by Category table (year × month)
-- All-years expense report table + bar/line chart toggle
+- Expenses by Category (year × month)
+- All-years expense report + chart
 - No `deleted_at` filter (column does not exist in ESHCO schema)
 
-#### Tax Summary tab
-- Tax Collected (invoices − credit memos), Tax Paid (expenses), Estimated Tax Owing
-
-### Barcode Scan (`/scan`)
-- Camera barcode scan
-- Raw material / packaging lookup by SKU or barcode
-- Stock + Low Stock display
-
-### Activity Log (`/activity`)
-- INSERT / UPDATE / DELETE auto-logging
-- Before/after diff
-- Selective + full delete
-
-### Data Backup (`/backup`)
-- Full Excel backup (all tables, multiple sheets)
-- Quick individual exports
-
-### PWA
-- `manifest.json`, `apple-touch-icon` (180×180)
+### Other Pages
+- **Barcode Scan** (`/scan`): raw material / packaging lookup
+- **Activity Log** (`/activity`): INSERT/UPDATE/DELETE auto-logging, before/after diff
+- **Data Backup** (`/backup`): Full Excel backup (all tables)
+- **PWA**: `manifest.json`, `apple-touch-icon`
 
 ---
 
-## DB Schema (Supabase)
+## DB Schema (Supabase — xkyzuczpgicuanxtebcr)
 
 ```
 raw_materials
@@ -201,9 +181,7 @@ customers
   id, company_name
   warehouse_address, city, province, postal_code        -- Bill To
   ship_to_address, ship_to_city, ship_to_province, ship_to_postal_code
-  ship_to_name          -- Ship To display name
-  ship_to_corp_name     -- Ship To corporation legal name
-  bill_to_corp_name     -- Bill To corporation legal name
+  ship_to_name, ship_to_corp_name, bill_to_corp_name
   bill_to_same_as_ship_to
   contact_name, contact_email, contact_phone
   payment_terms, currency, notes
@@ -232,7 +210,8 @@ invoices
 invoice_items
   id, invoice_id → invoices
   item_type ('raw_material' | 'packaging'), item_id
-  qty, unit_price_cad, discount, line_total_cad  -- line_total_cad GENERATED ALWAYS
+  qty, unit_price_cad, discount
+  line_total_cad  -- GENERATED ALWAYS AS (qty * unit_price_cad) — never include in INSERT
 
 credit_memos
   id, memo_no, customer_id → customers
@@ -258,7 +237,9 @@ purchase_order_items
   id, po_id → purchase_orders
   material_type ('raw_material' | 'packaging')
   material_id, quantity, unit_price
-  line_total  -- GENERATED ALWAYS
+  purchase_unit       -- 'ml' | 'Drum'
+  weight_per_drum     -- kg/drum (for edit reverse-calculation)
+  line_total          -- GENERATED ALWAYS AS (quantity * unit_price) — never include in INSERT
 
 purchase_order_attachments
   id, po_id → purchase_orders
@@ -275,6 +256,15 @@ expenses
   created_at
   -- NOTE: NO freight_tip, reference, deleted_at columns (differs from I AM PURE)
 
+supplier_prices
+  id, item_type ('raw_material' | 'packaging')
+  raw_material_id (uuid, nullable)
+  packaging_id (uuid, nullable)
+  supplier_id, supplier_name    -- denormalized text
+  unit_cost_cad, unit
+  note, price_date
+  created_at
+
 inventory_history
   id, recorded_at, material_type
   material_id, item_no, name, unit
@@ -289,28 +279,68 @@ activity_log
 
 ---
 
-## Key Schema Differences vs I AM PURE
+## Critical Schema Differences vs I AM PURE
 
 | Feature | I AM PURE | ESHCO ELEMENTS |
 |---------|-----------|----------------|
 | Products table | `products` (finished goods) | `raw_materials` + `packaging` |
-| Invoice items | `product_id → products` | `material_type + material_id` |
+| Invoice items FK | `product_id → products` | `item_type + item_id` (no FK) |
+| Invoice items generated | `line_total_cad` NOT NULL plain | `line_total_cad` GENERATED ALWAYS |
 | Expenses `freight_tip` | ✅ exists | ❌ does not exist |
 | Expenses `reference` | ✅ exists | ❌ does not exist |
 | Expenses `deleted_at` | ✅ exists | ❌ does not exist |
 | BOM / Production | ✅ full | ❌ not applicable |
-| Margin analysis | ✅ | ❌ not applicable |
 
 **Critical**: When writing queries for ESHCO expenses, do NOT include `freight_tip`, `reference`, or `.is('deleted_at', null)`.
 
 ---
 
+## Key Schema Rules (Always Apply)
+
+| Table | Column | Rule |
+|-------|--------|------|
+| `invoice_items` | `line_total_cad` | GENERATED ALWAYS — NEVER include in INSERT |
+| `purchase_order_items` | `line_total` | GENERATED ALWAYS — NEVER include in INSERT |
+| `expenses` | (no deleted_at) | Never filter `.is('deleted_at', null)` — column doesn't exist |
+| `supplier_prices` | `raw_material_id`/`packaging_id` | Separate nullable columns (not `material_id`) |
+| `supplier_prices` | `supplier_name` | Denormalized text, not FK |
+| `supplier_prices` | price column | `unit_cost_cad` (not `price`) |
+| `supplier_prices` | date column | `price_date` (not `updated_at`) |
+
+---
+
+## Historical Data
+
+| Dataset | Status |
+|---------|--------|
+| CAD invoices (2020–2026) | ✅ Fully entered (latest: EE26-00016) |
+| Expenses (2020–2026) | ✅ Fully entered |
+
+All-Time Summary and P&L tabs reflect complete historical data from 2020 onwards.
+
+---
+
+## Key Customers
+
+- **BSM CO INC. (Earth To Me)**: ESHCO Elements customer
+- **HERA BEAUTY**: grouped across all locations in By Customer tab
+
+---
+
 ## Security
 
-- **Supabase RLS**: all tables → `authenticated` role only
+- **Supabase RLS**: all tables → `authenticated` role only (policy name: `authenticated_only`)
 - **middleware.ts**: all routes protected; public: `/login`, `/reset-password`, `/auth/confirm`
-- **Environment variables**: `.env.local` gitignored
-- **Client-exposed keys**: `NEXT_PUBLIC_SUPABASE_*` only (protected by RLS)
+- **Supabase public schema GRANT advisory**: safe until October 30, 2026 — action needed before that date
+
+---
+
+## UI Conventions
+
+- **Modal close**: only via Cancel button or X button — backdrop click does NOT close modals
+- **All UI text**: English only
+- **Toronto timezone**: throughout
+- **Korean-locale date input**: use `type="text"` with YYYY-MM-DD placeholder validation
 
 ---
 
@@ -341,7 +371,7 @@ src/
 │   ├── invoices/           # CAD / USD tabs + Credit Memos
 │   ├── customers/
 │   ├── suppliers/
-│   ├── purchasing/
+│   ├── purchasing/         # Drum unit input, N item(s) display
 │   ├── expenses/           # Yearly Excel export (top-right)
 │   ├── reports/            # Revenue + Expense Report + PPT
 │   ├── scan/
@@ -362,24 +392,7 @@ src/
     ├── logoBase64.ts
     ├── generateInvoicePDF.ts   # Uses bill_to_corp_name, ship_to_corp_name, ship_to_name
     └── generateCreditMemoPDF.ts
-public/
-├── logo.png
-├── apple-touch-icon.png
-├── icon-192x192.png
-├── icon-512x512.png
-└── manifest.json
 ```
-
----
-
-## Historical Data Notes
-
-| Dataset | Status |
-|---------|--------|
-| CAD invoices (2020–2026) | ✅ Fully entered (latest: EE26-00016) |
-| Expenses (2020–2026) | ✅ Fully entered |
-
-All-Time Summary and P&L tabs reflect complete historical data from 2020 onwards.
 
 ---
 
