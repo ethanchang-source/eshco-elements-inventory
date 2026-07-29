@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { logoBase64 } from './logoBase64'
+import { formatDateForDisplay } from './dateUtils'
 
 interface CreditMemoData {
   memo_no: string
@@ -68,7 +69,7 @@ export function generateCreditMemoPDF(data: CreditMemoData) {
   doc.text('CREDIT MEMO', pageWidth - 14, 16, { align: 'right' })
   doc.setFontSize(8.5)
   doc.setFont('helvetica', 'normal')
-  doc.text(`DATE: ${new Date(data.issued_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase()}`, pageWidth - 14, 24, { align: 'right' })
+  doc.text(`DATE: ${formatDateForDisplay(data.issued_at, { month: 'long', day: 'numeric', year: 'numeric' }, 'en-US').toUpperCase()}`, pageWidth - 14, 24, { align: 'right' })
   let headerY = 30
   if (data.po_number) {
     doc.text(`REFERENCE #: ${data.po_number}`, pageWidth - 14, headerY, { align: 'right' })

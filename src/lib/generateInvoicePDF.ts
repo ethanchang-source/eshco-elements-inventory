@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { logoBase64 } from './logoBase64'
+import { formatDateForDisplay } from './dateUtils'
 
 interface InvoiceData {
   invoice_no: string
@@ -74,7 +75,7 @@ export function generateInvoicePDF(data: InvoiceData, returnBlob?: boolean): Blo
   doc.text('INVOICE', pageWidth - 14, 16, { align: 'right' })
   doc.setFontSize(8.5)
   doc.setFont('helvetica', 'normal')
-  doc.text(`DATE: ${new Date(data.issued_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase()}`, pageWidth - 14, 24, { align: 'right' })
+  doc.text(`DATE: ${formatDateForDisplay(data.issued_at, { month: 'long', day: 'numeric', year: 'numeric' }, 'en-US').toUpperCase()}`, pageWidth - 14, 24, { align: 'right' })
   if (data.po_number) {
     doc.text(`PO #: ${data.po_number}`, pageWidth - 14, 30, { align: 'right' })
   }

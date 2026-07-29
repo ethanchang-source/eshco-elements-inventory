@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import MainLayout from '@/components/layout/MainLayout'
 import { supabase } from '@/lib/supabase'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatTorontoDate } from '@/lib/utils'
 import { Package, FileText, AlertTriangle, TrendingUp, RefreshCw } from 'lucide-react'
 
 interface LowStockProduct {
@@ -204,7 +204,7 @@ export default function Dashboard() {
                 <div key={inv.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#f8fafc', borderRadius: '8px' }}>
                   <div>
                     <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>{inv.invoice_no}</div>
-                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>{(inv.customers as any)?.company_name} · {new Date(inv.issued_at).toLocaleDateString('en-CA')}</div>
+                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>{(inv.customers as any)?.company_name} · {formatTorontoDate(inv.issued_at)}</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>${formatCurrency(inv.total_cad)}</div>

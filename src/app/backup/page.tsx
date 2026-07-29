@@ -234,7 +234,7 @@ export default function BackupPage() {
       // ── 5. Production History ──
       const productionHeaders = ['Production Date', 'SKU', 'Product Name', 'Qty (Units)', 'Qty (Boxes)', 'Notes']
       const productionRows = (production as any[]).map(p => [
-        p.produced_at ? new Date(p.produced_at).toLocaleDateString('en-CA') : '',
+        fmtDate(p.produced_at),
         p.products?.sku ?? '',
         p.products?.name ?? '',
         Number(p.qty_produced) || 0,
@@ -455,7 +455,7 @@ export default function BackupPage() {
       `)
       .order('produced_at', { ascending: false })
     const productionRows = (production || []).map((p: any) => [
-      p.produced_at ? new Date(p.produced_at).toLocaleDateString('en-CA') : '',
+      fmtDate(p.produced_at),
       p.products?.sku || '',
       p.products?.name || '',
       p.qty_produced || 0,
