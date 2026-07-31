@@ -108,7 +108,7 @@ export function generateCreditMemoPDF(data: CreditMemoData) {
       item.qty.toString(),
       `$${fmt(item.total)}`,
     ]),
-    styles: { fontSize: 8, cellPadding: 3 },
+    styles: { fontSize: 8, cellPadding: 3, textColor: [17, 17, 17] },
     headStyles: { fillColor: [100, 60, 180], textColor: 255, fontStyle: 'bold', fontSize: 8 },
     columnStyles: {
       0: { cellWidth: 18 },

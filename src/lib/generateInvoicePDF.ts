@@ -119,7 +119,7 @@ export function generateInvoicePDF(data: InvoiceData, returnBlob?: boolean): Blo
       item.qty.toString(),
       `$${fmt(item.total)}`,
     ]),
-    styles: { fontSize: 8, cellPadding: 2.5 },
+    styles: { fontSize: 8, cellPadding: 2.5, textColor: [17, 17, 17] },
     headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold', fontSize: 8 },
     columnStyles: {
       0: { cellWidth: 18 },
