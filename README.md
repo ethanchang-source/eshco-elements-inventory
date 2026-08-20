@@ -81,8 +81,9 @@ ESHCO ELEMENTS (원자재·포장재 납품 전문) internal inventory & sales m
 - Customer-specific custom pricing auto-applied (`customer_prices`)
 - HST auto-calculation (HST# 752458133RT0001)
 - Delivery date + payment date
-- **PDF output** with company logo
-- **Credit Memos**: PDF output
+- **PDF output** with company logo, dark line-item text for print clarity
+- **Credit Memos**: PDF output, dark line-item text for print clarity
+- All PDF/display dates parsed via `parseLocalDate`/`formatDateForDisplay` (`lib/dateUtils.ts`) — avoids off-by-one day bug from parsing date-only strings as UTC
 - Excel import/export
 
 ### Customers (`/customers`)
@@ -387,7 +388,7 @@ src/
     ├── supabase.ts
     ├── activityLog.ts
     ├── csvImport.ts
-    ├── dateUtils.ts
+    ├── dateUtils.ts             # parseLocalDate/formatDateForDisplay — timezone-safe date-only parsing
     ├── utils.ts
     ├── logoBase64.ts
     ├── generateInvoicePDF.ts   # Uses bill_to_corp_name, ship_to_corp_name, ship_to_name
